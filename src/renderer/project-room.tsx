@@ -335,7 +335,7 @@ export function ProjectRoom({ snapshot, project, invoke, onOpenSession,onRoundta
       {flow && live && <div className="project-room-numbers" aria-label="本段工作进度">
         <span><strong>{data!.overview.working}</strong>在做</span><span><strong>{data!.overview.remaining}</strong>待完成</span>
         <span className={data!.overview.needsUser ? 'needs-user' : ''}><strong>{data!.overview.needsUser}</strong>待你决定</span></div>}
-      {data&&(fresh||live)&&<label className="project-review-level">复核程度<select aria-label="项目复核程度" aria-describedby={fresh?"project-review-help":undefined} disabled={busy} value={fresh?newReviewLevel:reviewLevel(flow!)} title={`${REVIEW_LEVEL_HINTS[fresh?newReviewLevel:reviewLevel(flow!)]}
+      {data&&(fresh||live)&&<label className="project-review-level">复核程度<select aria-label="项目复核程度" disabled={busy} value={fresh?newReviewLevel:reviewLevel(flow!)} title={`${REVIEW_LEVEL_HINTS[fresh?newReviewLevel:reviewLevel(flow!)]}
 调整只影响尚未开始的复核，已完成和在途的复核记录保留。`} onChange={event=>{const level=event.target.value as ReviewLevel;if(fresh)setNewReviewLevel(level);else void mutate('projectFlow.review.configure',{flowId:flow!.id,expectedRevision:flow!.revision,reviewLevel:level},'复核程度已调整，已完成的记录保留。');}}>{(['high','medium','low'] as const).map(level=><option key={level} value={level}>{REVIEW_LEVEL_LABELS[level]}</option>)}</select></label>}
       {flow && live && <div className="project-room-controls">
         {flow.dispatchMode === 'running' && !canRetry
@@ -344,7 +344,6 @@ export function ProjectRoom({ snapshot, project, invoke, onOpenSession,onRoundta
         <button type="button" className="icon-button danger" aria-label="取消流程" title="取消流程（记录和成果保留）" disabled={busy} onClick={() => { if (window.confirm('取消这个项目流程？已有成果和记录会保留，在做的任务会停下。')) void mutate('projectFlow.cancel', { flowId: flow.id, expectedRevision: flow.revision }, '项目流程已取消，记录保留。'); }}><Square size={14} /></button>
       </div>}
     </header>
-    {data&&fresh&&<p className="project-review-help" id="project-review-help" aria-label="复核方式说明">{REVIEW_LEVEL_HINTS[fresh?newReviewLevel:reviewLevel(flow!)]} 补正、重试和额外检查另计调用。简单整理可直接在成员工位完成；比较方案可使用圆桌。</p>}
     <div className="project-room-subbar">
     {fresh&&people.length>0&&<label className="project-review-level">会议 Leader <select aria-label="会议 Leader" value={project.meetingLeaderId??''} onChange={event=>void invoke('project.update',{projectId:project.id,memberIds:roster,meetingLeaderId:event.target.value||null}).catch(reason=>setError((reason as Error).message))}><option value="">暂未指定</option>{people.map(member=><option key={member.id} value={member.id}>{member.name}</option>)}</select></label>}
     {live && <ol className="flow-steps" aria-label="流程进度">{STEPS.map((label, index) => <li key={label} className={index < step ? 'done' : index === step ? 'current' : ''} aria-current={index === step ? 'step' : undefined}>{index < step ? <Check size={11} /> : <span>{index + 1}</span>}{label}</li>)}
