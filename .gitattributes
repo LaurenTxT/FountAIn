@@ -1,0 +1,4 @@
+# Preserve Windows line endings for the project cleanup launcher.
+Clean-FountAIn.cmd text eol=crlf
+Start-FountAIn.cmd text eol=crlf
+Start-FountAIn-Dev.cmd text eol=crlf
