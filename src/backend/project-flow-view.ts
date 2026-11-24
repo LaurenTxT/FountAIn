@@ -466,7 +466,7 @@ export class ProjectFlowView {
             t.status !== "cancelled",
         ).length,
         needsUser: ongoing
-          ? Number(flow.status === "awaiting_plan" || flow.waitingForFirstRoundStart) +
+          ? Number(Boolean(flow.status === "awaiting_plan" || flow.waitingForFirstRoundStart)) +
             decisions.filter((d) => d.status === "open").length +
             taskAdditions.filter(
               (p) => p.status === "ready" || p.status === "blocked",
