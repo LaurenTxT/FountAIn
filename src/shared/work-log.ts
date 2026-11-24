@@ -30,13 +30,14 @@ export const LOG_READS=['projectFlow.log','projectFlow.log.export'] as const;
 export function observeTool(event:TimelineEvent):ToolObservation|undefined {
   if(!['tool','output'].includes(event.kind))return;
   const d=(event.data&&typeof event.data==='object'?event.data:{}) as Record<string,any>;
-  const input=d.input??d.rawInput??{}, command=[d.command,input.command].find(v=>typeof v==='string');
-  const code=typeof d.exitCode==='number'&&Number.isSafeInteger(d.exitCode)?d.exitCode:undefined;
+  const input=d.input??d.rawInput??d.args??{}, command=[d.command,d.CommandLine,input.command,input.CommandLine].find(v=>typeof v==='string');
+  const rawCode=d.exitCode??d.exit_code??d.rawOutput?.exitCode??d.rawOutput?.exit_code;
+  const code=typeof rawCode==='number'&&Number.isSafeInteger(rawCode)?rawCode:undefined;
   const status=String(d.status??''),type=String(d.type??''),id=d.toolCallId??d.tool_use_id??d.itemId??d.id;
   const terminal=d.fountainPhase==='completed'||type==='tool_result'||['completed','failed'].includes(status)||!status&&code!==undefined;
   const failure=d.is_error===true||status==='failed'||code!==undefined&&code!==0;
   const phase=failure&&terminal?'failed':terminal?'completed':d.fountainPhase==='started'||type==='tool_use'?'started':['in_progress','running','pending'].includes(status)?'progress':'unknown';
-  const rawPaths=[d.path,input.file_path,input.path,...(Array.isArray(d.changes)?d.changes.map((v:any)=>v.path):[]),...(Array.isArray(d.locations)?d.locations.map((v:any)=>v.path):[])];
+  const rawPaths=[d.path,input.file_path,input.path,input.Path,input.TargetFile,input.AbsolutePath,...(Array.isArray(d.changes)?d.changes.map((v:any)=>v.path):[]),...(Array.isArray(d.locations)?d.locations.map((v:any)=>v.path):[])];
   const paths=[...new Set(rawPaths.filter((v):v is string=>typeof v==='string'))].slice(0,100);
   if(event.kind==='output'&&!id&&!command&&code===undefined)return;
   return {schemaVersion:1,...(typeof id==='string'||typeof id==='number'?{toolCallId:String(id)}:{}),...(typeof d.turnId==='string'?{nativeTurnId:d.turnId}:{}),kind:command?'command':paths.length||['fileChange','read','edit','delete'].includes(type||d.kind)?'file':'tool',phase,command,paths,exitCode:code};
