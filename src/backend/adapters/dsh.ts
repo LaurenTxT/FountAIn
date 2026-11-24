@@ -300,7 +300,7 @@ export class DshAdapter implements Adapter {
       let status:{authenticated:boolean;state:string;balance?:AccountBalance}|undefined;
       const lines=createInterface({input:child.stdout!});
       lines.on('line',line=>{if(line.startsWith('FOUNTAIN_DSH_ACCOUNT ')){try{
-        const value=JSON.parse(line.slice(19));
+        const value=JSON.parse(line.slice('FOUNTAIN_DSH_ACCOUNT '.length));
         if(value.type==='status'){
           const authenticated=value.authenticated===true&&value.state==='signed-in';
           status={authenticated,state:['signed-in','signed-out','verification-failed'].includes(value.state)?value.state:'verification-failed',...(mode!=='auth'?{balance:accountBalanceReport(authenticated?value.accountBalance:undefined,new Date().toISOString())}:{})};

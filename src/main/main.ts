@@ -417,7 +417,7 @@ async function login(provider: string) {
     lines.on('line',line=>{
       if(!line.startsWith('FOUNTAIN_DSH_ACCOUNT '))return;
       try{
-        const value=JSON.parse(line.slice(19));
+        const value=JSON.parse(line.slice('FOUNTAIN_DSH_ACCOUNT '.length));
         if(value.type==='login-url'&&!opened){const url=new URL(value.url);if(url.origin==='https://platform.deepseek.com'&&url.pathname==='/dsh/authorize'&&!url.username&&!url.password)open(url.href);}
         else if(value.type==='phase')push({type:'backend',ready,message:`DSH 独立登录：${value.phase}${value.code?'（'+value.code+'）':''}`});
         else if(value.type==='status'){loginSucceeded=value.authenticated===true;push({type:'backend',ready,message:value.authenticated?'DSH 独立账号已登录':'DSH 登录状态：'+value.state});}
