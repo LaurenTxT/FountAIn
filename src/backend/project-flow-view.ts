@@ -538,6 +538,7 @@ export class ProjectFlowView {
           revision: snapshot.revision,
           status: f.status,
           dispatchMode: f.dispatchMode,
+          busy: this.host.busyTargets.size,
           ...snapshot.overview,
         };
       });

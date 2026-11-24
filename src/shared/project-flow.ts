@@ -120,7 +120,7 @@ export interface QuotaWait extends FlowRecord {resetAt?:number;operationId?:stri
 export const QUOTA_STAGE_LABELS:Record<QuotaWait['stage'],string>={task:'执行任务',review:'个人任务复核','integration-check':'整合检查','peer-review':'整轮他人复核','round-report':'本轮汇报',adjudication:'异议裁定','next-round':'下一轮调整建议','requested-check':'用户指定的整轮检查'};
 export interface FlowStage {kind:'planning'|'executing'|'reviewing'|'integrating'|'checking'|'peer-review'|'reporting'|'decision'|'acceptance'|'quota'|'paused'|'blocked'|'completed'|'idle';label:string;roundId?:string;leadMemberId?:string}
 export interface ProjectFlowSnapshot { projectId:string; revision:number; flow:ProjectFlow|null; plan:Plan|null; plans:PlanSummary[]; rounds:Round[]; tasks:Task[]; submissions:Submission[]; reviews:Review[]; integrations:Integration[]; acceptances:Acceptance[]; decisions:Decision[]; jointReviews:JointReview[]; overview:{working:number;remaining:number;needsUser:number;stage?:FlowStage}; allowedActions:AllowedAction[] }
-export interface FlowOverview { projectId:string; flowId:string; revision?:number; status:ProjectFlow['status']; dispatchMode:ProjectFlow['dispatchMode']; working:number; remaining:number; needsUser:number }
+export interface FlowOverview { projectId:string; flowId:string; revision?:number; status:ProjectFlow['status']; dispatchMode:ProjectFlow['dispatchMode']; working:number; remaining:number; needsUser:number; busy?:number }
 export interface ProjectFlowSnapshot {quotaWaits?:QuotaWait[]}
 export interface ProjectFlowSnapshot {blockedOperations?:FlowOperation[]}
 export interface ProjectFlowSnapshot {taskAdditions?:TaskAddition[]}
