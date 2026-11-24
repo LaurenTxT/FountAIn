@@ -6348,7 +6348,7 @@ export class ProjectFlowController {
     });
   }
   private saveStudyHandoff(round: Round): { handoff: boolean; brief: boolean } {
-    if ((!process.env.FOUNTAIN_STUDY_ROOT && process.env.FOUNTAIN_PORTABLE !== "1") || round.status !== "accepted" || !round.acceptanceId) return { handoff: false, brief: false };
+    if (round.status !== "accepted" || !round.acceptanceId) return { handoff: false, brief: false };
     const acceptance = this.need<Acceptance>("flow_acceptances", round.acceptanceId);
     if (acceptance.status !== "accepted" || acceptance.roundId !== round.id || acceptance.projectId !== round.projectId) return { handoff: false, brief: false };
     const project = this.need<Project>("projects", round.projectId);
