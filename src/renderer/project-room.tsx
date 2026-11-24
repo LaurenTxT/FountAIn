@@ -226,7 +226,7 @@ export function ProjectRoom({ snapshot, project, invoke, onOpenSession,onRoundta
         return <div key={decision.id} data-flow-next="decision"><DecisionCard decision={decision} tasks={data.tasks} rounds={data.rounds} busy={busy} leadName={leadName} onAskLead={async (d) => {
           const opts = d.options.join(' / ');
           const text = `@${leadName} 请用通俗大白话帮我解释一下「${d.title}」为什么卡住了，具体哪里出了问题，并建议我从这几个选项里选哪一个（${opts}）。`;
-          await invoke('room.send', { text, memberIds: roster, mode: 'discuss', style: 'chat', maxMinutes: 0, handRaise: false, hostPick: false });
+          await invoke('room.send', { roomId, text, memberIds: roster, mode: 'discuss', style: 'chat', maxMinutes: 0, handRaise: false, hostPick: false });
           setDockOpen(false);
         }} onAnswer={params => mutate('projectFlow.decision.answer', { decisionId: decision.id, expectedRevision: decision.revision, ...params }, '已记录你的决定。')} /></div>;
       })}
