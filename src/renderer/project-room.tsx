@@ -233,7 +233,9 @@ export function ProjectRoom({ snapshot, project, invoke, onOpenSession,onRoundta
       {live && rounds.filter(actionable).map(round=><div key={round.id} data-flow-next="acceptance">{roundCard(round)}</div>)}
       {acceptedLine && <div className="dock-row"><CheckCircle2 size={15} /><p>{acceptedLine}</p></div>}
       {activeFlowRuns.map(run => <div key={run.id} className="dock-row dock-progress-item running"><LoaderCircle size={15} className="spin" /><p><strong><MemberName id={run.memberId} /> 正在{run.label}…</strong><small className="dock-progress-meta">（启动于 {time(run.startedAt)} · <ElapsedTimer startedAt={run.startedAt} />）</small></p></div>)}
-      {checkingRound && currentRound && <div className="dock-row dock-progress-item running"><LoaderCircle size={15} className="spin" /><p><strong><MemberName id={roundLead(flow!, currentRound)} /> 正在做本轮整体检查并整理汇总汇报…</strong>（完成后会自动弹出「待你处理」验收卡片）</p></div>}
+      {checkingRound && currentRound && (flow!.dispatchMode === 'running'
+        ? <div className="dock-row dock-progress-item running"><LoaderCircle size={15} className="spin" /><p><strong><MemberName id={roundLead(flow!, currentRound)} /> 正在做本轮整体检查并整理汇总汇报…</strong>（完成后会自动弹出「待你处理」验收卡片）</p></div>
+        : <div className="dock-row dock-progress-item"><Pause size={15} /><p><strong>本轮整体检查已暂停</strong>（点击右侧「继续这段工作」即可恢复）</p></div>)}
       {progressBriefs.length > 0 && <div className="dock-progress-list">{progressBriefs.map(item => <div key={item.id} className={`dock-row dock-progress-item ${item.done ? 'done' : 'running'}`}>
         {item.done ? <CheckCircle2 size={15} /> : <LoaderCircle size={15} className="spin" />}
         <p><MemberName id={item.memberId} />：{item.text}{item.done && item.fileCount > 0 ? <small className="dock-progress-meta">（改动 {item.fileCount} 个文件）</small> : null}</p>
@@ -775,17 +777,25 @@ function Board(props: BoardProps & { focusedTask?: { task: Task; nonce: number }
   const inRound = tasks.filter(item => item.roundId === shown?.id);
   const level=shown&&props.data.flow?(shown.effectiveReviewLevel??roundReviewLevel(props.data.flow,shown)):'high';
   const lanes=LANES.filter(lane=>lane.id!=='review'||level==='high'||inRound.some(item=>item.status==='awaiting_review'));
+  const roundWorking = Boolean(shown && props.data.flow && props.data.flow.dispatchMode === 'running' && ['integrating', 'checking'].includes(shown.status));
+  const roundLeadMember = roundWorking && shown && props.data.flow ? props.members.find(m => m.id === roundLead(props.data.flow!, shown)) : undefined;
   return <aside className="board" aria-label="看板">
     <div className="board-head"><strong>看板</strong>
       <div className="board-rounds" role="tablist" aria-label="轮次">{rounds.map(round => <button key={round.id} type="button" role="tab" aria-selected={round.id === shown?.id} className={`${round.id === shown?.id ? 'selected' : ''} status-${round.status}`} title={`${round.title} · ${ROUND_STATUS[round.status]}`} onClick={() => { setRoundId(round.id); setTaskId(undefined); }}>第 {round.index + 1} 轮{round.status === 'accepted' && <Check size={11} />}</button>)}</div></div>
     {shown && <p className="board-round-goal"><strong>{shown.title}</strong> · {shown.nextConfirmation&&shown.nextConfirmation.status!=='confirmed'?'等待下一轮确认':ROUND_STATUS[shown.status]}</p>}
-    {shown?.status==='checking'&&<p role="status">本轮整体检查中</p>}
     {shown&&<button className="link-button" onClick={()=>props.onLog({kind:'round',id:shown.id})}>看本轮工作日志</button>}
     {task ? <TaskDetail {...props} task={task} onBack={() => setTaskId(undefined)} />
       : <div className="board-lanes">{lanes.map(lane => {
         const items = inRound.filter(item => lane.statuses.includes(item.status));
-        if (lane.id === 'stuck' && !items.length) return null;
-        return <section key={lane.id} className={`board-lane lane-${lane.id}`} aria-label={lane.label}><h4>{lane.label}<span>{items.length}</span></h4>
+        const showRoundCard = lane.id === 'active' && roundWorking && Boolean(shown);
+        const count = items.length + (showRoundCard ? 1 : 0);
+        if (lane.id === 'stuck' && !count) return null;
+        return <section key={lane.id} className={`board-lane lane-${lane.id}`} aria-label={lane.label}><h4>{lane.label}<span>{count}</span></h4>
+          {showRoundCard && shown && <button type="button" className={`task-tile status-running${roundLeadMember ? ` member-${roundLeadMember.id}` : ''}`} onClick={() => props.onLog({ kind: 'round', id: shown.id })}>
+            <span className="task-tile-top">{roundLeadMember && <Avatar member={roundLeadMember} size={22} ring={false} mood="working" />}<strong>本轮整体检查与整理汇报</strong></span>
+            <small><span className="pulse" />{ROUND_STATUS[shown.status]}</small>
+            <small>负责人：{roundLeadMember?.name ?? '负责人'}</small>
+          </button>}
           {items.map(item => <TaskTile key={item.id} task={item} data={props.data} onOpen={() => setTaskId(item.id)} />)}</section>;
       })}</div>}
   </aside>;
