@@ -1,4 +1,3 @@
-import { ActiveRunProgress } from './run-progress';
 import {joinClauses,plainFlowError,readableContent} from '../shared/content-presentation';
 import {workspaceLocation} from './workspace-location';
 import { memberUserSummary, reportForDisplay } from '../shared/report-presentation';
@@ -50,6 +49,14 @@ const LANES: { id: string; label: string; statuses: TaskStatus[] }[] = [
   { id: 'done', label: '已完成', statuses: ['review_passed','review_skipped', 'integrated', 'accepted'] },
   { id: 'stuck', label: '需处理', statuses: ['blocked', 'escalated', 'cancelled'] },
 ];
+function ElapsedTimer({ startedAt }: { startedAt: string }) {
+  const [now, setNow] = useState(Date.now);
+  useEffect(() => { const t = setInterval(() => setNow(Date.now()), 1000); return () => clearInterval(t); }, []);
+  const sec = Math.max(0, Math.floor((now - Date.parse(startedAt)) / 1000));
+  const min = Math.floor(sec / 60);
+  return <>已用 {min > 0 ? `${min} 分 ${sec % 60} 秒` : `${sec} 秒`}</>;
+}
+
 const STEPS = ['讨论', '定负责人', '方案', '执行', '验收', '完成'];
 /** Reads never trigger a full workbench refresh; the room reloads itself when the flow overview moves. */
 export const PROJECT_FLOW_READS = [...JOINT_READS,...PROGRESS_READS,...WORKBENCH_READS,...RESULT_READS,...LOG_READS, 'project.openPath','projectFlow.get', 'projectFlow.detail', 'projectFlow.history', 'projectFlow.artifact.files', 'projectFlow.artifact.read', 'projectFlow.artifact.diff'];
@@ -216,7 +223,7 @@ export function ProjectRoom({ snapshot, project, invoke, onOpenSession,onRoundta
       {live && openDecisions.map(decision => <div key={decision.id} data-flow-next="decision"><DecisionCard decision={decision} tasks={data.tasks} rounds={data.rounds} busy={busy} onAnswer={params => mutate('projectFlow.decision.answer', { decisionId: decision.id, expectedRevision: decision.revision, ...params }, '已记录你的决定。')} /></div>)}
       {live && rounds.filter(actionable).map(round=><div key={round.id} data-flow-next="acceptance">{roundCard(round)}</div>)}
       {acceptedLine && <div className="dock-row"><CheckCircle2 size={15} /><p>{acceptedLine}</p></div>}
-      {activeFlowRuns.map(run => <div key={run.id} className="dock-row dock-progress-item running"><LoaderCircle size={15} className="spin" /><p><strong><MemberName id={run.memberId} /> 正在{run.label}…</strong><small className="dock-progress-meta">（启动于 {time(run.startedAt)}）</small></p></div>)}
+      {activeFlowRuns.map(run => <div key={run.id} className="dock-row dock-progress-item running"><LoaderCircle size={15} className="spin" /><p><strong><MemberName id={run.memberId} /> 正在{run.label}…</strong><small className="dock-progress-meta">（启动于 {time(run.startedAt)} · <ElapsedTimer startedAt={run.startedAt} />）</small></p></div>)}
       {checkingRound && currentRound && <div className="dock-row dock-progress-item running"><LoaderCircle size={15} className="spin" /><p><strong><MemberName id={roundLead(flow!, currentRound)} /> 正在做本轮整体检查并整理汇总汇报…</strong>（完成后会自动弹出「待你处理」验收卡片）</p></div>}
       {progressBriefs.length > 0 && <div className="dock-progress-list">{progressBriefs.map(item => <div key={item.id} className={`dock-row dock-progress-item ${item.done ? 'done' : 'running'}`}>
         {item.done ? <CheckCircle2 size={15} /> : <LoaderCircle size={15} className="spin" />}
@@ -327,7 +334,6 @@ export function ProjectRoom({ snapshot, project, invoke, onOpenSession,onRoundta
       </div>}
     </header>
     {data&&fresh&&<p className="project-review-help" id="project-review-help" aria-label="复核方式说明">{REVIEW_LEVEL_HINTS[fresh?newReviewLevel:reviewLevel(flow!)]} 补正、重试和额外检查另计调用。简单整理可直接在成员工位完成；比较方案可使用圆桌。</p>}
-    <ActiveRunProgress snapshot={snapshot} invoke={invoke} sessionIds={snapshot.sessions.filter(session=>session.projectId===project.id&&Boolean(session.flowId)).map(session=>session.id)} label="项目阶段"/>
     <div className="project-room-subbar">
     {fresh&&people.length>0&&<label className="project-review-level">会议 Leader <select aria-label="会议 Leader" value={project.meetingLeaderId??''} onChange={event=>void invoke('project.update',{projectId:project.id,memberIds:roster,meetingLeaderId:event.target.value||null}).catch(reason=>setError((reason as Error).message))}><option value="">暂未指定</option>{people.map(member=><option key={member.id} value={member.id}>{member.name}</option>)}</select></label>}
     {live && <ol className="flow-steps" aria-label="流程进度">{STEPS.map((label, index) => <li key={label} className={index < step ? 'done' : index === step ? 'current' : ''} aria-current={index === step ? 'step' : undefined}>{index < step ? <Check size={11} /> : <span>{index + 1}</span>}{label}</li>)}
