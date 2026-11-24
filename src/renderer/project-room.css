@@ -6,9 +6,9 @@
 .project-room-title h1 { margin: 0; font-size: var(--fs-lg); display: flex; align-items: baseline; gap: 10px; }
 .project-room-title h1 small { font-size: var(--fs-sm); font-weight: 500; color: var(--ink-3); }
 .project-room-title p { margin: 1px 0 0; font-size: var(--fs-sm); color: var(--ink-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.project-room-numbers { display: flex; gap: 6px; }
-.project-room-numbers span { display: flex; align-items: baseline; gap: 5px; padding: 5px 10px; border: 1px solid var(--line); border-radius: var(--r-md); background: var(--surface); font-size: var(--fs-sm); color: var(--ink-3); }
-.project-room-numbers strong { font-size: var(--fs-lg); color: var(--ink); }
+.project-room-numbers { display: flex; gap: 4px; }
+.project-room-numbers span { display: flex; align-items: baseline; gap: 3px; padding: 2px 7px; border: 1px solid var(--line); border-radius: var(--r-sm); background: var(--surface); font-size: 11px; line-height: 1.3; color: var(--ink-3); }
+.project-room-numbers strong { font-size: 12px; font-weight: 600; color: var(--ink); }
 .project-room-numbers .needs-user { border-color: color-mix(in srgb, var(--warn) 45%, var(--line)); background: var(--warn-soft); }
 .project-room-numbers .needs-user strong { color: var(--warn); }
 .project-room-controls { display: flex; align-items: center; gap: 6px; }

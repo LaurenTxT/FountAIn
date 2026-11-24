@@ -432,9 +432,16 @@ export class ProjectFlowView {
           ["preparing", "ready", "blocked"].includes(p.status),
       );
     const jointReviews = this.host.jointReviews(projectId, undefined, 100),
-      blockedOperations = list<FlowOperation>("flow_operations")
+      allOperations = list<FlowOperation>("flow_operations"),
+      blockedOperations = allOperations
         .filter((o) => o.state === "blocked" && o.recovery !== "completed")
-        .map((o) => this.withActions("flow_operations", o));
+        .map((o) => this.withActions("flow_operations", o)),
+      runningNonTaskOps = allOperations.filter(
+        (o) =>
+          (o.state === "running" || o.state === "prepared") &&
+          o.kind !== "task" &&
+          !o.jointReviewId,
+      ).length;
     return {
       projectId,
       revision:
@@ -458,7 +465,10 @@ export class ProjectFlowView {
       blockedOperations,
       overview: {
         stage: this.currentStage(flow, current, tasks, decisions),
-        working: tasks.filter((t) => t.status === "running").length,
+        working:
+          tasks.filter(
+            (t) => t.status === "running" || t.status === "correcting",
+          ).length + runningNonTaskOps,
         remaining: tasks.filter(
           (t) =>
             t.roundId === current?.id &&
