@@ -1,5 +1,5 @@
 import type { Store } from './store';
-import { FlowError, type Acceptance, type Plan, type ProjectFlow, type Review, type Round, type Task } from '../shared/project-flow';
+import { FlowError, type Acceptance, type Decision, type FlowOperation, type Plan, type ProjectFlow, type Review, type Round, type Task } from '../shared/project-flow';
 import {roundLead} from '../shared/project-flow';
 import type { Project, RoomId, RoomMessage, Session } from '../shared/types';
 import { studyPlanningMaterial } from './study-room';
@@ -31,13 +31,32 @@ function workflowStatus(store:Store,roomId:RoomId,memberId:string){
     const leader=leaderId&&store.members().find(member=>member.id===leaderId);
     return leader?{leaderId:leader.id,leaderName:leader.name,flowStatus:'discussion',role:leader.id===memberId?'lead':'member',tasks:[]}:{tasks:[]};
   }
-  const tasks=store.list<Task>('flow_tasks').filter(task=>task.flowId===flow.id&&task.planId===flow.activePlanId&&(task.memberId===memberId||task.reviewerMemberId===memberId));
+  const allPlanTasks=store.list<Task>('flow_tasks').filter(task=>task.flowId===flow.id&&task.planId===flow.activePlanId);
+  const tasks=allPlanTasks.filter(task=>task.memberId===memberId||task.reviewerMemberId===memberId);
   const current=flow.currentRoundId?store.get<Round>('flow_rounds',flow.currentRoundId):undefined;
   const leaderId=roundLead(flow,current);
-  return {flowId:flow.id,flowStatus:flow.status,dispatchMode:flow.dispatchMode,leaderId,leaderName:store.members().find(member=>member.id===leaderId)?.name,roundId:current?.id,roundStatus:current?.status,role:leaderId===memberId?'lead':'member',tasks:tasks.map(task=>{
-    const review=store.list<Review>('flow_reviews').filter(review=>review.taskId===task.id).at(-1);
-    return {id:task.id,title:task.title,status:task.status,lastActivity:task.lastActivity,blockedReason:task.blockedReason,latestReview:review?{status:review.status,verdict:review.verdict,findings:review.findings,at:review.updatedAt}:undefined};
-  })};
+  const memberName=(id:string)=>store.members().find(member=>member.id===id)?.name??id;
+  const openDecisions=store.list<Decision>('flow_decisions')
+    .filter(d=>d.flowId===flow.id&&d.status==='open')
+    .map(d=>({id:d.id,kind:d.kind,title:d.title,reason:d.reason,options:d.options,roundId:d.roundId,taskId:d.taskId}));
+  const blockedOperations=store.list<FlowOperation>('flow_operations')
+    .filter(op=>op.flowId===flow.id&&op.state==='blocked')
+    .map(op=>({id:op.id,kind:op.kind,targetId:op.targetId,error:op.error}));
+  const roundTasks=(current?allPlanTasks.filter(t=>t.roundId===current.id):allPlanTasks).map(t=>({
+    id:t.id,title:t.title,memberId:t.memberId,memberName:memberName(t.memberId),status:t.status,blockedReason:t.blockedReason,
+  }));
+  return {
+    flowId:flow.id,flowStatus:flow.status,dispatchMode:flow.dispatchMode,leaderId,leaderName:memberName(leaderId),
+    roundId:current?.id,roundStatus:current?.status,role:leaderId===memberId?'lead':'member',
+    blockedReasons:flow.blockedReasons??[],
+    openDecisions,
+    blockedOperations,
+    roundTasks,
+    tasks:tasks.map(task=>{
+      const review=store.list<Review>('flow_reviews').filter(review=>review.taskId===task.id).at(-1);
+      return {id:task.id,title:task.title,status:task.status,lastActivity:task.lastActivity,blockedReason:task.blockedReason,latestReview:review?{status:review.status,verdict:review.verdict,findings:review.findings,at:review.updatedAt}:undefined};
+    }),
+  };
 }
 interface MemberRead {throughId?:string;readIds:string[]}
 function memberRead(store:Store,roomId:RoomId,memberId:string){return store.get<MemberRead>('room_member_reads',`${roomId}:${memberId}`)??{readIds:[]};}

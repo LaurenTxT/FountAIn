@@ -220,7 +220,16 @@ export function ProjectRoom({ snapshot, project, invoke, onOpenSession,onRoundta
           : [...new Set([...flow!.blockedReasons, ...stuckTasks.map(task => task.blockedReason ?? `${task.title} 卡住了`)])].map(reason => <p key={reason}>{plainFlowError(reason)}</p>)}
         <small>{blocked.length ? '结果未知的运行不会自动重发。处理完卡住的尝试后，点右上角的“继续”。' : '无法下结论请使用下方决策卡，任务成果保留；尚未开始就失败的任务可点“继续”重试。'}</small></div></div>}
       {live && (data.quotaWaits ?? []).map(wait => <div key={wait.id} className="dock-row"><LoaderCircle size={15} className="spin" /><p>等待 <MemberName id={wait.memberId} /> 额度恢复 · {QUOTA_STAGE_LABELS[wait.stage]} · 从 {time(wait.startedAt)} 开始；满 10 分钟会请你决定继续等还是换人。</p></div>)}
-      {live && openDecisions.map(decision => <div key={decision.id} data-flow-next="decision"><DecisionCard decision={decision} tasks={data.tasks} rounds={data.rounds} busy={busy} onAnswer={params => mutate('projectFlow.decision.answer', { decisionId: decision.id, expectedRevision: decision.revision, ...params }, '已记录你的决定。')} /></div>)}
+      {live && openDecisions.map(decision => {
+        const leadId = roundLead(flow!, currentRound);
+        const leadName = team.get(leadId)?.name ?? '负责人';
+        return <div key={decision.id} data-flow-next="decision"><DecisionCard decision={decision} tasks={data.tasks} rounds={data.rounds} busy={busy} leadName={leadName} onAskLead={async (d) => {
+          const opts = d.options.join(' / ');
+          const text = `@${leadName} 请用通俗大白话帮我解释一下「${d.title}」为什么卡住了，具体哪里出了问题，并建议我从这几个选项里选哪一个（${opts}）。`;
+          await invoke('room.send', { text, memberIds: roster, mode: 'discuss', style: 'chat', maxMinutes: 0, handRaise: false, hostPick: false });
+          setDockOpen(false);
+        }} onAnswer={params => mutate('projectFlow.decision.answer', { decisionId: decision.id, expectedRevision: decision.revision, ...params }, '已记录你的决定。')} /></div>;
+      })}
       {live && rounds.filter(actionable).map(round=><div key={round.id} data-flow-next="acceptance">{roundCard(round)}</div>)}
       {acceptedLine && <div className="dock-row"><CheckCircle2 size={15} /><p>{acceptedLine}</p></div>}
       {activeFlowRuns.map(run => <div key={run.id} className="dock-row dock-progress-item running"><LoaderCircle size={15} className="spin" /><p><strong><MemberName id={run.memberId} /> 正在{run.label}…</strong><small className="dock-progress-meta">（启动于 {time(run.startedAt)} · <ElapsedTimer startedAt={run.startedAt} />）</small></p></div>)}
@@ -726,7 +735,7 @@ function RoundCard({ round, lead, data, invoke, busy, onDecide, onRecover,onChec
   </MemberLine>;
 }
 
-function DecisionCard({ decision, tasks, rounds,busy, onAnswer }: { decision: Decision; tasks: Task[];rounds:Round[]; busy: boolean; onAnswer: (params: { choice: string; selectedTaskIds?: string[]; allowAllEligible?: boolean;memberId?:string;opinion?:string;rulings?:DisputeRuling[] }) => Promise<boolean> }) {
+function DecisionCard({ decision, tasks, rounds, busy, leadName, onAskLead, onAnswer }: { decision: Decision; tasks: Task[]; rounds: Round[]; busy: boolean; leadName?: string; onAskLead?: (decision: Decision) => Promise<void>; onAnswer: (params: { choice: string; selectedTaskIds?: string[]; allowAllEligible?: boolean; memberId?: string; opinion?: string; rulings?: DisputeRuling[] }) => Promise<boolean> }) {
   const eligible = decision.eligibleTaskIds.map(id => tasks.find(task => task.id === id)).filter((task): task is Task => Boolean(task));
   const [picked, setPicked] = useState<string[]>(() => eligible.map(task => task.id));
   const team=useTeam(),[memberId,setMemberId]=useState(''),[opinion,setOpinion]=useState(''),[rulings,setRulings]=useState<Record<string,DisputeRuling['verdict']>>({});const requiresMember=(option:string)=>['重新安排','换人复核','换负责人检查','换人接手'].includes(option);
@@ -745,7 +754,7 @@ function DecisionCard({ decision, tasks, rounds,busy, onAnswer }: { decision: De
     <div className="round-actions">{decision.options.map(option => {
       const allows = early && option === '允许提前开工';
       return <button key={option} type="button" className={`button small ${allows||option==='按原计划开始'||option==='按调整开始' ? 'primary' : 'secondary'}`} disabled={busy || allows && !picked.length || requiresMember(option)&&!memberId || option==='提交逐条裁定'&&disputes.some(d=>!rulings[d.finding.id]) || !allowed(decision.allowedActions, 'projectFlow.decision.answer')} onClick={() => void onAnswer(allows ? { choice: option, ...(picked.length === eligible.length ? { allowAllEligible: true } : { selectedTaskIds: picked }) } : { choice: option,opinion,...(requiresMember(option)?{memberId}:{}),...(option==='提交逐条裁定'?{rulings:disputes.map(d=>({findingId:d.finding.id,verdict:rulings[d.finding.id],reason:opinion||'用户逐条裁定'}))}:{}) })}>{option}{allows && picked.length !== eligible.length ? `（${picked.length} 项）` : ''}</button>;
-    })}</div>
+    })}{onAskLead && <button type="button" className="button small secondary" disabled={busy} title="在会议室里让负责人用大白话解释当前卡点并给出选择建议" onClick={() => void onAskLead(decision)}>问问 {leadName || '负责人'}</button>}</div>
   </section>;
 }
 
