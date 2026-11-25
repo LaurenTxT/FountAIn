@@ -312,9 +312,14 @@ export class RoomDiscussionController {
     if (resting) ids.add(memberId); else ids.delete(memberId);
     const patch = { restingMemberIds: [...ids] };
     const d = state.discussion;
-    if (!resting || !d) {
+    if (!d || d.phase === 'idle') {
       this.store.put('room', 'state', { ...state, ...patch });
       this.host.changed();
+      return { resting };
+    }
+    if (!resting) {
+      this.save({...d,members:[...new Set([...d.members,memberId])],
+        stoppedMembers:d.stoppedMembers?.filter(id=>id!==memberId)},undefined,patch);
       return { resting };
     }
     if (this.requestedMinutes?.memberId === memberId) this.minutesSerial++;

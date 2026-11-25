@@ -154,7 +154,7 @@ export function RoomView({ snapshot, invoke: rawInvoke, onOpenSession, onDocumen
   const [questionDialog,setQuestionDialog]=useState<{discussionId:string;questionId?:string;memberId:string;quote?:RoomMessage;text:string}>();
   const [questionBusy,setQuestionBusy]=useState(false),[questionError,setQuestionError]=useState('');
   const canInterrupt=Boolean(discussion&&discussion.phase!=='idle'&&discussion.phase!=='summarizing'&&!discussion.interruption&&!discussion.unknownRunId&&!discussion.unknownRunIds?.length);
-  const questionMembers=team.members.filter(member=>discussion?.members.includes(member.id)&&!discussion.stoppedMembers?.includes(member.id)&&!discussion.skippedMembers?.[member.id]&&ready(member.executor));
+  const questionMembers=team.members.filter(member=>discussion?.members.includes(member.id)&&!state.restingMemberIds?.includes(member.id)&&!discussion.stoppedMembers?.includes(member.id)&&!discussion.skippedMembers?.[member.id]&&ready(member.executor));
   function openAnswer(questionId:string) {
     if(!discussion)return;
     setQuestionError('');
