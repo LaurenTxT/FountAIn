@@ -619,8 +619,12 @@ function registerIpc() {
       const { project } = await request('internal.lookup', { projectId: params.projectId }) as Lookup;
       if (!project) throw new Error('项目不存在。');
       const target = resolveSafePath(project.directory, resolved.relativePath);
-      if (target !== resolved.target || resolveSafePath(project.directory) !== resolved.root || !statSync(target).isFile()) throw new Error('项目路径已改变，请重新打开。');
-      if (resolved.mode === 'reveal' || !OPENABLE_DOCUMENT.test(target)) { shell.showItemInFolder(target); return {revealed:true}; }
+      if (target !== resolved.target || resolveSafePath(project.directory) !== resolved.root) throw new Error('项目路径已改变，请重新打开。');
+      const info = statSync(target);
+      if (resolved.mode === 'folder' ? !info.isDirectory() : !info.isFile()) throw new Error('项目路径已改变，请重新打开。');
+      if (resolved.mode === 'reveal' || (resolved.mode === 'open' && (!OPENABLE_DOCUMENT.test(target) || !OPENABLE_DOCUMENT.test(realpathSync(target))))) {
+        shell.showItemInFolder(target); return {revealed:true};
+      }
       const error = await shell.openPath(target); if (error) throw new Error(error); return {opened:true};
     }
     if (method === 'artifact.open') {

@@ -32,4 +32,15 @@ export interface ReportSystemNote {
   eventIds?: string[];
 }
 export const RESULT_READS = ['projectFlow.round.results', 'projectFlow.round.preview'] as const;
-export const OPENABLE_DOCUMENT = /\.(?:txt|md|json|ya?ml|csv|log|png|jpe?g|webp|gif|pdf|docx|xlsx|pptx|mp4)$/i;
+export const OPENABLE_DOCUMENT = /\.(?:txt|md|json|ya?ml|csv|log|png|jpe?g|webp|gif|pdf|docx|xlsx|pptx|mp4|zip)$/i;
+
+/** Normalize local Markdown targets without allowing network URLs or UNC shares. */
+export function projectFileLink(target: string): string | undefined {
+  let value = target.trim().replace(/^<(.+)>$/, '$1');
+  value = value.replace(/^file:\/\/(?=\/(?!\/))/i, '');
+  try { value = decodeURIComponent(value); } catch { /* Keep a literal percent sign. */ }
+  value = value.replace(/^\/(?=[a-z]:[/\\])/i, '');
+  if (!value || /^[#?]/.test(value) || /^[\\/]{2}/.test(value)) return undefined;
+  if (value.includes(':') && !/^[a-z]:[/\\][^:]*$/i.test(value)) return undefined;
+  return value;
+}

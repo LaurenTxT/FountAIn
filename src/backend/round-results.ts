@@ -5,7 +5,7 @@ import type { Store } from './store';
 import type { Project } from '../shared/types';
 import { FlowError, type Round, type Integration, type Acceptance, type FlowArtifact } from '../shared/project-flow';
 import type { ResultPreview, RoundResults } from '../shared/round-results';
-import { OPENABLE_DOCUMENT } from '../shared/round-results';
+import { OPENABLE_DOCUMENT, projectFileLink } from '../shared/round-results';
 import { FlowArtifacts } from './project-flow-artifacts';
 import type { ApplyJournal } from './project-flow-apply';
 import { scopePath, text } from '../shared/project-flow-protocol';
@@ -104,16 +104,22 @@ export class RoundResultReader {
   async readDocument(p: Record<string, unknown>) {
     const project = this.store.get<Project>('projects', text(p.projectId));
     if (!project) throw new FlowError('NOT_FOUND', '项目不存在。');
-    const link = text(p.target);
-    const relativePath = scopePath(path.isAbsolute(link) ? path.relative(project.directory, link) : link.replace(/^\.[/\\]/, ''));
-    if (!OPENABLE_DOCUMENT.test(relativePath) || relativePath.split('/').some(part => part.startsWith('.')))
-      throw new FlowError('INVALID_REQUEST', '请选择当前项目中的文档。');
+    const link = projectFileLink(text(p.target));
+    if (!link) throw new FlowError('INVALID_REQUEST', '请选择当前项目中的文件或文件夹。');
+    const relativePath = scopePath(path.isAbsolute(link) ? path.relative(project.directory, link) || '.' : link.replace(/^\.[/\\]/, '') || '.');
     const root = await fs.realpath(project.directory);
     const target = resolveSafePath(root, relativePath);
     try {
-      if (!(await fs.stat(target)).isFile()) throw new FlowError('NOT_FILE', '请选择项目内的文件。');
-      const document = /\.(?:txt|md|json|ya?ml|csv|log)$/i.test(relativePath) ? await readArtifact(root, relativePath) : undefined;
-      return { relativePath, document: document && { ...document, content: redact(document.content) } };
+      const realTarget = await fs.realpath(target);
+      if ([relativePath, path.relative(root, realTarget)].some(name =>
+        name !== '.' && name.split(/[/\\]/).some(part => part.startsWith('.'))))
+        throw new FlowError('INVALID_REQUEST', '请选择项目内的普通文件或文件夹。');
+      const info = await fs.stat(realTarget);
+      if (!info.isFile() && !info.isDirectory()) throw new FlowError('NOT_FILE', '请选择项目内的文件或文件夹。');
+      const openable = info.isFile() && OPENABLE_DOCUMENT.test(target) && OPENABLE_DOCUMENT.test(realTarget);
+      const document = openable && /\.(?:txt|md|json|ya?ml|csv|log)$/i.test(relativePath) ?
+        await readArtifact(root, relativePath) : undefined;
+      return { relativePath, openable, directory: info.isDirectory(), document: document && { ...document, content: redact(document.content) } };
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === 'ENOENT') throw new FlowError('NOT_FOUND', '当前项目里找不到这个文件，可能已移动或删除。');
       throw error;
@@ -150,7 +156,10 @@ export class RoundResultReader {
     const relativePath = scopePath(text(p.relativePath)), mode = p.mode;
     if (mode !== 'open' && mode !== 'reveal') throw new FlowError('INVALID_REQUEST', '打开方式无效。');
     const root = await fs.realpath(project.directory), target = resolveSafePath(root, relativePath);
-    if (!(await fs.stat(target)).isFile()) throw new FlowError('NOT_FILE', '请选择项目内的文件。');
-    return { root, relativePath, target, mode: mode === 'open' && OPENABLE_DOCUMENT.test(target) ? 'open' as const : 'reveal' as const };
+    const info = await fs.stat(target);
+    if (p.roundId === undefined && info.isDirectory()) return { root, relativePath, target, mode: 'folder' as const };
+    if (!info.isFile()) throw new FlowError('NOT_FILE', '请选择项目内的文件。');
+    const openable = OPENABLE_DOCUMENT.test(target) && OPENABLE_DOCUMENT.test(await fs.realpath(target));
+    return { root, relativePath, target, mode: mode === 'open' && openable ? 'open' as const : 'reveal' as const };
   }
 }
