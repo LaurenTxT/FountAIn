@@ -773,7 +773,6 @@ kbd { display: inline-block; min-width: 18px; padding: 0 5px; margin: 0 2px; bor
 .room-host-actions { display:flex; flex-wrap:wrap; gap:6px; }
 .phase-awaiting-host .guest-chip { flex-wrap:wrap; max-width:260px; height:auto; min-height:32px; padding:5px 8px; border-radius:var(--r-md); }
 .phase-awaiting-host .guest-chip:not(:disabled) { cursor:pointer; }
-.room-embedded .phase-awaiting-host .room-presence-members { flex: 1 1 auto; min-width: 200px; flex-wrap:wrap; overflow:visible; padding-right: 0; -webkit-mask-image: none; mask-image: none; }
 .guest-chip-reason { flex-basis:100%; max-width:230px; white-space:normal; text-align:left; font-size:var(--fs-xs); line-height:1.4; }
 
 /* Catalog uses the existing settings controls; Claudia can refine the visual design. */

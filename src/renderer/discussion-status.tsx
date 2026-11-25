@@ -45,30 +45,32 @@ export function RoomPresence({ discussion: d, state, invited, ready, locked, bus
   const tone = !d ? '' : LIVE.includes(d.phase) ? 'live' : ['blocked', 'budget'].includes(d.phase) ? 'warn' : ['paused', 'waiting_user','awaiting-host'].includes(d.phase) ? 'hold' : 'rest';
   return <section role="region" className={`room-presence ${d ? `phase-${d.phase}` : ''}`} aria-label="在场与讨论状态" aria-live="polite">
     <div className="room-presence-row">
-      <span className="room-presence-label"><Users size={13} />在场</span>
-      <div className="room-presence-members" role="group" aria-label="邀请谁加入">{team.members.map(member => {
-        const on = invited.includes(member.id), ok = ready(member);
-        if (onRest && state.restingMemberIds?.includes(member.id)) return <button key={member.id} type="button"
-          className="guest-chip guest-chip-resting" disabled={busy} aria-label={'请 '+member.name+' 回来'}
-          title={'请 '+member.name+' 回来参加后续讨论'} onClick={()=>onRest(member.id,false)}>
-          <Avatar member={member} size={24} ring={false} mood="resting"/><span>{member.name}</span><small>休息中 · 回来</small>
-        </button>;
-        const speaking = state.active && state.speaking === member.id;
-        const ballot = handActive && on ? d?.handRound?.ballots[member.id] : undefined;
-        const raised = ballot?.status === 'done' && (ballot.want ?? 0) > 0;
-        const skipped=on?d?.skippedMembers?.[member.id]:undefined;
-        const awaiting=d?.phase==='awaiting-host',pick=(awaiting||d?.phase==='raising'&&d.hostPick&&d.handRound?.status==='collecting')&&raised&&!skipped&&Boolean(onHost);
-        const tag = skipped ? '已跳过' : speaking ? '发言中' : ballot?.status === 'done' ? (ballot.want ? `举手 ${ballot.want}/3` : '不补充') : ballot ? BALLOT[ballot.status] : undefined;
-        const title = skipped?.reason || ballot?.why || ballot?.error || (!ok ? `${member.product} 还没准备好` : locked ? on ? '正在发言中，稍后可调整' : '发言进行中，稍后可以邀请' : on ? '点一下请 TA 离开' : '点一下邀请 TA 加入当前讨论');
-        return <span key={member.id} className="guest-chip-group"><button type="button" className={`guest-chip member-${member.id} ${on ? 'on' : ''} ${locked ? 'locked' : ''} ${speaking ? 'speaking' : ''} ${ok ? '' : 'unready'}`}
-          aria-pressed={on} aria-label={pick?'请 '+member.name+' 发言':undefined} disabled={pick?!ok||busy:awaiting?true:onConfigure&&on?busy:!ok||locked||busy} title={pick?ballot?.why:onConfigure&&on?'调整 '+member.name+' 的项目配置':title} onClick={() => pick?onHost!(member.id):onConfigure&&on?onConfigure(member.id):onToggle(member.id)}>
-          <span className={`guest-chip-avatar ${on && !pick && onMention ? 'mentionable' : ''}`} title={on && !pick && onMention ? `点击头像 @${member.name}` : undefined} onClick={event => { if (on && !pick && onMention) { event.stopPropagation(); onMention(member); } }}><Avatar member={member} size={24} ring={false} mood={speaking ? 'working' : undefined} />{raised && <Hand size={11} className="guest-chip-hand" role="img" aria-label={`${member.name} 已举手`} />}</span>
-          <span className="guest-chip-name">{member.name}</span>
-          {tag ? <small className="guest-chip-tag">{tag}</small> : on && !locked && <Check size={12} />}
-          {pick&&ballot?.why&&<small className="guest-chip-reason">{ballot.why}</small>}
-        </button>{onRest&&on&&<button type="button" className="guest-chip-rest" aria-label={'让 '+member.name+' 休息'}
-          title={'让 '+member.name+' 暂时休息'} disabled={busy} onClick={()=>onRest(member.id,true)}><Moon size={13}/></button>}{onConfigure&&on&&<button type="button" className="guest-chip-leave" aria-label={'请 '+member.name+' 离开'} title={'请 '+member.name+' 离开会议室'} disabled={locked||busy} onClick={()=>onToggle(member.id)}><X size={11}/></button>}</span>;
-      })}</div>
+      <div className="room-presence-roster">
+        <span className="room-presence-label"><Users size={13} />在场</span>
+        <div className="room-presence-members" role="group" aria-label="邀请谁加入">{team.members.map(member => {
+          const on = invited.includes(member.id), ok = ready(member);
+          if (onRest && state.restingMemberIds?.includes(member.id)) return <button key={member.id} type="button"
+            className="guest-chip guest-chip-resting" disabled={busy} aria-label={'请 '+member.name+' 回来'}
+            title={'请 '+member.name+' 回来参加后续讨论'} onClick={()=>onRest(member.id,false)}>
+            <Avatar member={member} size={24} ring={false} mood="resting"/><span className="guest-chip-name">{member.name}</span><small>休息中 · 回来</small>
+          </button>;
+          const speaking = state.active && state.speaking === member.id;
+          const ballot = handActive && on ? d?.handRound?.ballots[member.id] : undefined;
+          const raised = ballot?.status === 'done' && (ballot.want ?? 0) > 0;
+          const skipped=on?d?.skippedMembers?.[member.id]:undefined;
+          const awaiting=d?.phase==='awaiting-host',pick=(awaiting||d?.phase==='raising'&&d.hostPick&&d.handRound?.status==='collecting')&&raised&&!skipped&&Boolean(onHost);
+          const tag = skipped ? '已跳过' : speaking ? '发言中' : ballot?.status === 'done' ? (ballot.want ? `举手 ${ballot.want}/3` : '不补充') : ballot ? BALLOT[ballot.status] : undefined;
+          const title = skipped?.reason || ballot?.why || ballot?.error || (!ok ? `${member.product} 还没准备好` : locked ? on ? '正在发言中，稍后可调整' : '发言进行中，稍后可以邀请' : on ? '点一下请 TA 离开' : '点一下邀请 TA 加入当前讨论');
+          return <span key={member.id} className="guest-chip-group"><button type="button" className={`guest-chip member-${member.id} ${on ? 'on' : ''} ${locked ? 'locked' : ''} ${speaking ? 'speaking' : ''} ${ok ? '' : 'unready'}`}
+            aria-pressed={on} aria-label={pick?'请 '+member.name+' 发言':undefined} disabled={pick?!ok||busy:awaiting?true:onConfigure&&on?busy:!ok||locked||busy} title={pick?ballot?.why:onConfigure&&on?'调整 '+member.name+' 的项目配置':title} onClick={() => pick?onHost!(member.id):onConfigure&&on?onConfigure(member.id):onToggle(member.id)}>
+            <span className={`guest-chip-avatar ${on && !pick && onMention ? 'mentionable' : ''}`} title={on && !pick && onMention ? `点击头像 @${member.name}` : undefined} onClick={event => { if (on && !pick && onMention) { event.stopPropagation(); onMention(member); } }}><Avatar member={member} size={24} ring={false} mood={speaking ? 'working' : undefined} />{raised && <Hand size={11} className="guest-chip-hand" role="img" aria-label={`${member.name} 已举手`} />}</span>
+            <span className="guest-chip-name">{member.name}</span>
+            {tag ? <small className="guest-chip-tag">{tag}</small> : on && !locked && <Check size={12} />}
+            {pick&&ballot?.why&&<small className="guest-chip-reason">{ballot.why}</small>}
+          </button>{onRest&&on&&<button type="button" className="guest-chip-rest" aria-label={'让 '+member.name+' 休息'}
+            title={'让 '+member.name+' 暂时休息'} disabled={busy} onClick={()=>onRest(member.id,true)}><Moon size={13}/></button>}{onConfigure&&on&&<button type="button" className="guest-chip-leave" aria-label={'请 '+member.name+' 离开'} title={'请 '+member.name+' 离开会议室'} disabled={locked||busy} onClick={()=>onToggle(member.id)}><X size={11}/></button>}</span>;
+        })}</div>
+      </div>
       {d && <div className="room-presence-status">
         {d.callUsage&&<small className="room-presence-usage" aria-label="本次讨论调用次数" title={`${callUsageLabel(d.callUsage)}${speechBudget?` · 正式发言 ${d.speechCalls??0} 次 · 辅助调用 ${Math.max(0,d.calls-(d.speechCalls??0))} 次`:''}\n按实际运行记录计数；发言、举手、纪要、补正、重试均计入，未发出失败单列。`}>{`已发出 ${d.callUsage.delivered} 次 · 完成 ${d.callUsage.completed} 次`}{d.callUsage.unknown?<span className="room-presence-unknown"> · 结果未知 {d.callUsage.unknown} 次</span>:null}</small>}
         {budget && <small className="room-presence-usage room-presence-budget">{available !== undefined && <span aria-label="讨论剩余轮次" title={speechBudget?'只限制正式发言；举手、补正、重试和纪要另记。':`按普通接话每轮 ${roundCost} 次调用估算。`}>剩余 {available} 次{speechBudget?'正式发言':'调用'}{!speechBudget&&` · 普通接话约 ${Math.floor(available / roundCost)} 轮`}</span>}{d!.minutes > 0 && <span>{state.active && d!.deadline ? `剩余约 ${Math.max(0, Math.ceil((d!.deadline - now) / 60000))} 分钟` : `时长预算 ${d!.minutes} 分钟`}</span>}</small>}

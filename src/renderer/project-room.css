@@ -246,8 +246,6 @@ section.lead-picker > .round-actions { grid-column: 2; margin: 0; justify-conten
 @media (max-width: 1180px) { .room-tool-title small { display: none; } }
 /* In the narrower meeting column the people stay on one line and the discussion controls wrap below them. */
 .room-embedded .room-presence { padding: 6px 14px 8px; }
-.room-embedded .room-presence-members { flex: 1 1 0; min-width: 0; flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 28px), transparent); mask-image: linear-gradient(to right, #000 calc(100% - 28px), transparent); padding-right: 24px; }
-.room-embedded .room-presence-status { margin-left: 0; }
 .room-embedded .room-presence-detail { padding-left: 0; max-height: 48px; }
 @media (max-width: 1180px) { .project-room-grid { grid-template-columns: minmax(0, 1fr) 270px; } .room-embedded .composer-hint { display: none; } }
 
@@ -364,7 +362,7 @@ section.lead-picker > .round-actions { grid-column: 2; margin: 0; justify-conten
 .work-log-more { align-self: center; }
 .work-log-through { margin-right: auto; color: var(--ink-3); font-size: var(--fs-sm); }
 /* "请 TA 离开" is a corner badge shown on hover/focus, so chips line up the same in every room. */
-.guest-chip-group { position: relative; display: inline-flex; align-items: center; }
+.guest-chip-group { position: relative; display: inline-flex; align-items: center; max-width: 100%; }
 .guest-chip-leave { position: absolute; top: -5px; right: -5px; z-index: 1; display: grid; place-items: center; width: 17px; height: 17px; border-radius: 999px; border: 1px solid var(--line-strong); background: var(--surface); color: var(--ink-3); box-shadow: var(--shadow-sm); opacity: 0; transform: scale(.8); transition: opacity .15s, transform .15s var(--ease); }
 .guest-chip-group:hover .guest-chip-leave, .guest-chip-leave:focus-visible { opacity: 1; transform: none; }
 .guest-chip-leave:hover { color: var(--bad); border-color: color-mix(in srgb, var(--bad) 40%, var(--line)); }
