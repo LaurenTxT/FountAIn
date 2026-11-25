@@ -3030,6 +3030,10 @@ export class Engine {
       }
       case "room.resume":
         return this.discussion.resume(params ?? {});
+      case "room.question.interrupt":
+        return this.discussion.interruptForOwner(params);
+      case "room.question.answer":
+        return this.discussion.answerOwnerQuestion(params);
       case "room.minutes":
         return this.discussion.requestMinutes(params ?? {});
       case "room.host":

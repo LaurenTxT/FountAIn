@@ -58,7 +58,7 @@ export class Roundtables {
     if(this.changing.has(t.id))throw new FlowError('TASK_ACTIVE','圆桌操作正在处理，请稍后再试。');
     if(['room.rename','room.archive','room.delete','room.clear','room.uninherit','room.generateImage','room.handoff'].includes(method))throw new FlowError('INVALID_REQUEST','请使用圆桌的议题操作。');
     if(ended(t)||t.restoredHistoryOnly)throw new FlowError('READ_ONLY','这个圆桌议题只供阅读；重新讨论请用“要求再议一轮”。');
-    if(['room.send','room.resume','room.host','room.minutes'].includes(method)&&!this.revealed(this.raw(t)))throw new FlowError('INDEPENDENT','各自准备中，公开后才能审议讨论。');
+    if(['room.send','room.resume','room.host','room.minutes','room.question.answer','room.question.interrupt'].includes(method)&&!this.revealed(this.raw(t)))throw new FlowError('INDEPENDENT','各自准备中，公开后才能审议讨论。');
   }
   async interruptRoom(id:RoomId){const t=this.topic(id.slice(11));if(!ended(t)&&!t.restoredHistoryOnly)this.update(t,{pauseRequested:true});const reviews=this.store.list<JointReview>('flow_joint_reviews').filter(r=>r.projectId===t.projectId&&r.roundtableTopicId===t.id);await Promise.all(reviews.map(r=>this.joint.interrupt(r.id)));await this.host.stop(id);this.sync();this.host.changed();return {stopped:true};}
   minutesInstruction(id:RoomId){

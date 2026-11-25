@@ -1,6 +1,6 @@
 import { Check, Hand, Moon, Users, X } from 'lucide-react';
 import type { RoomDiscussion } from '../shared/discussion';
-import { DISCUSSION_LABELS, pendingDiscussionQuestion } from '../shared/discussion';
+import { DISCUSSION_LABELS, pendingOwnerQuestions } from '../shared/discussion';
 import type { RoomState } from '../shared/types';
 import { Avatar, useTeam, type TeamMember } from './members';
 import { useTicker } from './ui';
@@ -16,13 +16,14 @@ function phaseLabel(d: RoomDiscussion) {
 }
 
 /** Who is in the room and how the conversation stands, in one bar: the invite chips double as the speakers' status. */
-export function RoomPresence({ discussion: d, state, invited, ready, locked, busy, onToggle, onPause, onResume, onEnd, onConfigure,onHost,onMention,onRest,showNextStep=true,flowNextStep=false }: {
+export function RoomPresence({ discussion: d, state, invited, ready, locked, busy, onToggle, onPause, onResume, onEnd, onConfigure,onHost,onMention,onRest,onAnswer,showNextStep=true,flowNextStep=false }: {
   discussion?: RoomDiscussion; state: RoomState; invited: string[]; ready: (member: TeamMember) => boolean; locked: boolean; busy: boolean;
   onToggle: (id: string) => void; onPause: () => void; onResume: () => void; onEnd: () => void;
   onConfigure?:(id:string)=>void;
   onHost?:(id:string)=>void;
   onMention?:(member:TeamMember)=>void;
   onRest?:(memberId:string,resting:boolean)=>void;
+  onAnswer?:(questionId:string)=>void;
   showNextStep?:boolean;
   /** A project flow step is already offered; skip the minutes suggestion so only one 下一步 shows. */
   flowNextStep?:boolean;
@@ -34,13 +35,13 @@ export function RoomPresence({ discussion: d, state, invited, ready, locked, bus
   const speechBudget=d?.budgetKind==='speech';
   const available = d?.limit ? Math.max(0, d.limit - (speechBudget?d.speechCalls??0:d.calls)) : undefined;
   const roundCost = !speechBudget&&d?.handRaise && d.members.length > 1 ? d.members.length + 1 : 1;
+  const questions = pendingOwnerQuestions(d);
+  const nextStep=!showNextStep?undefined:questions.length?'等你回答后继续讨论。':d?.phase==='awaiting-host'?'下一步：点名一位已举手的成员继续发言。':d?.style!=='chat'&&d?.phase==='waiting_user'&&!flowNextStep?'下一步：整理会议纪要，核对本轮结论。':undefined;
   const details = d ? [
-    ...(d.phase !== 'idle' && d.reason && d.reason !== '重启后已暂停讨论，请核对进展后继续；不会自动重发旧轮次。' ? [d.reason] : []),
+    ...(d.phase !== 'idle' && d.reason && d.reason !== nextStep && d.reason !== '重启后已暂停讨论，请核对进展后继续；不会自动重发旧轮次。' ? [d.reason] : []),
     ...(d.phase === 'closing' ? ['正在确认每位成员是否还有遗漏或异议。'] : []),
     ...(handActive && d.handRound?.status === 'done' ? [d.handRound.fallback ? '没有人需要补充，等你说话' : `本轮补充：${name(d.handRound.selected ?? '')}`] : []),
   ] : [];
-  const questions = d ? d.questions.filter(question => pendingDiscussionQuestion(question) && question.to === 'user').slice(d.style==='chat'?-3:0) : [];
-  const nextStep=!showNextStep?undefined:d?.style!=='chat'&&questions.length?'下一步：在输入框回答上方问题。':d?.phase==='awaiting-host'?'下一步：点名一位已举手的成员继续发言。':d?.style!=='chat'&&d?.phase==='waiting_user'&&!flowNextStep?'下一步：整理会议纪要，核对本轮结论。':undefined;
   const budget = Boolean(d && (available !== undefined || d.minutes > 0));
   const tone = !d ? '' : LIVE.includes(d.phase) ? 'live' : ['blocked', 'budget'].includes(d.phase) ? 'warn' : ['paused', 'waiting_user','awaiting-host'].includes(d.phase) ? 'hold' : 'rest';
   return <section role="region" className={`room-presence ${d ? `phase-${d.phase}` : ''}`} aria-label="在场与讨论状态" aria-live="polite">
@@ -75,15 +76,14 @@ export function RoomPresence({ discussion: d, state, invited, ready, locked, bus
         {d.callUsage&&<small className="room-presence-usage" aria-label="本次讨论调用次数" title={`${callUsageLabel(d.callUsage)}${speechBudget?` · 正式发言 ${d.speechCalls??0} 次 · 辅助调用 ${Math.max(0,d.calls-(d.speechCalls??0))} 次`:''}\n按实际运行记录计数；发言、举手、纪要、补正、重试均计入，未发出失败单列。`}>{`已发出 ${d.callUsage.delivered} 次 · 完成 ${d.callUsage.completed} 次`}{d.callUsage.unknown?<span className="room-presence-unknown"> · 结果未知 {d.callUsage.unknown} 次</span>:null}</small>}
         {budget && <small className="room-presence-usage room-presence-budget">{available !== undefined && <span aria-label="讨论剩余轮次" title={speechBudget?'只限制正式发言；举手、补正、重试和纪要另记。':`按普通接话每轮 ${roundCost} 次调用估算。`}>剩余 {available} 次{speechBudget?'正式发言':'调用'}{!speechBudget&&` · 普通接话约 ${Math.floor(available / roundCost)} 轮`}</span>}{d!.minutes > 0 && <span>{state.active && d!.deadline ? `剩余约 ${Math.max(0, Math.ceil((d!.deadline - now) / 60000))} 分钟` : `时长预算 ${d!.minutes} 分钟`}</span>}</small>}
         <span className={`room-phase ${tone}`} title={d.phase === 'idle' ? d.reason : undefined}>{phaseLabel(d)}</span>
-        {!state.active && ['paused', 'blocked', 'budget'].includes(d.phase) && <button type="button" className="button small primary" disabled={busy} onClick={onResume}>{d.unknownRunId || d.unknownRunIds?.length ? '核对后继续' : '继续讨论'}</button>}
-        {!state.active && ['waiting_user','idle'].includes(d.phase) && Object.keys(d.skippedMembers??{}).length>0 && <button type="button" className="button small secondary" disabled={busy} onClick={onResume}>{d.unknownRunId||d.unknownRunIds?.length?'核对后重新加入异常成员':'重新加入异常成员'}</button>}
+        {!state.active && ['paused', 'blocked', 'budget'].includes(d.phase) && <button type="button" className="button small primary" disabled={busy||Boolean(questions.length&&!d.interruption)} onClick={onResume}>{d.unknownRunId || d.unknownRunIds?.length ? '核对后继续' : '继续讨论'}</button>}
+        {!state.active && ['waiting_user','idle'].includes(d.phase) && Object.keys(d.skippedMembers??{}).length>0 && <button type="button" className="button small secondary" disabled={busy||Boolean(questions.length&&!d.interruption)} onClick={onResume}>{d.unknownRunId||d.unknownRunIds?.length?'核对后重新加入异常成员':'重新加入异常成员'}</button>}
       </div>}
     </div>
     {d && (details.length > 0 || questions.length > 0 || nextStep) && <div className="room-presence-detail">
       {nextStep&&<p className="room-next-step">{nextStep}</p>}
       {details.map(text => <p key={text}>{text}</p>)}
-      {d.style==='chat'&&questions.length>0&&<p>这些问题可以稍后回答，大家会继续聊天。</p>}
-      {questions.map(question => <p key={question.id} className="room-presence-question"><strong>{name(question.from)} 问你：</strong>{question.text}</p>)}
+      {questions.map(question => <p key={question.id} className="room-presence-question"><strong>{name(question.from)} 问你：</strong>{question.text} {onAnswer&&<button type="button" className="link-button" onClick={()=>onAnswer(question.id)}>回答</button>}</p>)}
     </div>}
   </section>;
 }

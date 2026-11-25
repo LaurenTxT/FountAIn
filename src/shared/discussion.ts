@@ -10,6 +10,8 @@ export type DiscussionStyle = 'chat' | 'work';
 export interface DiscussionQuestion { id: string; from: string; to: string; text: string; messageId: string; answeredBy?: string; expiredBy?: string }
 /** Expiry records a missed casual question without pretending it was answered. */
 export const pendingDiscussionQuestion = (q: DiscussionQuestion) => !q.answeredBy && !q.expiredBy;
+export const pendingOwnerQuestions = (discussion?: RoomDiscussion) =>
+  discussion && discussion.phase !== 'idle' ? discussion.questions.filter(q => q.to === 'user' && pendingDiscussionQuestion(q)) : [];
 export interface HandVote { want: 0 | 1 | 2 | 3; why: string }
 export interface HandBallot extends Partial<HandVote> { runId?: string; status: 'pending' | 'done' | 'invalid' | 'failed' | 'stopped'; error?: string; limited?: boolean }
 export interface HandRound {
@@ -32,6 +34,7 @@ export interface RoomDiscussion {
   questions: DiscussionQuestion[]; reviewRequired: string[]; noProgress: number;
   latestUserId: string; reason?: string; unknownRunId?: string; unknownRunIds?: string[]; acknowledgedRunIds?: string[];
   mentionQueue?:{memberId:string;messageId:string}[]; workWaiting?:boolean;
+  interruption?: {messageId:string; pending:string[]; previousUserId:string; deferredQuestionIds?:string[]; returnPhase:'talking'|'waiting_user'|'paused'};
   proposal?: { id: string; revision: number; proposer: string; accepted: string[]; skipped?:string[] };
   /** Remarks since the user last spoke or since the last proposal to wind down; a chat may propose only after enough of them. */
   sinceProposal?: number;

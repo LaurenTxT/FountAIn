@@ -114,6 +114,8 @@ export const RENDERER_METHODS: readonly string[] = [
   'member.installation',
   'room.end',
   'room.minutes',
+  'room.question.answer',
+  'room.question.interrupt',
   'attention.list',
   'attention.dismiss',
   'team.visibility',

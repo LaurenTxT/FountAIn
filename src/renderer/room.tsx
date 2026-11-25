@@ -6,7 +6,7 @@ import type { PersonalRoomData } from '../shared/member-workspaces';
 import { DEFAULT_ROOM_THREAD, ROOM_REACTIONS, isRoomPass, roomMarkerPending, roomMentions, roomReaction } from '../shared/room';
 import { RoomPresence } from './discussion-status';
 import { streamDiscussionBody } from '../shared/discussion-format';
-import {hasMeetingRemarks,pendingDiscussionQuestion,type DiscussionStyle} from '../shared/discussion';
+import {hasMeetingRemarks,pendingDiscussionQuestion,pendingOwnerQuestions,type DiscussionStyle} from '../shared/discussion';
 import {Modal} from './modals';
 import { isSendKey } from './composer-keys';
 import { RoomBackdrop } from './room-backdrop';
@@ -150,6 +150,32 @@ export function RoomView({ snapshot, invoke: rawInvoke, onOpenSession, onDocumen
   });
   const choosePace = (ms: number) => { setPaceMs(ms); try { localStorage.setItem(PACE_KEY, String(ms)); } catch {} };
   const discussion = state.mode === 'discuss' ? state.discussion : undefined;
+  const ownerQuestions=pendingOwnerQuestions(discussion);
+  const [questionDialog,setQuestionDialog]=useState<{discussionId:string;questionId?:string;memberId:string;quote?:RoomMessage;text:string}>();
+  const [questionBusy,setQuestionBusy]=useState(false),[questionError,setQuestionError]=useState('');
+  const canInterrupt=Boolean(discussion&&discussion.phase!=='idle'&&discussion.phase!=='summarizing'&&!discussion.interruption&&!discussion.unknownRunId&&!discussion.unknownRunIds?.length);
+  const questionMembers=team.members.filter(member=>discussion?.members.includes(member.id)&&!discussion.stoppedMembers?.includes(member.id)&&!discussion.skippedMembers?.[member.id]&&ready(member.executor));
+  function openAnswer(questionId:string) {
+    if(!discussion)return;
+    setQuestionError('');
+    setQuestionDialog({discussionId:discussion.id,questionId,memberId:'',text:''});
+  }
+  function openInterruption(quote?:RoomMessage) {
+    if(!discussion||!canInterrupt)return;
+    setQuestionError('');
+    setQuestionDialog({discussionId:discussion.id,memberId:questionMembers.some(member=>member.id===quote?.author)?quote!.author:'',quote,text:''});
+  }
+  async function submitQuestion() {
+    if(!questionDialog||!questionDialog.text.trim()||questionBusy)return;
+    setQuestionBusy(true);setQuestionError('');
+    try {
+      const {discussionId,questionId,text,memberId,quote}=questionDialog;
+      if(questionId)await invoke('room.question.answer',{discussionId,questionId,text});
+      else await invoke('room.question.interrupt',{discussionId,text,memberId:memberId||null,replyTo:quote?.id});
+      setQuestionDialog(undefined);
+    }catch(error){setQuestionError((error as Error).message);}
+    finally{setQuestionBusy(false);}
+  }
   const [handRaise, setHandRaise] = useState(false);
   const [hostPick,setHostPick]=useState(true);
   // 闲聊 is an open-ended chat without a budget; 开会 is a discussion that closes once the topic is handled.
@@ -452,6 +478,7 @@ export function RoomView({ snapshot, invoke: rawInvoke, onOpenSession, onDocumen
   }
   async function send(text = draft) {
     const body = text.trim();
+    if(ownerQuestions.length||discussion?.interruption)return;
     const sentVersion=composer.version,submitted={...composer.value,text};
     if(!isRelay(body)&&project?.onTaskRequest&&mentionedWorker&&workIntent!=='ask'){if(await project.onTaskRequest(mentionedWorker.id,body.replace('@'+mentionedWorker.name,'').replace('＠'+mentionedWorker.name,'').trim(),workIntent)){composer.sent(submitted,sentVersion);setMention(null);}return;}
     if ((!body && !attach.items.length) || sending || busy || compressing || (state.active && state.mode !== 'discuss') || archived || historyOnly || personalLoading || noTopic) return;
@@ -560,6 +587,8 @@ export function RoomView({ snapshot, invoke: rawInvoke, onOpenSession, onDocumen
         { label: '撤回消息', icon: <RotateCcw size={14} />, onSelect: () => void recallMessage(message, false) },
       ] : []),
       ...(canReply ? [{ label: '回复这条', icon: <Reply size={14} />, onSelect: () => replyToMessage(message) }] : []),
+      ...(!personal&&!archived&&!historyOnly&&canInterrupt&&finished&&!message.contextOnly&&!message.discussionControl
+        ? [{label:'打断并追问',icon:<MessageSquarePlus size={14}/>,onSelect:()=>openInterruption(message)}] : []),
       ...(global ? [{ label: '交给项目', icon: <Briefcase size={14} />, disabled: !text || !finished, onSelect: () => setHandoff({ threadId: selectedId, messageId: message.id, text: handoffText(name(message), text) }) }] : []),
     ];
   }
@@ -658,6 +687,7 @@ export function RoomView({ snapshot, invoke: rawInvoke, onOpenSession, onDocumen
       locked={state.active} busy={busy || Boolean(compressing) || !snapshot.backendReady} onToggle={toggle}
       showNextStep={!surface} flowNextStep={Boolean(project?.flowNextStep)} onConfigure={project?.onConfigureMember}
       onRest={relayEnabled ? (memberId,resting)=>void invoke('room.member.rest',{memberId,resting}).catch(()=>{}) : undefined}
+      onAnswer={openAnswer}
       onHost={id=>void chooseHand('member',id)} onMention={member => quickMention(member.name)}
       onPause={() => void invoke('room.pause').catch(() => {})} onResume={() => void resumeDiscussion()} onEnd={() => void endDiscussion()} />}
     </div>
@@ -776,7 +806,7 @@ export function RoomView({ snapshot, invoke: rawInvoke, onOpenSession, onDocumen
           else if (event.key === 'Backspace' && replyTo && !draft) { setReplyTo(undefined); }
           else if (event.key === 'Escape') { if (candidates.length) setMention(null); else if (replyTo) setReplyTo(undefined); }
         }} disabled={!snapshot.backendReady || busy || historyOnly || personalLoading || noTopic || !composer.ready} />
-        {historyOnly&&<p className="panel-muted" role="status">{surface?.readOnly?surface.hint:personal?.kind==='report'?'原成员已删除，汇报事实保留。':'这份话题只供阅读；继续工作请新开话题。'}</p>}<div className="composer-bottom"><AttachButton onPick={() => void attach.pick()} busy={attach.busy} disabled={!snapshot.backendReady||!composer.ready||historyOnly} />{!project && !personal && <button type="button" className="composer-tool" aria-label="生成图片" disabled={!canGenerateImage||state.active||busy||sending||Boolean(compressing)||!snapshot.backendReady} title={state.active?'生成图片：先暂停讨论并等待当前发言结束':canGenerateImage?'生成图片：让 ChatGPT 生成或修改一张图片':'生成图片：需要连接支持绘图的 ChatGPT，并允许联网'} onClick={()=>setImageDialog({text:draft,draftVersion:composer.version,attachments:attach.items})}><ImagePlus size={16}/></button>}{personal?.composerControls?.(room)}{!personal&&<div className="composer-mode"><div className="segmented" role="radiogroup" aria-label="聊天方式"><button type="button" role="radio" aria-checked={mode === 'chat'} className={mode === 'chat' ? 'selected' : ''} disabled={state.active} onClick={() => setMode('chat')} title="大家自由接话，不限次数；聊到自然告一段落、大家都同意时会收尾">闲聊</button><button type="button" role="radio" aria-checked={mode === 'meeting'} className={mode === 'meeting' ? 'selected' : ''} disabled={state.active} onClick={() => setMode('meeting')} title="每人回答一次后等你；由你点击整理会议纪要结束">开会</button></div>{mode === 'chat' && <div className="segmented" role="radiogroup" aria-label="闲聊节奏" title="每条 AI 发言后的阅读缓冲时间；你在打字时会自动等你发完"><button type="button" role="radio" aria-checked={paceMs === 0} className={paceMs === 0 ? 'selected' : ''} onClick={() => choosePace(0)}>快</button><button type="button" role="radio" aria-checked={paceMs === 6000} className={paceMs === 6000 ? 'selected' : ''} onClick={() => choosePace(6000)}>适中 6s</button><button type="button" role="radio" aria-checked={paceMs === 12000} className={paceMs === 12000 ? 'selected' : ''} onClick={() => choosePace(12000)}>慢 12s</button></div>}{mode === 'meeting' && <><label className="room-hand-option" title="一轮回答后举手，每人最多补充一次，没人举手后等你。单人会议不需要举手。举手也计入调用次数。"><input type="checkbox" checked={handRaise&&participants.length>1} disabled={participants.length<2||state.active||discussion?.phase==='awaiting-host'} onChange={e => {setHandRaise(e.target.checked);if(e.target.checked)setHostPick(!project);}} />{project?'AI 自行补充':'举手模式'}</label>{handRaise&&<label className="room-hand-option"><input type="checkbox" checked={hostPick} disabled={state.active||discussion?.phase==='awaiting-host'} onChange={e=>setHostPick(e.target.checked)}/>举手后由我点名</label>}</>}</div>}<span className="composer-hint" title={relayEnabled ? '跨项目：@项目/成员 问题；@成员 切到 项目；/back 返回' : personal ? undefined : roomHint}>{personal?personal.kind==='desk'?personalSession?.restoredHistoryOnly?'只读历史':personalSession&&!personalSession.writeMode?'只读查看当前文件夹':personalSession?.workspaceKind==='original'?'直接读写当前文件夹':'在任务副本中工作，应用后写回原文件夹':'只读回答；改要求请通过任务按钮确认':roomHint}{composer.hasDraft?' · 草稿已保留':''}</span>{!personal&&(discussion&&discussion.phase!=='idle'?discussion.style!=='chat':mode==='meeting')&&<button type="button" className={`button small ${discussion?.phase==='waiting_user'&&!discussion.questions.some(q=>q.to==='user'&&pendingDiscussionQuestion(q))?'primary':'secondary'} composer-minutes`} aria-label="整理会议纪要" disabled={!snapshot.backendReady||stopping||minutesBusy||historyOnly||!hasMeetingRemarks(discussion,messages)||discussion?.phase==='summarizing'||!minutesMembers.length} onClick={()=>void openMinutes()}><FileStack size={15}/>整理会议纪要</button>}{(stopping||surface?.active||state.active||compressing||state.generatingImage||discussion&&['talking','raising','awaiting-host','closing','summarizing'].includes(discussion.phase))&&<button type="button" className="button small stop-button" aria-label="中止当前对话" disabled={!snapshot.backendReady||stopping} onClick={()=>{setStopping(true);void invoke('room.stop').catch(()=>{}).finally(()=>setStopping(false));}}><StopCircle size={15}/>中止</button>}<button type="button" className="send-button room-send" aria-label={personal?personal.kind==='desk'?'发送到工位':'发送到汇报':mode === 'meeting' && !(discussion && discussion.phase !== 'idle') ? '开始会议' : '发送到聊天室'} disabled={(!draft.trim() && !attach.items.length) || sending || busy || (state.active && state.mode !== 'discuss') || Boolean(compressing) || (!usable.length && !discussion && !relayDraft)  || !snapshot.backendReady || historyOnly || personalLoading || noTopic || !composer.ready} onClick={() => void send()}>{sending ? <LoaderCircle size={15} className="spin" /> : <Send size={15} />}</button></div>
+        {historyOnly&&<p className="panel-muted" role="status">{surface?.readOnly?surface.hint:personal?.kind==='report'?'原成员已删除，汇报事实保留。':'这份话题只供阅读；继续工作请新开话题。'}</p>}<div className="composer-bottom">{!personal&&!historyOnly&&canInterrupt&&<button type="button" className="button small quiet" disabled={!snapshot.backendReady} onClick={()=>openInterruption()}>打断提问</button>}<AttachButton onPick={() => void attach.pick()} busy={attach.busy} disabled={!snapshot.backendReady||!composer.ready||historyOnly} />{!project && !personal && <button type="button" className="composer-tool" aria-label="生成图片" disabled={!canGenerateImage||state.active||busy||sending||Boolean(compressing)||!snapshot.backendReady} title={state.active?'生成图片：先暂停讨论并等待当前发言结束':canGenerateImage?'生成图片：让 ChatGPT 生成或修改一张图片':'生成图片：需要连接支持绘图的 ChatGPT，并允许联网'} onClick={()=>setImageDialog({text:draft,draftVersion:composer.version,attachments:attach.items})}><ImagePlus size={16}/></button>}{personal?.composerControls?.(room)}{!personal&&<div className="composer-mode"><div className="segmented" role="radiogroup" aria-label="聊天方式"><button type="button" role="radio" aria-checked={mode === 'chat'} className={mode === 'chat' ? 'selected' : ''} disabled={state.active} onClick={() => setMode('chat')} title="大家自由接话，不限次数；聊到自然告一段落、大家都同意时会收尾">闲聊</button><button type="button" role="radio" aria-checked={mode === 'meeting'} className={mode === 'meeting' ? 'selected' : ''} disabled={state.active} onClick={() => setMode('meeting')} title="每人回答一次后等你；由你点击整理会议纪要结束">开会</button></div>{mode === 'chat' && <div className="segmented" role="radiogroup" aria-label="闲聊节奏" title="每条 AI 发言后的阅读缓冲时间；你在打字时会自动等你发完"><button type="button" role="radio" aria-checked={paceMs === 0} className={paceMs === 0 ? 'selected' : ''} onClick={() => choosePace(0)}>快</button><button type="button" role="radio" aria-checked={paceMs === 6000} className={paceMs === 6000 ? 'selected' : ''} onClick={() => choosePace(6000)}>适中 6s</button><button type="button" role="radio" aria-checked={paceMs === 12000} className={paceMs === 12000 ? 'selected' : ''} onClick={() => choosePace(12000)}>慢 12s</button></div>}{mode === 'meeting' && <><label className="room-hand-option" title="一轮回答后举手，每人最多补充一次，没人举手后等你。单人会议不需要举手。举手也计入调用次数。"><input type="checkbox" checked={handRaise&&participants.length>1} disabled={participants.length<2||state.active||discussion?.phase==='awaiting-host'} onChange={e => {setHandRaise(e.target.checked);if(e.target.checked)setHostPick(!project);}} />{project?'AI 自行补充':'举手模式'}</label>{handRaise&&<label className="room-hand-option"><input type="checkbox" checked={hostPick} disabled={state.active||discussion?.phase==='awaiting-host'} onChange={e=>setHostPick(e.target.checked)}/>举手后由我点名</label>}</>}</div>}<span className="composer-hint" title={relayEnabled ? '跨项目：@项目/成员 问题；@成员 切到 项目；/back 返回' : personal ? undefined : roomHint}>{personal?personal.kind==='desk'?personalSession?.restoredHistoryOnly?'只读历史':personalSession&&!personalSession.writeMode?'只读查看当前文件夹':personalSession?.workspaceKind==='original'?'直接读写当前文件夹':'在任务副本中工作，应用后写回原文件夹':'只读回答；改要求请通过任务按钮确认':roomHint}{composer.hasDraft?' · 草稿已保留':''}</span>{!personal&&(discussion&&discussion.phase!=='idle'?discussion.style!=='chat':mode==='meeting')&&<button type="button" className={`button small ${discussion?.phase==='waiting_user'&&!discussion.questions.some(q=>q.to==='user'&&pendingDiscussionQuestion(q))?'primary':'secondary'} composer-minutes`} aria-label="整理会议纪要" disabled={!snapshot.backendReady||stopping||minutesBusy||historyOnly||Boolean(ownerQuestions.length||discussion?.interruption)||!hasMeetingRemarks(discussion,messages)||discussion?.phase==='summarizing'||!minutesMembers.length} onClick={()=>void openMinutes()}><FileStack size={15}/>整理会议纪要</button>}{(stopping||surface?.active||state.active||compressing||state.generatingImage||discussion&&['talking','raising','awaiting-host','closing','summarizing'].includes(discussion.phase))&&<button type="button" className="button small stop-button" aria-label="中止当前对话" disabled={!snapshot.backendReady||stopping} onClick={()=>{setStopping(true);void invoke('room.stop').catch(()=>{}).finally(()=>setStopping(false));}}><StopCircle size={15}/>中止</button>}<button type="button" className="send-button room-send" aria-label={personal?personal.kind==='desk'?'发送到工位':'发送到汇报':mode === 'meeting' && !(discussion && discussion.phase !== 'idle') ? '开始会议' : '发送到聊天室'} disabled={(!draft.trim() && !attach.items.length) || sending || busy || Boolean(ownerQuestions.length||discussion?.interruption) || (state.active && state.mode !== 'discuss') || Boolean(compressing) || (!usable.length && !discussion && !relayDraft)  || !snapshot.backendReady || historyOnly || personalLoading || noTopic || !composer.ready} onClick={() => void send()}>{sending ? <LoaderCircle size={15} className="spin" /> : <Send size={15} />}</button></div>
       </div>
     </div>; })()}
     </div>
@@ -809,6 +839,21 @@ export function RoomView({ snapshot, invoke: rawInvoke, onOpenSession, onDocumen
     {panel && <TopicPanel onChanged={() => setReloads(n => n + 1)} snapshot={personal?{...snapshot,room}:snapshot} personal={Boolean(personal)} historyOnly={historyOnly} selectedId={selectedId} usable={writers} invoke={invoke} busy={busy}
       onSelect={id => { void selectTopic(id); setPanel(false); }} onContinue={item => personal?void selectTopic(item.id):setNewTopic({ from: item })}
       onExport={id => void exportTopic(id)} onClear={() => void manage('clear')} onClose={() => setPanel(false)} />}
+    {questionDialog&&questionDialog.discussionId===discussion?.id&&!archived&&<Modal
+      title={questionDialog.questionId?'回答成员':'打断提问'}
+      onClose={()=>{if(!questionBusy)setQuestionDialog(undefined);}}>
+      <div className="modal-body">
+        {questionDialog.questionId ? <blockquote>{ownerQuestions.find(item=>item.id===questionDialog.questionId)?.text??'这条问题已处理。'}</blockquote> : <>
+          <label className="field">谁先回答<select value={questionDialog.memberId} disabled={questionBusy} onChange={e=>setQuestionDialog({...questionDialog,memberId:e.target.value})}><option value="">所有可用参会成员</option>{questionMembers.map(member=><option key={member.id} value={member.id}>{member.name}</option>)}</select></label>
+          {questionDialog.quote&&<blockquote>{name(questionDialog.quote)}：{questionDialog.quote.text.slice(0,350)}</blockquote>}
+        </>}
+        <form id="owner-question-form" onSubmit={event=>{event.preventDefault();void submitQuestion();}}>
+          <label className="field">{questionDialog.questionId?'你的回答':'你的问题'}<textarea rows={4} autoFocus maxLength={12000} disabled={questionBusy} value={questionDialog.text} onChange={e=>setQuestionDialog({...questionDialog,text:e.target.value})}/></label>
+        </form>
+        {questionError&&<p role="alert">{questionError}</p>}
+      </div>
+      <div className="modal-footer"><button type="button" className="button quiet" disabled={questionBusy} onClick={()=>setQuestionDialog(undefined)}>关闭</button><button type="submit" form="owner-question-form" className="button primary" disabled={questionBusy||!questionDialog.text.trim()}>{questionDialog.questionId?'提交回答':'发送并优先回答'}</button></div>
+    </Modal>}
     {autoCompressDialog&&<Modal title="自动压缩设置" subtitle="此设置用于茶歇室和项目会议室。" onClose={()=>{if(!savingAutoCompress)setAutoCompressDialog(undefined);}}>
       <div className="modal-body">
         <label><input type="checkbox" checked={autoCompressDialog.enabled} disabled={savingAutoCompress} onChange={event=>setAutoCompressDialog({...autoCompressDialog,enabled:event.target.checked})}/>自动压缩上下文</label>
