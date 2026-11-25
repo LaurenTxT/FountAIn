@@ -104,8 +104,7 @@ const hudPhone = new HudPhoneServer();
 let hudBilling: RelayBilling | undefined;
 let hudBillingBusy = false;
 let hudBillingFailed = false;
-const officeDirectory = process.env.FOUNTAIN_CODE_ROOT;
-const agyQuotaFile = officeDirectory && path.join(officeDirectory, '02_Reviews_and_Debug', 'agy-quota-result.json');
+const agyQuotaFile = path.join(dataDirectory, 'agy-quota-result.json');
 
 function hasRelayBilling() {
   return relayBillingConfigured(lastSnapshot?.settings.claudeAuthMode, lastSnapshot?.settings.claudeApiBaseUrl);
@@ -125,11 +124,44 @@ function hudSnapshot(): HudSnapshot {
   return { rows: hudRows(), apiRelay: hasRelayBilling(), attention: lastSnapshot?.attention?.total ?? 0 };
 }
 
+function resolveAgyExecutable(): string | undefined {
+  const fromExecutors = lastSnapshot?.executors?.find(e => /(?:^|[\\/])agy(?:\.exe)?$/i.test(e.command))?.command;
+  const candidates = [
+    fromExecutors,
+    process.env.LOCALAPPDATA ? path.join(process.env.LOCALAPPDATA, 'agy', 'bin', 'agy.exe') : undefined,
+    process.env.USERPROFILE ? path.join(process.env.USERPROFILE, '.local', 'bin', 'agy.exe') : undefined,
+  ];
+  return candidates.find((p): p is string => Boolean(p && existsSync(p)));
+}
+
 async function openAgyQuota() {
-  if (!officeDirectory) throw new Error('找不到 FountAIn 安装目录。');
-  const scriptPath = path.join(officeDirectory, '02_Reviews_and_Debug', 'Open-Antigravity-Quota.cmd');
-  const resultPath = path.join(officeDirectory, '02_Reviews_and_Debug', 'agy-quota-result.json');
+  const agyExe = resolveAgyExecutable();
+  if (!agyExe) throw new Error('未找到本机 Antigravity CLI (agy.exe)，请先在「设置与连接」中配置 Antigravity 执行端。');
+  const resultPath = agyQuotaFile;
   const before = existsSync(resultPath) ? statSync(resultPath).mtimeMs : 0;
+  const hookScript = path.join(nativeTemp, 'agy-quota-hook.mjs');
+  const settingsFile = path.join(nativeTemp, 'agy-quota-settings.json');
+  const runnerCmd = path.join(nativeTemp, 'agy-quota-hook.cmd');
+  const launcherCmd = path.join(nativeTemp, 'agy-quota-launch.cmd');
+  const hookCode = [
+    "import { writeFileSync } from 'node:fs';",
+    "let raw = '';",
+    "process.stdin.setEncoding('utf8');",
+    "process.stdin.on('data', c => { raw += c; });",
+    "process.stdin.on('end', () => {",
+    "  try {",
+    "    const data = JSON.parse(raw);",
+    "    const buckets = data?.quota?.buckets ?? data?.quota ?? data?.rate_limits ?? data?.buckets ?? data;",
+    "    if (buckets && (buckets['gemini-5h'] || buckets['gemini-weekly'])) {",
+    `      writeFileSync(${JSON.stringify(resultPath)}, JSON.stringify(buckets), 'utf8');`,
+    "    }",
+    "  } catch {}",
+    "});",
+  ].join('\n');
+  writeFileSync(hookScript, hookCode, 'utf8');
+  writeFileSync(runnerCmd, `@echo off\r\nset "ELECTRON_RUN_AS_NODE=1"\r\n"${process.execPath}" "${hookScript}"\r\n`, 'utf8');
+  writeFileSync(settingsFile, JSON.stringify({ statusLine: { type: 'command', command: runnerCmd } }), 'utf8');
+  writeFileSync(launcherCmd, `@echo off\r\nset "ELECTRON_RUN_AS_NODE="\r\n"${agyExe}" --settings "${settingsFile}"\r\n`, 'utf8');
   // agy.exe needs a real console/TTY to fire its statusLine hook; launch minimized so it never steals focus,
   // and auto-close the console tree the moment agy-quota-result.json is updated.
   const ps = path.join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe');
@@ -137,9 +169,9 @@ async function openAgyQuota() {
   let launchedPid: number | undefined;
   await new Promise<void>((resolve, reject) => {
     const launcher = spawn(ps, ['-NoLogo', '-NoProfile', '-NonInteractive', '-Command', cmd], {
-      cwd: officeDirectory,
+      cwd: dataDirectory,
       windowsHide: true,
-      env: { ...process.env, FOUNTAIN_AGY_CMD: scriptPath, FOUNTAIN_AGY_CWD: officeDirectory },
+      env: { ...process.env, FOUNTAIN_AGY_CMD: launcherCmd, FOUNTAIN_AGY_CWD: dataDirectory },
       stdio: ['ignore', 'pipe', 'ignore'],
     });
     let out = '';
