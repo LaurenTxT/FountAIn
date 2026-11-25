@@ -115,7 +115,7 @@ import { RoomDiscussionController } from "./room-discussion";
 import { QqBridgeController, type QqInboundMessage, type QqReplyTarget } from "./qq-bridge";
 import { RoomContexts } from "./room-contexts";
 import type { RoomId } from "../shared/types";
-import { projectRelayIntent, projectRelayRequest, type ProjectRelayTarget } from "../shared/project-relay";
+import { extractMemberCrossRelays, projectRelayIntent, projectRelayRequest, type ProjectRelayTarget } from "../shared/project-relay";
 import { buildEnvironment, claudeApiBaseUrl, redact, registerSecret } from "./security";
 import {
   MEMBER_PACKAGES,
@@ -385,6 +385,18 @@ export class Engine {
   private autoCompressTimers = new Map<string, NodeJS.Timeout>();
   private qqBridge!: QqBridgeController;
   private projectRelayFocus = new Map<string, ProjectRelayTarget>();
+  private crossRoomWaiters = new Map<
+    RoomId,
+    {
+      id: string;
+      since: string;
+      memberId: string;
+      label: string;
+      reply: (author: string, body: string) => void;
+      expiresAt: number;
+    }[]
+  >();
+  private memberRelayedIds = new Set<string>();
   private qqReplyTargets = new Map<RoomId, QqReplyTarget & { since: string }>();
   private qqForwardedIds = new Set<string>();
   private projectTree: ProjectTree;
@@ -795,6 +807,8 @@ export class Engine {
         const st = store.roomState();
         if (!st.active && !st.compressing) this.scheduleAutoCompress(roomId);
         this.forwardQqReplies(roomId, store);
+        this.flushCrossRoomWaiters(roomId, store);
+        this.checkMemberCrossRelays(roomId, store);
       },
       working: (memberId) => workingRoomMember(this.store, roomId, memberId),
       taskStatus: (memberId) => roomTaskStatus(this.store, roomId, memberId),
@@ -7620,24 +7634,51 @@ export class Engine {
     }
     const label = "【" + project.name + " · " + member.name + "】";
     const body = route.body;
-    if (route.task && !body) throw new Error("请在「交办」后写清任务。");
-    if (route.task && input.attachments?.length) throw new Error("请先把交办所需附件放入目标项目，再注明文件名。");
+    const meetingId: RoomId = ("project:" + project.id) as RoomId;
+    // If already in the target project's own meeting room and not switching focus,
+    // let the current meeting room handle it directly instead of spawning a self-relay.
+    if (input.originRoomId === meetingId && !route.follow) return false;
+    if (route.task && !body) throw new Error("请在「交办」或委派指令后写清需要执行的操作。");
 
     const reportRoom = this.memberWorkspaces.ensureReport(project.id, member.id);
     if (route.task) {
-      const flow = this.store.list<ProjectFlow>("project_flows")
-        .findLast(item => item.projectId === project.id && item.status === "active");
-      if (!flow) throw new Error("目标项目没有已确认的活动方案。可以先询问分身，或在目标房间确认方案后再交办。");
-      await this.projectFlow.invoke("projectFlow.task.prepare", {
-        requestId: "project-relay:" + randomUUID(), flowId: flow.id, expectedRevision: flow.revision,
-        memberId: member.id, title: body.slice(0, 72), goal: body,
-        sourceText: "来自 " + input.origin + " 的跨项目交办\n" + body,
+      this.store.ensureProjectRoom(project.id);
+      const waiterId = randomUUID();
+      const since = new Date().toISOString();
+      const waiters = this.crossRoomWaiters.get(meetingId) ?? [];
+      waiters.push({
+        id: waiterId,
+        since,
+        memberId: member.id,
+        label,
+        reply: input.reply,
+        expiresAt: Date.now() + 15 * 60_000,
       });
+      this.crossRoomWaiters.set(meetingId, waiters);
+      try {
+        await this.rooms.run(meetingId, () =>
+          this.roomSend(
+            {
+              mode: "discuss",
+              style: "work",
+              text:
+                `@${member.name} [来自 ${input.origin} 的跨室委派] ${body}\n` +
+                "（跨室委派：请直接在本室权限内完成并汇报结果，勿再跨室 @ 其他项目）",
+              memberIds: [member.id],
+              attachments: input.attachments?.length ? input.attachments : undefined,
+            },
+            false,
+          ),
+        );
+      } catch (err) {
+        const remaining = (this.crossRoomWaiters.get(meetingId) ?? []).filter((w) => w.id !== waiterId);
+        if (remaining.length) this.crossRoomWaiters.set(meetingId, remaining);
+        else this.crossRoomWaiters.delete(meetingId);
+        throw err;
+      }
       input.accept?.();
-      input.reply(member.id, label + " 已收到交办，负责人正在准备追加任务。准备完成后可在目标会议室的「待你处理」确认。");
-      void this.schedule();
+      input.reply("system", `已将操作委派给 ${label}（目标会议室本室成员），完成后会自动把结果传回这里。`);
     } else if (body || input.attachments?.length) {
-      const meetingId: RoomId = ("project:" + project.id) as RoomId;
       const meeting = this.store.ensureProjectRoom(project.id);
       const remarks = this.store.allRoomMessages(meeting.id, meetingId)
         .filter(message => (!message.status || message.status === "done") && !message.contextOnly && !message.projectRelay && message.text)
@@ -7947,6 +7988,115 @@ export class Engine {
       const senderLabel = msg.authorName || msg.author;
       const body = fixedId ? msg.text.trim() : `【${senderLabel}】\n${msg.text.trim()}`;
       this.qqBridge.sendReply(target, body, images);
+    }
+  }
+  private flushCrossRoomWaiters(roomId: RoomId, store: Store) {
+    const waiters = this.crossRoomWaiters.get(roomId);
+    if (!waiters?.length) return;
+    const now = Date.now();
+    const active = waiters.filter((w) => w.expiresAt > now);
+    if (!active.length) {
+      this.crossRoomWaiters.delete(roomId);
+      return;
+    }
+    const thread = store.currentRoomThread();
+    if (!thread) return;
+    const recent = store.allRoomMessages(thread.id).slice(-12);
+    const remaining: typeof active = [];
+    for (const waiter of active) {
+      const match = recent.find(
+        (msg) =>
+          msg.author === waiter.memberId &&
+          msg.at >= waiter.since &&
+          !msg.system &&
+          !msg.discussionControl &&
+          !msg.contextOnly &&
+          !msg.projectRelay &&
+          (msg.status === "done" || msg.status === "failed" || msg.status === "stopped"),
+      );
+      if (!match) {
+        remaining.push(waiter);
+        continue;
+      }
+      const answer =
+        match.status === "done" && match.text?.trim()
+          ? match.text.trim()
+          : match.error || (match.status === "stopped" ? "目标成员已停止执行。" : "目标成员未返回有效结果。");
+      waiter.reply(waiter.memberId, waiter.label + "\n" + answer);
+    }
+    if (remaining.length) this.crossRoomWaiters.set(roomId, remaining);
+    else this.crossRoomWaiters.delete(roomId);
+  }
+  private checkMemberCrossRelays(roomId: RoomId, store: Store) {
+    // Hard depth limit: read-only report clones never initiate further cross-room relays.
+    if (roomId.startsWith("report:")) return;
+    const thread = store.currentRoomThread();
+    if (!thread) return;
+    const projects = this.store.list<Project>("projects").filter((project) => !project.kind);
+    if (!projects.length) return;
+    const members = this.store.members();
+    const aliases = projects.flatMap((project) => {
+      const parent = projects.find((item) => item.id === project.parentId);
+      return [
+        { id: project.id, name: project.name },
+        ...(parent ? [{ id: project.id, name: parent.name + " / " + project.name }] : []),
+      ];
+    });
+    const recent = store.allRoomMessages(thread.id).slice(-6);
+    for (const msg of recent) {
+      if (
+        msg.status !== "done" ||
+        msg.author === "user" ||
+        msg.system ||
+        msg.discussionControl ||
+        msg.contextOnly ||
+        msg.projectRelay ||
+        !msg.text?.trim()
+      ) {
+        continue;
+      }
+      if (this.memberRelayedIds.has(msg.id)) continue;
+      this.memberRelayedIds.add(msg.id);
+      if (this.memberRelayedIds.size > 500) {
+        const first = this.memberRelayedIds.values().next().value;
+        if (first) this.memberRelayedIds.delete(first);
+      }
+      const calls = extractMemberCrossRelays(msg.text, aliases, members);
+      for (const call of calls) {
+        if (("project:" + call.projectId) === roomId) continue;
+        const targetProject = projects.find((p) => p.id === call.projectId);
+        const targetMember = members.find((m) => m.id === call.memberId);
+        if (!targetProject || !targetMember) continue;
+        const reply = (author: string, body: string) => {
+          if (!this.store.get("room_threads", thread.id)) return;
+          const id = randomUUID();
+          store.put("room_messages", id, {
+            id,
+            roomId,
+            threadId: thread.id,
+            author,
+            text: body,
+            at: new Date().toISOString(),
+            status: "done",
+            projectRelay: true,
+            replyTo: msg.id,
+          } satisfies RoomMessage);
+          this.broadcast();
+          const qqTarget = this.qqReplyTargets.get(roomId);
+          if (qqTarget && this.qqBridge.status().connected && author !== "system") {
+            this.qqBridge.sendReply(qqTarget, body);
+          }
+        };
+        void this.relayProject({
+          key: "member-relay:" + msg.id + ":" + call.projectId + ":" + call.memberId,
+          text: "@" + targetProject.name + "/" + targetMember.name + " " + call.body,
+          origin: this.resolveQqRoomName(roomId) + " · " + (msg.authorName || msg.author),
+          originRoomId: roomId,
+          reply,
+        }).catch((err) => {
+          reply("system", "跨室调用失败：" + redact((err as Error).message));
+        });
+      }
     }
   }
   async close() {
