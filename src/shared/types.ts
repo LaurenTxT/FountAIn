@@ -81,6 +81,7 @@ export interface Settings {
   stopTimeoutMs: number; defaultWriteMode: boolean;
   /** Context Keeper: automatically compress long room threads when idle (manual compression always stays available). */
   autoCompressContext?: boolean;
+  autoCompressMemberId?: string;
   /** Max native transcript/context size in KB per room member before resetting to a fresh session from FountAIn summary (0 = official default, no early reset). */
   nativeContextLimitKB?: number;
   /** Optional local OneBot v11 (NapCat) QQ bridge for remote-controlling FountAIn rooms from QQ. */

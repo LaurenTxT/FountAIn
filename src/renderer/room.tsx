@@ -568,12 +568,28 @@ export function RoomView({ snapshot, invoke: rawInvoke, onOpenSession, onDocumen
   async function react(message: RoomMessage, emoji: string) { try { await invoke('room.react', { messageId: message.id, emoji }); } catch {} }
 
   const autoCompressOn = snapshot.settings.autoCompressContext !== false;
-  const toggleAutoCompress = () => {
-    void invoke('room.autoCompress', { enabled: !autoCompressOn }, autoCompressOn ? '已关闭自动压缩上下文（仍可随时手动压缩）。' : '已开启上下文管理员自动压缩。').catch(() => {});
-  };
+  const autoCompressAvailable = !personal && !surface && (global || roomId.startsWith('project:'));
+  const autoCompressName = team.get(snapshot.settings.autoCompressMemberId)?.name;
+  const autoCompressLabel = '自动压缩设置 · ' + (autoCompressOn ? autoCompressName ?? (snapshot.settings.autoCompressMemberId ? '管理员不可用' : '自动选人') : '已关闭');
+  const [autoCompressDialog,setAutoCompressDialog]=useState<{enabled:boolean;memberId:string}>();
+  const [savingAutoCompress,setSavingAutoCompress]=useState(false);
+  const [autoCompressError,setAutoCompressError]=useState('');
+  function openAutoCompress() {
+    setAutoCompressError('');
+    setAutoCompressDialog({enabled:autoCompressOn,memberId:snapshot.settings.autoCompressMemberId??''});
+  }
+  async function saveAutoCompress() {
+    if(!autoCompressDialog)return;
+    setSavingAutoCompress(true);setAutoCompressError('');
+    try {
+      await invoke('room.autoCompress',{enabled:autoCompressDialog.enabled,memberId:autoCompressDialog.memberId||null},'自动压缩设置已保存。');
+      setAutoCompressDialog(undefined);
+    }catch(error){setAutoCompressError((error as Error).message);}
+    finally{setSavingAutoCompress(false);}
+  }
   const recordItems: MenuItem[] = [
     ...(messages.length > 0 ? [{ label: '压缩上下文', icon: <Sparkles size={14} />, disabled: busy || state.active || Boolean(compressing) || !summarizer.member || !snapshot.backendReady || Boolean(surface?.readOnly), onSelect: () => void compressCurrent() }] : []),
-    ...(!surface?.readOnly ? [{ label: `自动压缩上下文（管理员）：${autoCompressOn ? '已开启' : '已关闭'}`, icon: <Sparkles size={14} />, disabled: !snapshot.backendReady, onSelect: toggleAutoCompress }] : []),
+    ...(autoCompressAvailable ? [{ label: autoCompressLabel, icon: <Sparkles size={14} />, disabled: !snapshot.backendReady, onSelect: openAutoCompress }] : []),
     { label: '导出会议记录', icon: <Download size={14} />, disabled: busy || state.active || !messages.length || !snapshot.backendReady, onSelect: () => void exportTopic() },
     ...(surface ? [] : ['separator' as const, { label: '清空会议记录', icon: <Eraser size={14} />, danger: true, disabled: busy || state.active || !messages.length || !snapshot.backendReady, onSelect: () => void manage('clear') }]),
   ];
@@ -629,7 +645,7 @@ export function RoomView({ snapshot, invoke: rawInvoke, onOpenSession, onDocumen
       <button type="button" className={`icon-button topic-more ${panel ? 'pressed' : ''}`} aria-label="话题操作" aria-haspopup="menu" title="话题管理、压缩、导出和清空" onClick={event => { const rect = event.currentTarget.getBoundingClientRect(); setMenu({ x: rect.left, y: rect.bottom + 6, items: [
         { label: panel ? '收起话题管理' : '话题管理', icon: <Layers size={14} />, onSelect: () => setPanel(value => !value) },
         ...(!archived && messages.length > 0 ? [{ label: '压缩上下文', icon: <Sparkles size={14} />, disabled: busy || state.active || Boolean(compressing) || !summarizer.member || !snapshot.backendReady || historyOnly, onSelect: () => void compressCurrent() }] : []),
-        ...(!archived && !historyOnly ? [{ label: `自动压缩上下文（管理员）：${autoCompressOn ? '已开启' : '已关闭'}`, icon: <Sparkles size={14} />, disabled: !snapshot.backendReady, onSelect: toggleAutoCompress }] : []),
+        ...(!archived && !historyOnly && autoCompressAvailable ? [{ label: autoCompressLabel, icon: <Sparkles size={14} />, disabled: !snapshot.backendReady, onSelect: openAutoCompress }] : []),
         { label: personal ? '导出当前话题' : '导出聊天室', icon: <Download size={14} />, disabled: busy || state.active || !messages.length || !snapshot.backendReady, onSelect: () => void exportTopic() },
         'separator' as const,
         archived ? { label: '删除归档话题', icon: <Trash2 size={14} />, danger: true, disabled: busy || state.active, onSelect: () => void manage('delete') }
@@ -793,6 +809,21 @@ export function RoomView({ snapshot, invoke: rawInvoke, onOpenSession, onDocumen
     {panel && <TopicPanel onChanged={() => setReloads(n => n + 1)} snapshot={personal?{...snapshot,room}:snapshot} personal={Boolean(personal)} historyOnly={historyOnly} selectedId={selectedId} usable={writers} invoke={invoke} busy={busy}
       onSelect={id => { void selectTopic(id); setPanel(false); }} onContinue={item => personal?void selectTopic(item.id):setNewTopic({ from: item })}
       onExport={id => void exportTopic(id)} onClear={() => void manage('clear')} onClose={() => setPanel(false)} />}
+    {autoCompressDialog&&<Modal title="自动压缩设置" subtitle="此设置用于茶歇室和项目会议室。" onClose={()=>{if(!savingAutoCompress)setAutoCompressDialog(undefined);}}>
+      <div className="modal-body">
+        <label><input type="checkbox" checked={autoCompressDialog.enabled} disabled={savingAutoCompress} onChange={event=>setAutoCompressDialog({...autoCompressDialog,enabled:event.target.checked})}/>自动压缩上下文</label>
+        <label className="field">自动压缩管理员
+          <select value={autoCompressDialog.memberId} disabled={savingAutoCompress} onChange={event=>setAutoCompressDialog({...autoCompressDialog,memberId:event.target.value})}>
+            <option value="">自动选择</option>
+            {autoCompressDialog.memberId&&!team.get(autoCompressDialog.memberId)&&<option value={autoCompressDialog.memberId}>原管理员已移除</option>}
+            {team.members.map(member=><option key={member.id} value={member.id}>{member.name}{ready(member.executor)?'':'（暂不可用）'}</option>)}
+          </select>
+        </label>
+        <p className="panel-muted">指定成员忙碌、休息或额度耗尽时，自动压缩会等待该成员可用。</p>
+        {autoCompressError&&<p role="alert">{autoCompressError}</p>}
+      </div>
+      <div className="modal-footer"><button type="button" className="button quiet" disabled={savingAutoCompress} onClick={()=>setAutoCompressDialog(undefined)}>取消</button><button type="button" className="button primary" disabled={savingAutoCompress||Boolean(autoCompressDialog.memberId&&!team.get(autoCompressDialog.memberId))} onClick={()=>void saveAutoCompress()}>保存</button></div>
+    </Modal>}
     {minutesDialog&&<Modal title="整理会议纪要" subtitle="依据目前已保存的发言整理结论、分歧和下一步；写完后结束本次会议。" onClose={()=>{if(!minutesBusy)setMinutesDialog(undefined);}}><div className="modal-body"><label className="field">整理纪要的成员<select aria-label="纪要成员" value={minutesDialog.memberId} disabled={minutesBusy} onChange={e=>setMinutesDialog({...minutesDialog,memberId:e.target.value})}>{minutesMembers.map(m=><option key={m.id} value={m.id}>{m.name}</option>)}</select></label>{minutesDialog.interrupt&&<p>正在进行的发言会先中止，已保存的发言保留。</p>}<p>预计 1 次调用。</p>{minutesError&&<p role="alert">{minutesError}</p>}</div><div className="modal-footer"><button className="button quiet" disabled={minutesBusy} onClick={()=>setMinutesDialog(undefined)}>取消</button><button className="button primary" disabled={minutesBusy||!minutesDialog.memberId} onClick={()=>void confirmMinutes()}>{minutesBusy?'正在处理…':'确认整理'}</button></div></Modal>}
     <ContextMenu menu={menu} onClose={() => setMenu(null)} />
     {imageDialog&&<ImageGenerationDialog snapshot={snapshot} invoke={invoke} text={imageDialog.text} attachments={imageDialog.attachments} onClose={()=>setImageDialog(null)} onSent={()=>{setImageDialog(null);composer.clear(imageDialog.draftVersion);pinned.current=true;}}/>}

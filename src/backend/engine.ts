@@ -3076,12 +3076,21 @@ export class Engine {
           params.memberId,
         );
       case "room.autoCompress": {
-        const enabled = params.enabled !== false;
-        this.settings = { ...this.settings, autoCompressContext: enabled };
+        if (params.enabled !== undefined && typeof params.enabled !== "boolean")
+          throw new Error("请选择开启或关闭自动压缩。");
+        const enabled = params.enabled ?? (this.settings.autoCompressContext !== false);
+        const memberId = params.memberId;
+        if (memberId !== undefined && memberId !== null &&
+            (typeof memberId !== "string" || !this.store.members().some(member => member.id === memberId)))
+          throw new Error("请选择有效的压缩管理员。");
+        this.settings = {
+          ...this.settings, autoCompressContext: enabled,
+          ...(memberId !== undefined ? { autoCompressMemberId: memberId ?? undefined } : {}),
+        };
         this.store.put("settings", "main", this.settings);
         this.broadcast();
         if (enabled) this.scheduleAutoCompress(this.roomId);
-        return { enabled };
+        return { enabled, memberId: this.settings.autoCompressMemberId };
       }
       case "room.rename":
         return this.roomRename(String(params.threadId ?? ""), params.title);
@@ -5996,15 +6005,19 @@ export class Engine {
   }
   /** Context Keeper: pick the fastest ready member to summarize when a room thread grows long. */
   private pickAutoCompressor(roomId: RoomId): MemberProfile | undefined {
-    const members = this.store.members();
-    const ready = members.filter((member) => {
+    const resting = this.store.roomState(roomId).restingMemberIds;
+    const ready = this.store.members().filter((member) => {
       const info = this.providers.find((p) => p.id === member.executor);
       return (
         info?.available &&
         !(member.executor === "claude" && info.auth === "api" && !this.settings.claudeApiBaseUrl && this.settings.claudeAuthMode !== "api") &&
-        !workingRoomMember(this.store, roomId, member.id)
+        !resting?.includes(member.id) &&
+        !workingRoomMember(this.store, roomId, member.id) &&
+        quotaPreference(this.memberQuota(member.executor), Date.now(), member.model || this.settings.models[member.executor]) > 0
       );
     });
+    if (this.settings.autoCompressMemberId)
+      return ready.find(member => member.id === this.settings.autoCompressMemberId);
     if (!ready.length) return undefined;
     const rank = (m: MemberProfile) =>
       m.executor === "dsh" ? 0 : /gemini/i.test(m.id + m.name) ? 1 : m.executor === "codex" ? 2 : m.executor === "claude" ? 3 : 4;
