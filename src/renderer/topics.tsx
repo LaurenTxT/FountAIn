@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Archive, Download, Eraser, Eye, FileStack, LoaderCircle, MessageSquarePlus, Pencil, Sparkles, Trash2, X } from 'lucide-react';
+import { Archive, ChevronRight, Download, Eraser, Eye, FileStack, LoaderCircle, MessageSquarePlus, Pencil, Sparkles, Trash2, X } from 'lucide-react';
 import type { RoomThread, Snapshot } from '../shared/types';
 import { Markdown } from './Markdown';
 import { Modal } from './modals';
@@ -21,11 +21,18 @@ function SummarizerSelect({ usable, member, onChange }: { usable: TeamMember[]; 
   return <label className="summarizer">由<select aria-label="由谁来压缩" value={member?.id} onChange={event => onChange(event.target.value)}>{usable.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select>整理摘要</label>;
 }
 
-/** The summary a topic carries, folded by default. */
 export function SummaryNote({ thread }: { thread: RoomThread }) {
+  const [selection, setSelection] = useState<{ threadId: string; kind: 'inherited' | 'summary' }>();
+  const kind = selection?.threadId === thread.id ? selection.kind : undefined;
+  const text = kind ? thread[kind]?.text : undefined;
+  const inheritedLabel = thread.inherited ? `延续「${thread.inherited.title}」的摘要` : '';
+  const summaryLabel = thread.summary ? `已压缩 · ${thread.summary.byName ?? '成员'} · ${dateTime(thread.summary.at)} · 覆盖 ${thread.summary.count} 条` : '';
   return <>
-    {thread.inherited && <details className="topic-summary inherited"><summary>延续「{thread.inherited.title}」的摘要</summary><Markdown text={thread.inherited.text} /></details>}
-    {thread.summary && <details className="topic-summary"><summary>已压缩 · {thread.summary.byName ?? '成员'} · {dateTime(thread.summary.at)} · 覆盖 {thread.summary.count} 条</summary><Markdown text={thread.summary.text} /></details>}
+    {thread.inherited && <button type="button" className="topic-summary inherited" aria-haspopup="dialog" title={inheritedLabel} onClick={() => setSelection({ threadId: thread.id, kind: 'inherited' })}><ChevronRight size={12} aria-hidden="true" /><span>{inheritedLabel}</span></button>}
+    {thread.summary && <button type="button" className="topic-summary" aria-haspopup="dialog" title={summaryLabel} onClick={() => setSelection({ threadId: thread.id, kind: 'summary' })}><ChevronRight size={12} aria-hidden="true" /><span>{summaryLabel}</span></button>}
+    {text && <Modal title="上下文摘要" subtitle={kind === 'inherited' ? inheritedLabel : summaryLabel} onClose={() => setSelection(undefined)} className="topic-summary-modal">
+      <div className="modal-body topic-summary-body" tabIndex={0} aria-label="摘要正文"><Markdown text={text} /></div>
+    </Modal>}
   </>;
 }
 

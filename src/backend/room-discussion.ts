@@ -184,6 +184,11 @@ export class RoomDiscussionController {
     const requested = new Set(Array.isArray(params.memberIds) ? params.memberIds.map(String) : []),members = team.filter(m=>requested.has(m.id)&&!resting.has(m.id)).map(m=>m.id);
     const mentions = params.materialContext?{ids:[],unknown:[],ambiguous:[]}:roomMentions(text, team);
     // Treat unrecognized @tokens (e.g. emails or prose like "我@你") as plain text instead of blocking send.
+    const replyTo = params.replyTo ? this.store.get<RoomMessage>('room_messages', String(params.replyTo)) : undefined;
+    if (params.replyTo && (!replyTo || replyTo.threadId !== this.store.currentRoomThread().id || replyTo.discussionControl || replyTo.contextOnly)) throw new Error('只能回复当前话题中的可见消息');
+    if (!command && !params.materialContext && !mentions.ids.length && replyTo && team.some(member => member.id === replyTo.author)) {
+      mentions.ids = [replyTo.author];
+    }
     const addressed = mentions.ids.filter(id => !resting.has(id));
     if (mentions.ids.length && !addressed.length) throw new Error('被点名的成员正在休息，请先在「在场」栏请 TA 回来。');
     mentions.ids = addressed;
@@ -202,8 +207,9 @@ export class RoomDiscussionController {
     if (!participants.length) throw new Error(resting.size ? '当前没有可参会的成员，请先邀请成员或请休息中的成员回来。' : '请至少邀请一位成员');
     const absent=mentions.ids.filter(id=>!participants.includes(id)&&!this.host.working?.(id));
     if (absent.length) throw new Error(`请先在顶部「在场」栏点一下邀请 ${absent.map(id=>team.find(m=>m.id===id)!.name).join('、')}，再点名。`);
-    const replyTo = params.replyTo ? this.store.get<RoomMessage>('room_messages', String(params.replyTo)) : undefined;
-    if (params.replyTo && (!replyTo || replyTo.threadId !== this.store.currentRoomThread().id || replyTo.discussionControl || replyTo.contextOnly)) throw new Error('只能回复当前话题中的可见消息');
+    if (!command && mentions.ids.length && mentions.ids.every(id => sameStyle && d?.skippedMembers?.[id])) {
+      throw new Error('所选成员已被跳过，请先核对上轮结果并重新加入成员，再发送这条回复。');
+    }
     if (!continuing) {
       const retained=sameStyle?d:undefined;
       const unknown=[...new Set([...(retained?.unknownRunIds??[]),...(retained?.unknownRunId?[retained.unknownRunId]:[])])].filter(id=>!retained?.acknowledgedRunIds?.includes(id));
@@ -239,7 +245,7 @@ export class RoomDiscussionController {
     d.mentionQueue=[...d.mentionQueue??[],...workingMentions.filter(id=>!d!.skippedMembers?.[id]).map(memberId=>({memberId,messageId:message.id}))];
     if(d.workWaiting&&(workingMentions.length||participants.some(member=>!this.host.working?.(member)))){d.phase='talking';d.workWaiting=false;}
     if(params.attachments?.length)message.attachments=params.attachments;
-    if (d.phase === 'closing' || (d.phase === 'summarizing'&&!keepMinutes) || (['waiting_user','awaiting-host'].includes(d.phase) && !command)||d.phase==='paused'&&!command&&!d.unknownRunId&&!d.unknownRunIds?.length) {if(d.phase==='awaiting-host')d.roundFrom=d.calls;d.phase = 'talking';}
+    if (d.phase === 'closing' || (d.phase === 'summarizing'&&!keepMinutes) || (['waiting_user','awaiting-host','budget'].includes(d.phase) && !command && !d.unknownRunId && !d.unknownRunIds?.length)||d.phase==='paused'&&!command&&!d.unknownRunId&&!d.unknownRunIds?.length) {if(d.phase==='awaiting-host')d.roundFrom=d.calls;d.phase = 'talking';}
     if(!command&&['blocked','paused'].includes(d.phase)&&Object.keys(d.skippedMembers??{}).length&&d.members.some(id=>!d!.skippedMembers?.[id]&&!this.host.working?.(id)))d.phase='talking';
     if (command === 'pause') { d.phase = 'paused'; d.reason = '你已暂停讨论，点击继续后才会接话。'; }
     this.save(d, message, { topic: this.store.roomState().mode === 'discuss' ? this.store.roomState().topic : text, speaking: this.store.roomState().speaking });

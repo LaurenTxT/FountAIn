@@ -6045,7 +6045,9 @@ export class Engine {
     if (!this.alive || this.closed || this.maintenance || this.settings.autoCompressContext === false) return;
     await this.rooms.run(roomId, async () => {
       const state = this.roomStore.roomState();
-      if (this.roomChanging || state.active || state.compressing) return;
+      if (this.roomRunning || this.roomChanging || state.active || state.compressing) return;
+      const phase = state.discussion?.phase;
+      if (phase && ["talking", "raising", "awaiting-host", "closing", "summarizing"].includes(phase)) return;
       const thread = this.roomStore.currentRoomThread();
       if (!thread || thread.archivedAt) return;
       const key = `${roomId}:${thread.id}`;
@@ -6089,6 +6091,8 @@ export class Engine {
       }
       this.broadcast();
       return summary;
+    }).finally(() => {
+      if (!this.closed) this.discussion.wake();
     });
   }
   private roomRename(threadId: string, title: unknown) {
@@ -6186,15 +6190,15 @@ export class Engine {
       cut = thread.summary?.upTo
         ? all.findIndex((item) => item.id === thread.summary!.upTo)
         : -1;
-    const spoken = all
-      .slice(cut + 1)
-      .filter(
-        (item) =>
-          !item.system &&
-          item.status !== "speaking" &&
-          item.status !== "passed" &&
-          item.text.trim(),
-      );
+    const candidates = all.slice(cut + 1).filter(
+      (item) => !item.system && !item.discussionControl && !item.contextOnly &&
+        item.status !== "speaking" && item.status !== "passed" && item.text.trim(),
+    );
+    // A user's unanswered message must remain visible to the next speaker as an original turn.
+    const lastAnswer = candidates.findLastIndex(item => item.author !== "user" && item.status === "done");
+    const openTurn = auto ? candidates.findIndex((item, index) => index > lastAnswer && item.author === "user") : -1;
+    const spoken = openTurn < 0 ? candidates : candidates.slice(0, openTurn);
+    if (auto && !spoken.length) throw new Error("没有已结束的对话可自动压缩。");
     if (!spoken.length && thread.summary && !force) return thread.summary;
     if (!spoken.length && !thread.summary && !thread.inherited)
       throw new Error("这个话题还没有可以压缩的内容");
@@ -6276,7 +6280,7 @@ export class Engine {
         by: member.id,
         byName: member.name,
         at: now(),
-        upTo: this.lastRoomMessage(threadId)?.id,
+        upTo: (auto ? spoken.at(-1) : all.findLast(item => item.status !== "speaking" && !item.system))?.id ?? thread.summary?.upTo,
         count: (thread.summary?.count ?? 0) + spoken.length,
         ...(proposals.length ? { proposals } : {}),
       };
