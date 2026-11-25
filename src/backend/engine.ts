@@ -197,6 +197,7 @@ import { writeBackup } from "./backup-writer";
 import type { BackupReason } from "../shared/backup";
 import { ProjectFlowController } from "./project-flow";
 import { copyMeetingMaterials, copyProjectMaterials, projectMaterialCatalog } from "./project-materials";
+import { workspaceProfileInstructions } from "./workspace-profile";
 import {
   migrateFlowCards,
   migrateRoundReports,
@@ -5158,6 +5159,7 @@ export class Engine {
     return this.discussion.input({
       ...params,
       materialContext: false,
+      localOwnerInput: allowRelay && (this.roomId === "global" || this.roomId.startsWith("project:")),
       text:
         String(params.text ?? "").trim() ||
         (attachments.length ? "请看附件。" : ""),
@@ -6862,6 +6864,12 @@ export class Engine {
     const effectiveSession = projectRoomDir
       ? { ...session, writeMode: true, autoApprove: true }
       : session;
+    const room = session.roomId ?? project.roomId;
+    const workspaceProjectId = !project.kind ? project.id : room?.startsWith("project:") || room?.startsWith("report:") ? room.split(":")[1] : undefined;
+    const latestOwnerId = room?.startsWith("project:") ? this.store.roomState(room).discussion?.latestUserId : undefined;
+    const latestOwner = latestOwnerId ? this.store.get<RoomMessage>("room_messages",latestOwnerId) : undefined;
+    const workspaceProfile = workspaceProfileInstructions(this.store.list<Project>("projects"),workspaceProjectId,
+      latestOwner?.localOwnerInput && latestOwner.author === "user" ? latestOwner.text : undefined);
     const ctx: AdapterContext = {
       run,
       session: effectiveSession,
@@ -6869,11 +6877,7 @@ export class Engine {
       roomProjectDirectory: projectRoomDir,
       boundProjectDirectory: projectRoomDir ?? (project.kind ? undefined : project.directory),
       settings: runSettings,
-      persona: personaInstructions(
-        member,
-        this.store.profile(),
-        this.store.members(),
-      ),
+      persona: [personaInstructions(member,this.store.profile(),this.store.members()),workspaceProfile].filter(Boolean).join("\n\n"),
       ...(run.attachments?.length
         ? {
             attachments: run.attachments.map((item) => ({

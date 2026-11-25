@@ -169,7 +169,7 @@ export class RoomDiscussionController {
     return {selected,skipped:!selected};
   }
 
-  async input(params: { text?: unknown; memberIds?: unknown; maxCalls?: unknown; maxMinutes?: unknown; replyTo?: unknown; handRaise?: unknown; hostPick?:unknown; style?: unknown; attachments?:Attachment[];materialContext?:boolean }) {
+  async input(params: { text?: unknown; memberIds?: unknown; maxCalls?: unknown; maxMinutes?: unknown; replyTo?: unknown; handRaise?: unknown; hostPick?:unknown; style?: unknown; attachments?:Attachment[];materialContext?:boolean;localOwnerInput?:boolean }) {
     const text = String(params.text ?? '').trim();
     // Allow arbitrarily long user input without a 20,000-char cap.
     if (!text)
@@ -228,6 +228,7 @@ export class RoomDiscussionController {
       hostPick: typeof params.hostPick === 'boolean' ? params.hostPick : d!.hostPick,
       handRound: d!.handRound ? { ...d!.handRound, status: 'stale' } : undefined };
     const message = this.message(d, params.materialContext?'system':'user', text);
+    if(params.localOwnerInput&&!params.materialContext)message.localOwnerInput=true;
     if(params.materialContext){message.authorName='系统';message.system=true;message.contextOnly=true;}
     message.inReplyTo = replyTo?.id; d.latestUserId = message.id;
     if(!command)d.stoppedMembers=[];
@@ -268,7 +269,7 @@ export class RoomDiscussionController {
       throw new Error('只能引用当前话题里的可见消息。');
     const recipient=params.memberId == null ? undefined : this.store.members().find(member=>member.id===pending[0]);
     const revision=d.revision+1,message={...this.message(d,'user',text),inReplyTo:quoted?.id,discussionRevision:revision,
-      ownerInterruption:recipient?{memberId:recipient.id,memberName:recipient.name}:{}};
+      localOwnerInput:true,ownerInterruption:recipient?{memberId:recipient.id,memberName:recipient.name}:{}};
     const returnPhase=d.phase==='paused'?'paused':d.phase==='waiting_user'?'waiting_user':'talking';
     const next:RoomDiscussion={...this.leaveHostWait(d),revision,phase:'talking',proposal:undefined,latestUserId:message.id,
       reason:'正在优先回答你的问题。',handRound:undefined,
@@ -284,7 +285,7 @@ export class RoomDiscussionController {
     if(!d||d.id!==params.discussionId||!question)throw new Error('这条问题已回答或讨论已切换。');
     const text=typeof params.text==='string'?params.text.trim():'';
     if(!text||text.length>12000)throw new Error('请填写 1 至 12000 字的回答。');
-    const revision=d.revision+1, message={...this.message(d,'user',text),inReplyTo:question.messageId,discussionRevision:revision};
+    const revision=d.revision+1, message={...this.message(d,'user',text),inReplyTo:question.messageId,discussionRevision:revision,localOwnerInput:true};
     const next:RoomDiscussion={...d,revision,latestUserId:message.id,passed:[],noProgress:0,
       questions:d.questions.map(item=>item.id===question.id?{...item,answeredBy:message.id}:item)};
     if(!this.waitingForOwner(next)&&next.phase==='waiting_user'){

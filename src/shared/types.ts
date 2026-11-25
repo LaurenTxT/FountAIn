@@ -245,6 +245,7 @@ export interface RoomMessage { id: string; author: string; authorName?: string; 
   taskRequest?:boolean;
   projectRelay?:boolean;
   ownerInterruption?: {memberId?:string;memberName?:string};
+  localOwnerInput?:boolean;
   /** An independent reply to a working member; never a new project requirement. */
   intent?:'readonly-question';
   roomId?:RoomId;
