@@ -43,7 +43,7 @@ export function ProjectHierarchyModal({mode,target,snapshot,invoke,onClose,onCre
 }
 
 
-export function ProjectMaterialsModal({project,parent,invoke,onClose,onProceed}:{project:Project;parent:Project;invoke:Invoke;onClose:()=>void;onProceed?:()=>Promise<boolean>}) {
+export function ProjectMaterialsModal({project,parent,invoke,onClose}:{project:Project;parent:Project;invoke:Invoke;onClose:()=>void}) {
   const [files,setFiles]=useState<string[]>([]),[receipt,setReceipt]=useState<{copied:string[];existing:string[]}>(),[busy,setBusy]=useState(false),[error,setError]=useState('');
   async function pick() {
     try {
@@ -51,15 +51,11 @@ export function ProjectMaterialsModal({project,parent,invoke,onClose,onProceed}:
       if(selected.length){setFiles(previous=>[...new Set([...previous,...selected])]);setError('');}
     } catch(error){setError((error as Error).message);}
   }
-  async function finish(proceed:boolean) {
+  async function copy() {
     setBusy(true);setError('');
     try {
-      if(files.length){
-        const result=await invoke<{copied:string[];existing:string[]}>('project.materials.copy',{projectId:project.id,files});
-        setReceipt(result);setFiles([]);
-        if(result.existing.length && proceed)return;
-      }
-      if(proceed && await onProceed?.())onClose();
+      const result=await invoke<{copied:string[];existing:string[]}>('project.materials.copy',{projectId:project.id,files});
+      setReceipt(result);setFiles([]);
     }catch(error){setError((error as Error).message);}
     finally{setBusy(false);}
   }
@@ -72,9 +68,9 @@ export function ProjectMaterialsModal({project,parent,invoke,onClose,onProceed}:
       {error&&<p role="alert" className="round-results-error">{error}</p>}
     </div>
     <div className="modal-footer">
-      <button type="button" className="button quiet" disabled={busy} onClick={onClose}>{onProceed?'取消':'关闭'}</button>
-      <button type="button" className="button primary" disabled={busy||(!files.length&&!onProceed)} onClick={()=>void finish(Boolean(onProceed))}>
-        {busy&&<LoaderCircle size={14} className="spin"/>}{onProceed?(files.length?'复制并起草方案':'继续起草方案'):'复制已选资料'}
+      <button type="button" className="button quiet" disabled={busy} onClick={onClose}>关闭</button>
+      <button type="button" className="button primary" disabled={busy||!files.length} onClick={()=>void copy()}>
+        {busy&&<LoaderCircle size={14} className="spin"/>}复制已选资料
       </button>
     </div>
   </Modal>;

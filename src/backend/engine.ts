@@ -196,7 +196,7 @@ import { BackupRestorer } from "./backup-restore";
 import { writeBackup } from "./backup-writer";
 import type { BackupReason } from "../shared/backup";
 import { ProjectFlowController } from "./project-flow";
-import { copyProjectMaterials } from "./project-materials";
+import { copyMeetingMaterials, copyProjectMaterials, projectMaterialCatalog } from "./project-materials";
 import {
   migrateFlowCards,
   migrateRoundReports,
@@ -814,6 +814,12 @@ export class Engine {
       working: (memberId) => workingRoomMember(this.store, roomId, memberId),
       taskStatus: (memberId) => roomTaskStatus(this.store, roomId, memberId),
       read: (memberId, ids) => markRoomRead(this.store, roomId, memberId, ids),
+      ...(roomId.startsWith("project:") ? {
+        materialCatalog: (query?:string, exactSearch?:boolean) => this.canGatherMeetingMaterials(roomId.slice(8)) ?
+          projectMaterialCatalog(this.store,roomId.slice(8),query,exactSearch) : undefined,
+        copyMaterials: (files:string[], current:()=>boolean) =>
+          copyMeetingMaterials(this.store,roomId.slice(8),files,()=>current()&&this.canGatherMeetingMaterials(roomId.slice(8))),
+      } : {}),
       available: (member) =>
         this.providers.some((p) => p.id === member.executor && p.available),
       quotaPreference: (memberId) => {
@@ -7766,6 +7772,10 @@ export class Engine {
         memberIds: p.memberIds,
       })),
     ];
+  }
+  private canGatherMeetingMaterials(projectId:string) {
+    return !this.maintenance&&!this.removingProjects.has(projectId)&&
+      !this.store.list<ProjectFlow>("project_flows").some(flow=>flow.projectId===projectId&&!["completed","cancelled"].includes(flow.status));
   }
   private resolveQqRoomName(roomId: RoomId): string {
     return this.qqRooms().find((r) => r.roomId === roomId)?.name ?? roomId;

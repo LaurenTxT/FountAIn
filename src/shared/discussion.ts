@@ -51,6 +51,7 @@ export interface DiscussionReply {
   /** One of ROOM_REACTIONS: the whole answer for react, an optional extra on speak. */
   emoji?: string;
   questions?: { to: string; text: string }[]; answers?: string[];
+  materialSearch?: string; copyMaterials?: string[];
   /** Internal diagnostics, never copied from model-supplied fields. */
   formatWarnings?: string[]; reviewQuestions?: boolean;
 }
@@ -60,7 +61,7 @@ export const DISCUSSION_LABELS: Record<DiscussionPhase, string> = {
 };
 export function parseDiscussionReply(text: string, turn: string, revision: number): DiscussionReply {
   const value = discussionObject(text);
-  const keys = ['version','turn','revision','action','body','replyTo','next','proposalId','questions','answers','emoji'];
+  const keys = ['version','turn','revision','action','body','replyTo','next','proposalId','questions','answers','emoji','materialSearch','copyMaterials'];
   const closureAction = ['propose','accept','reject'].includes(value.action);
   const warnings: string[] = [];
   for (const [key,expected] of Object.entries({version:1,turn,revision})) {
@@ -80,6 +81,17 @@ export function parseDiscussionReply(text: string, turn: string, revision: numbe
   if (silent && (value.next || value.questions !== undefined && (!Array.isArray(value.questions) || value.questions.length) || value.answers !== undefined && (!Array.isArray(value.answers) || value.answers.length))) throw new DiscussionFormatError('沉默或收尾确认不能同时提出新的调度要求。');
   const reply: DiscussionReply = { version:1,turn,revision,action:value.action,body:value.body,formatWarnings:warnings };
   const warn = (text:string) => reply.formatWarnings!.push(text);
+  if (value.materialSearch !== undefined || value.copyMaterials !== undefined) {
+    if(value.action !== 'speak' || value.turn !== turn || value.revision !== revision) {
+      warn('取件请求与当前发言不匹配，未执行。');
+    } else {
+      if(typeof value.materialSearch === 'string' && value.materialSearch.trim() && value.materialSearch.length<=120)
+        reply.materialSearch = value.materialSearch.trim();
+      if(Array.isArray(value.copyMaterials) && value.copyMaterials.length<=12 &&
+        value.copyMaterials.every((name:unknown)=>typeof name === 'string' && name.trim() && name.length<=500))
+        reply.copyMaterials = [...new Set(value.copyMaterials)];
+    }
+  }
   if (reply.action === 'react') {
     const emoji = typeof value.emoji === 'string' ? roomReaction(value.emoji) : undefined;
     if (!emoji) throw new DiscussionFormatError('表情回应只能使用 👍 ❤️ 😄 👀 ❓ 之一。', true);

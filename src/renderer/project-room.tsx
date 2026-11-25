@@ -80,11 +80,7 @@ export function ProjectRoom({ snapshot, project, invoke, onOpenSession,onRoundta
   const activeDocument = document?.projectId === project.id ? document : undefined;
   const panelWidth = useSidePanelWidth('fountain.projectPanelWidth');
   const parentProject = snapshot.projects.find(item=>item.id===project.parentId && !item.kind);
-  const [materials,setMaterials] = useState<{proceed?:()=>Promise<boolean>}>();
-  function prepareMaterials(proceed:()=>Promise<boolean>) {
-    if(parentProject) setMaterials({proceed});
-    else void proceed();
-  }
+  const [materials,setMaterials] = useState(false);
   const [boardOpen,setBoardOpen]=useState(()=>{try{return localStorage.getItem('fountain.projectBoard')!=='closed';}catch{return true;}});
   const toggleBoard=(open:boolean)=>{setBoardOpen(open);try{localStorage.setItem('fountain.projectBoard',open?'open':'closed');}catch{}};
   const [recordOpen,setRecordOpen]=useState(false),[includePreviousRecord,setIncludePreviousRecord]=useState(true),[addition,setAddition]=useState<{memberId:string;goal:string;task?:Task;proposal?:TaskAddition}|null>(null);
@@ -157,25 +153,19 @@ export function ProjectRoom({ snapshot, project, invoke, onOpenSession,onRoundta
   }
   /** The plan is drafted from this room's discussion, which the backend brings along; it says so when there is none yet. */
   async function start(leadMemberId: string, memberIds: string[]) {
-    prepareMaterials(async()=>{
-      const ok = await mutate('projectFlow.start', { projectId: project.id, leadMemberId, memberIds, reviewLevel: newReviewLevel,includePreviousRecord }, '已请负责人根据讨论起草方案，你确认后才开工。');
-      if (ok) { setStarting(false); setPicking(false); setError(''); }
-      return ok;
-    });
+    const ok = await mutate('projectFlow.start', { projectId: project.id, leadMemberId, memberIds, reviewLevel: newReviewLevel,includePreviousRecord }, '已请负责人根据讨论起草方案，你确认后才开工。');
+    if (ok) { setStarting(false); setPicking(false); setError(''); }
   }
 
   const people = roster.map(id => team.get(id)).filter((member): member is TeamMember => Boolean(member));
   /** task workspace: continue the task from its ROOM_BRIEF / HANDOFF instead of opening a new topic. */
   const briefLeader = project.meetingLeaderId ? people.find(member => member.id === project.meetingLeaderId) : undefined;
-  function resumeFromBrief() {
+  async function resumeFromBrief() {
     if (!briefLeader) return;
     const memberIds = people.filter(ready).map(member => member.id);
     if (!memberIds.includes(briefLeader.id)) { setError(`${briefLeader.name} 还没准备好，先在设置里检查连接。`); return; }
-    prepareMaterials(async()=>{
-      const ok = await mutate('projectFlow.start', { projectId: project.id, leadMemberId: briefLeader.id, memberIds, reviewLevel: newReviewLevel, includePreviousRecord, topic: RESUME_TOPIC }, `已请 ${briefLeader.name} 按门牌接续当前阶段起草方案，你确认后才开工。`);
-      if (ok) { setStarting(false); setPicking(false); setError(''); }
-      return ok;
-    });
+    const ok = await mutate('projectFlow.start', { projectId: project.id, leadMemberId: briefLeader.id, memberIds, reviewLevel: newReviewLevel, includePreviousRecord, topic: RESUME_TOPIC }, `已请 ${briefLeader.name} 按门牌接续当前阶段起草方案，你确认后才开工。`);
+    if (ok) { setStarting(false); setPicking(false); setError(''); }
   }
   const planOp = blocked.find(op => op.kind === 'plan');
   const revisingPlan = Boolean(live && plan && (data?.overview?.stage?.kind === 'planning' || (flow?.status === 'planning' && !planOp && flow.dispatchMode === 'running')));
@@ -367,10 +357,10 @@ export function ProjectRoom({ snapshot, project, invoke, onOpenSession,onRoundta
     {live && <ol className="flow-steps" aria-label="流程进度">{STEPS.map((label, index) => <li key={label} className={index < step ? 'done' : index === step ? 'current' : ''} aria-current={index === step ? 'step' : undefined}>{index < step ? <Check size={11} /> : <span>{index + 1}</span>}{label}</li>)}
       {flow!.dispatchMode !== 'running' && <li className="paused">已暂停派发</li>}</ol>}
     {onOpenReport && <ReportSwitcher entries={reports} onOpen={onOpenReport} />}
-    {parentProject&&fresh&&<button type="button" className="button small secondary" disabled={busy} onClick={()=>setMaterials({})}><FolderOpen size={14}/>立项资料</button>}
+    {parentProject&&fresh&&<button type="button" className="button small secondary" disabled={busy} onClick={()=>setMaterials(true)}><FolderOpen size={14}/>立项资料</button>}
     <button type="button" className="button small secondary" onClick={()=>void invoke<StudyRoomDocuments|null>('projectFlow.study.documents',{projectId:project.id}).then(result=>result?setStudyDocs(result):setError('当前未开启 结构化任务房模式。')).catch(reason=>setError((reason as Error).message))}><ScrollText size={14}/>房间门牌与交接</button>
     </div>
-    {materials&&parentProject&&<ProjectMaterialsModal project={project} parent={parentProject} invoke={invoke} onClose={()=>setMaterials(undefined)} onProceed={materials.proceed}/>}
+    {materials&&parentProject&&<ProjectMaterialsModal project={project} parent={parentProject} invoke={invoke} onClose={()=>setMaterials(false)}/>}
     {studyDocs&&<Modal title={studyDocs.name+' · 房间文件'} subtitle="只读查看，不会改文件或触发派工。" onClose={()=>setStudyDocs(null)}><div className="modal-body study-room-documents"><details open><summary>ROOM_BRIEF.md · 门牌</summary><pre>{studyDocs.brief}</pre></details><details open><summary>HANDOFF.md · 交接</summary><pre>{studyDocs.handoff}</pre></details></div></Modal>}
     {error && <p className="inline-notice error" role="alert">{error}<button type="button" className="icon-button" aria-label="关闭提示" title="关闭提示" onClick={() => setError('')}><X size={12} /></button></p>}
     {rounds.filter(round=>round.studyHandoffError).map(round=><p key={round.id} className="inline-notice error" role="status">等交接：{round.title} · {round.studyHandoffError} <button type="button" className="button small secondary" disabled={busy} onClick={()=>void invoke<{error?:string}>('projectFlow.study.handoff.retry',{projectId:project.id,roundId:round.id}).then(result=>{if(result.error)setError(result.error);void load();}).catch(reason=>setError((reason as Error).message))}>重新写入交接</button></p>)}
