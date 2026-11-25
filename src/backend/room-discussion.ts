@@ -450,7 +450,7 @@ ${JSON.stringify(context)}`;
   private validate(reply: DiscussionReply, d: RoomDiscussion, author: string, caughtUp: boolean) {
     const warn = (text:string) => (reply.formatWarnings ??= []).push(text);
     if(d.style!=='chat'&&d.phase==='talking'&&reply.action==='propose'){reply.action='speak';warn('开会由用户决定结束，收尾提议仅作为发言保留');}
-    if(d.style!=='chat'&&d.phase==='talking'&&['pass','react','accept','reject'].includes(reply.action))throw new DiscussionFormatError('开会必须用文字回答，不能 pass、空回复或只发表情。',true);
+    if(d.style!=='chat'&&d.phase==='talking'&&['pass','react'].includes(reply.action))throw new DiscussionFormatError('开会必须用文字回答，不能 pass、空回复或只发表情。',true);
     if(d.style!=='chat'&&reply.action==='propose'&&(d.meetingRound?.mentionedOnly||d.meetingRound?.pending.some(id=>id!==author)))throw new DiscussionFormatError('请先回答本轮问题，其他成员回答完之前不能提议结束；被 @ 的一轮只回答。',true);
     if (reply.action === 'propose' && d.style === 'chat' && !this.chatMayClose(d)) { reply.action = 'speak'; warn('聊天刚开始不久，收尾提议已作为普通发言保留'); }
     if (reply.next && (!d.members.includes(reply.next) || reply.next === author)) { delete reply.next; warn('已忽略不在场或指向自己的接话目标'); }
@@ -468,8 +468,21 @@ ${JSON.stringify(context)}`;
     if (remaining.length + (newBlocking?.length ?? 0) > 64) throw new Error('还有太多问题没回答，请先说明这次最需要讨论什么。');
     if (reply.action === 'ask_user' && !reply.questions?.some(q => q.to === 'user')) throw new DiscussionFormatError('等待用户时必须给出待回答问题。', true);
     if (reply.action === 'propose' && (d.phase !== 'talking' || !caughtUp || remaining.length || newBlocking?.length || reply.next || reply.reviewQuestions || d.reviewRequired.some(id => id !== author&&!d.skippedMembers?.[id]))) { reply.action = 'speak'; warn('仍有消息或问题待核对，收尾提议已作为普通发言保留'); }
-    if (reply.action === 'accept' && (d.phase !== 'closing' || !caughtUp || !d.proposal || reply.proposalId !== d.proposal.id || d.proposal.revision !== d.revision || remaining.length || d.reviewRequired.length)) throw new Error('成员确认的不是当前这份结束提议，已暂停，请核对记录。');
-    if (reply.action === 'reject' && (d.phase !== 'closing' || !d.proposal || reply.proposalId !== d.proposal.id || d.proposal.revision !== d.revision)) throw new Error('成员提出的异议没有对应当前的结束提议，请核对记录。');
+    if (reply.action === 'accept' || reply.action === 'reject') {
+      const matches = d.phase === 'closing' && d.proposal && reply.proposalId === d.proposal.id && d.proposal.revision === d.revision;
+      if (reply.unverifiedVote || !matches || !caughtUp || (reply.action === 'accept' && (remaining.length || d.reviewRequired.length))) {
+        const reason = !caughtUp ? '还有会议记录待读' : !matches ? '未关联当前的收尾提议' : '收尾表决信息未通过核对';
+        const note = reason + '，本次未计入收尾表决。';
+        reply.action = 'speak';
+        reply.unverifiedVote = true;
+        reply.body = reply.body.trim() ? reply.body.trim() + '\n\n_' + note + '_' : note;
+        delete reply.next;
+        delete reply.questions;
+        delete reply.answers;
+        delete reply.emoji;
+        warn(note);
+      }
+    }
   }
   /** A chat may suggest winding down only after a good stretch of talk since the user spoke or since the last suggestion. */
   private chatMayClose(d: RoomDiscussion) { return (d.sinceProposal ?? 0) >= Math.max(4, d.members.length * 2); }
@@ -747,7 +760,7 @@ ${JSON.stringify(payload)}`;
         } else if (substantive) { d.phase = 'talking'; d.proposal = undefined; }
         d=this.afterHandTurn(d);
         if (reply.next) d.handoff = reply.next;
-        if (substantive) {
+        if (substantive && !reply.unverifiedVote) {
           const replied = reply.replyTo ? this.store.get<RoomMessage>('room_messages',reply.replyTo) : undefined;
           const mentionedIds = roomMentions(body,this.store.members()).ids;
           d.relevant = [...new Set([...mentionedIds, ...(replied && d.members.includes(replied.author) ? [replied.author] : [])])];

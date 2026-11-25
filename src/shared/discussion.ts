@@ -54,6 +54,7 @@ export interface DiscussionReply {
   materialSearch?: string; copyMaterials?: string[];
   /** Internal diagnostics, never copied from model-supplied fields. */
   formatWarnings?: string[]; reviewQuestions?: boolean;
+  unverifiedVote?: boolean;
 }
 export const DISCUSSION_LABELS: Record<DiscussionPhase, string> = {
   talking: '自由讨论中', raising: '大家正在举手', 'awaiting-host': '等你点名', closing: '正在核对收尾', summarizing: '正在整理会议纪要', idle: '本次讨论已自然结束',
@@ -62,24 +63,32 @@ export const DISCUSSION_LABELS: Record<DiscussionPhase, string> = {
 export function parseDiscussionReply(text: string, turn: string, revision: number): DiscussionReply {
   const value = discussionObject(text);
   const keys = ['version','turn','revision','action','body','replyTo','next','proposalId','questions','answers','emoji','materialSearch','copyMaterials'];
-  const closureAction = ['propose','accept','reject'].includes(value.action);
+  const vote = value.action === 'accept' || value.action === 'reject';
+  let unverifiedVote = false;
   const warnings: string[] = [];
   for (const [key,expected] of Object.entries({version:1,turn,revision})) {
+    if (vote && key !== 'version' && value[key] !== expected) {
+      unverifiedVote = true;
+      continue;
+    }
     if (value[key] === undefined) {
-      if (closureAction || key === 'version') throw new DiscussionFormatError('讨论控制信息缺少必需的轮次字段。', true);
+      if (value.action === 'propose' || key === 'version') throw new DiscussionFormatError('讨论控制信息缺少必需的轮次字段。', true);
       warnings.push(`已自动补齐 ${key}`);
       continue;
     }
     if (value[key] !== expected) {
-      if (closureAction || key === 'version') throw new DiscussionFormatError('讨论控制信息与当前轮次不符，请核对后继续。');
+      if (value.action === 'propose' || key === 'version') throw new DiscussionFormatError('讨论控制信息与当前轮次不符，请核对后继续。');
       warnings.push(`已自动对齐 ${key}`);
     }
   }
   if (!['speak','pass','react','propose','accept','reject','ask_user'].includes(value.action) || typeof value.body !== 'string' || value.body.length > 12000) throw new DiscussionFormatError('讨论动作或正文格式无效。', true);
   const silent = ['pass','react','accept'].includes(value.action);
-  if (silent ? value.body.trim() !== '' : !value.body.trim()) throw new DiscussionFormatError('发言与讨论动作不一致。', true);
-  if (silent && (value.next || value.questions !== undefined && (!Array.isArray(value.questions) || value.questions.length) || value.answers !== undefined && (!Array.isArray(value.answers) || value.answers.length))) throw new DiscussionFormatError('沉默或收尾确认不能同时提出新的调度要求。');
+  const invalidBody = silent ? value.body.trim() !== '' : !value.body.trim();
+  const silentControl = silent && (value.next || value.questions !== undefined && (!Array.isArray(value.questions) || value.questions.length) || value.answers !== undefined && (!Array.isArray(value.answers) || value.answers.length));
+  if (!vote && invalidBody) throw new DiscussionFormatError('发言与讨论动作不一致。', true);
+  if (!vote && silentControl) throw new DiscussionFormatError('沉默不能同时提出新的调度要求。');
   const reply: DiscussionReply = { version:1,turn,revision,action:value.action,body:value.body,formatWarnings:warnings };
+  if(vote&&(unverifiedVote||invalidBody||silentControl))reply.unverifiedVote=true;
   const warn = (text:string) => reply.formatWarnings!.push(text);
   if (value.materialSearch !== undefined || value.copyMaterials !== undefined) {
     if(value.action !== 'speak' || value.turn !== turn || value.revision !== revision) {
@@ -103,7 +112,7 @@ export function parseDiscussionReply(text: string, turn: string, revision: numbe
   if (Object.keys(value).some(key => !keys.includes(key))) warn('已忽略额外的控制字段');
   for (const key of ['replyTo','next','proposalId'] as const) if (value[key] !== undefined) {
     if (typeof value[key] === 'string' && value[key].trim() && value[key].length <= 160) reply[key] = value[key];
-    else if (key === 'proposalId' && ['accept','reject'].includes(reply.action)) throw new DiscussionFormatError('收尾确认缺少有效的提议关联。');
+    else if (key === 'proposalId' && vote) reply.unverifiedVote = true;
     else warn(`已忽略无效的 ${key} 关联`);
   }
   if (value.questions !== undefined) {
