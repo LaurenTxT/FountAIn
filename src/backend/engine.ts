@@ -3764,6 +3764,11 @@ export class Engine {
         this.broadcast();
         return { reordered: true };
       }
+      case "project.study.initialize": {
+        const documents=this.projectTree.initialize(String(params.projectId ?? ""));
+        this.broadcast();
+        return documents;
+      }
       case "project.materials.copy":
         return copyProjectMaterials(this.store, String(params.projectId ?? ""), params.files);
       case "project.move": {

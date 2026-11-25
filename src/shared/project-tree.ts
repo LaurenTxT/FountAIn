@@ -1,6 +1,6 @@
 import type {Project} from './types';
 export const PROJECT_CONTEXT_DIRECTORY = '00_Context_and_Specs';
-export const PROJECT_TREE_METHODS=['project.move','project.reorder','project.materials.copy'] as const;
+export const PROJECT_TREE_METHODS=['project.move','project.reorder','project.materials.copy','project.study.initialize'] as const;
 export interface ProjectRow {project:Project;depth:number;hasChildren:boolean;path:string[]}
 /** Both old flat projects and damaged historical links remain visible. */
 export function projectRows(projects:Project[],collapsed:ReadonlySet<string>=new Set()):ProjectRow[]{

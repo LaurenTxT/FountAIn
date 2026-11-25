@@ -1,6 +1,7 @@
-import { closeSync, constants, existsSync, fstatSync, ftruncateSync, lstatSync, openSync, readdirSync, readSync, realpathSync, statSync, writeSync } from 'node:fs';
+import { closeSync, constants, existsSync, fstatSync, ftruncateSync, lstatSync, mkdirSync, openSync, readdirSync, readSync, realpathSync, rmdirSync, statSync, unlinkSync, writeFileSync, writeSync } from 'node:fs';
 import path from 'node:path';
 import { FlowError, type StudyRoomDocuments } from '../shared/project-flow';
+import { PROJECT_CONTEXT_DIRECTORY } from '../shared/project-tree';
 
 export const STUDY_WRITE_SCOPES = ['01_Drafts_and_Code', '02_Reviews_and_Debug'] as const;
 const DOCUMENT_LIMIT = 256 * 1024;
@@ -34,7 +35,8 @@ export function studyRoomPath(directory: string, _root?: string, _research?: str
 
 export function studyWriteScopes(directory: string, scopes?: string[]): string[] | undefined {
   if (!studyRoomPath(directory)) return scopes;
-  const selected = scopes ?? [...STUDY_WRITE_SCOPES];
+  // Older unstructured rooms often stored the unrestricted default as ['.'].
+  const selected = !scopes || scopes.length===1&&scopes[0]==='.' ? [...STUDY_WRITE_SCOPES] : scopes;
   if (!selected.length || selected.some(scope => !STUDY_WRITE_SCOPES.some(
     allowed => scope === allowed || scope.startsWith(allowed + '/'))))
     throw new FlowError('STUDY_WRITE_BOUNDARY', '结构化任务房间模式只允许在草稿和审查目录内写回交付物。');
@@ -203,4 +205,43 @@ export function studyPlanningMaterial(directory: string, options: { inventory?: 
       + (options.inventory ? 'roomFiles 已列出本房间文件；需要看内容时用读取文件的工具，不要执行命令（只读阶段命令会被拒绝）。' : '')
       + (workspace ? `可只读查看整个参考空间 ${workspace}，但不要打开 privatePaths 中的登录配置目录；修改只限本房间允许的目录。` : ''),
   };
+}
+/** Create the task-room layout without overwriting any project material. */
+export function initializeStudyRoom(directory:string,name:string) {
+  const root=path.resolve(directory);
+  if(key(realpathSync.native(root))!==key(root)||!lstatSync(root).isDirectory()||/^[._]/.test(path.basename(root)))
+    throw new FlowError('STUDY_ROOM_BOUNDARY','请选择一个实际的任务房文件夹。');
+  const title=name.replace(/[\r\n]+/g,' ').trim();
+  const directories=[PROJECT_CONTEXT_DIRECTORY,...STUDY_WRITE_SCOPES,'03_Final_Submissions'];
+  const documents=new Map([
+    ['ROOM_BRIEF.md','# '+title+' · 房间门牌\n\n## 目标与交付物\n待确认。\n\n## Leader 与派工\n待指定。负责人须列出阶段、交付路径、验收标准、接收人和下一步，用户确认后开工。\n\n## 当前阶段\n立项讨论与资料准备。\n'],
+    ['HANDOFF.md','# 交接日志\n\n- 已初始化任务房，等待确认方案。每次交棒追加交付路径、验证结果、遗留问题与接收人的第一步。\n'],
+    ['02_Reviews_and_Debug/DISCUSSION.md','# 讨论白板\n\n需要比较方案时，在这里记录议题、约束和证据。各成员可以并行给出意见，由主笔统一收录。\n\n## 议题模板\n\n- **待决定的问题**：\n- **约束与依据**：\n- **成员意见**：建议、依据与风险。\n- **结论与下一步**：负责人、交付物和验收标准。\n'],
+  ]);
+  const entries=[...directories.map(relative=>({relative,kind:'directory' as const})),
+    ...[...documents.keys()].map(relative=>({relative,kind:'file' as const}))];
+  const pending=entries.filter(({relative,kind})=>{
+    const target=path.join(root,relative),info=lstatSync(target,{throwIfNoEntry:false});
+    if(!info)return true;
+    if((kind==='directory'?!info.isDirectory():!info.isFile())||key(realpathSync.native(target))!==key(target)||
+      (relative==='ROOM_BRIEF.md'||relative==='HANDOFF.md')&&(info.nlink!==1||info.size>DOCUMENT_LIMIT))
+      throw new FlowError('STUDY_ROOM_BOUNDARY','已有路径与任务房模板冲突：'+relative);
+    if(relative==='ROOM_BRIEF.md'||relative==='HANDOFF.md')withDocument(root,relative,false,()=>undefined);
+    return false;
+  });
+  const created:typeof entries=[];
+  try {
+    for(const entry of pending){
+      const target=path.join(root,entry.relative);
+      if(entry.kind==='directory')mkdirSync(target);
+      else writeFileSync(target,documents.get(entry.relative)!,{flag:'wx'});
+      created.push(entry);
+    }
+  }catch(error){
+    for(const entry of created.reverse()){
+      try {const target=path.join(root,entry.relative);if(entry.kind==='directory')rmdirSync(target);else unlinkSync(target);}
+      catch{/* A concurrent user file remains in place. */}
+    }
+    throw error;
+  }
 }
