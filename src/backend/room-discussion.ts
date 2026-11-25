@@ -266,7 +266,9 @@ export class RoomDiscussionController {
     const quoted=params.replyTo ? this.store.get<RoomMessage>('room_messages',String(params.replyTo)) : undefined;
     if(params.replyTo&&(!quoted||quoted.threadId!==this.store.currentRoomThread().id||quoted.discussionControl||quoted.contextOnly))
       throw new Error('只能引用当前话题里的可见消息。');
-    const revision=d.revision+1,message={...this.message(d,'user',text),inReplyTo:quoted?.id,discussionRevision:revision};
+    const recipient=params.memberId == null ? undefined : this.store.members().find(member=>member.id===pending[0]);
+    const revision=d.revision+1,message={...this.message(d,'user',text),inReplyTo:quoted?.id,discussionRevision:revision,
+      ownerInterruption:recipient?{memberId:recipient.id,memberName:recipient.name}:{}};
     const returnPhase=d.phase==='paused'?'paused':d.phase==='waiting_user'?'waiting_user':'talking';
     const next:RoomDiscussion={...this.leaveHostWait(d),revision,phase:'talking',proposal:undefined,latestUserId:message.id,
       reason:'正在优先回答你的问题。',handRound:undefined,
@@ -811,7 +813,7 @@ ${JSON.stringify(payload)}`;
         const extra = d.style === 'chat' && reply.action === 'speak' && reply.emoji && d.calls - (d.emojiAt ?? -EMOJI_GAP) >= EMOJI_GAP;
         if (extra) d = { ...d, emojiAt: d.calls };
         const reacted = reply.action === 'react' || extra ? this.store.get<RoomMessage>('room_messages', reply.replyTo ?? d.latestUserId) : undefined;
-        message = { ...message, text: body + materialReceipt, status: substantive ? 'done' : 'passed', inReplyTo: reacted?.id ?? reply.replyTo ?? message.inReplyTo,
+        message = { ...message, text: body + materialReceipt, status: substantive ? 'done' : 'passed', inReplyTo: priorityTarget ? d.interruption?.messageId : reacted?.id ?? reply.replyTo ?? message.inReplyTo,
           discussionRevision: nextRevision, discussionControl: reply.action === 'accept', ...(reacted && !substantive ? { reaction: reply.emoji } : {}) };
         if (reacted) this.store.put('room_messages', reacted.id, { ...reacted, reactions: toggleReaction(reacted.reactions, reply.emoji!, author, true) });
         const expireQuestions=d.style==='chat'&&view.caughtUp;

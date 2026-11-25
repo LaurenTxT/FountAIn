@@ -244,6 +244,7 @@ export interface RoomMessage { id: string; author: string; authorName?: string; 
   roundtable?: {topicId:string;kind:'material'|'candidate'|'conclusion';slotId?:string;conclusionId?:string};
   taskRequest?:boolean;
   projectRelay?:boolean;
+  ownerInterruption?: {memberId?:string;memberName?:string};
   /** An independent reply to a working member; never a new project requirement. */
   intent?:'readonly-question';
   roomId?:RoomId;

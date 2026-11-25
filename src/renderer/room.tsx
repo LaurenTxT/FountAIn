@@ -527,6 +527,10 @@ export function RoomView({ snapshot, invoke: rawInvoke, onOpenSession, onDocumen
     } catch {} finally { setBusy(false); }
   }
   const name = (message: RoomMessage) => message.authorName ?? (message.author === 'user' ? profile.name || '你' : team.get(message.author)?.name ?? '成员');
+  const quoteOptions=questionDialog&&!questionDialog.questionId ?
+    [...new Map([...(questionDialog.quote?[questionDialog.quote]:[]),...messages.filter(message=>
+      !message.discussionControl&&!message.contextOnly&&!message.system&&(message.author==='user'||message.status==='done')&&message.text.trim()).slice(-24).reverse()]
+      .map(message=>[message.id,message])).values()] : [];
   const authorName = (author: string) => author === 'user' ? profile.name || '你' : team.get(author)?.name ?? '成员';
   // Less frequent message actions live in one menu, opened from "…" or by right-clicking the message.
   async function recallMessage(message: RoomMessage, edit: boolean) {
@@ -722,7 +726,8 @@ export function RoomView({ snapshot, invoke: rawInvoke, onOpenSession, onDocumen
           return <div key={message.id} className={`room-line mine${enter(message)}`} data-message-id={message.id}>
             <div className="room-bubble-wrap">
               <span className="room-meta"><time>{time(message.at)}</time><strong>{name(message)}</strong></span>
-              {quoteId && <div className="room-user-quote">回复 {quoted ? `${name(quoted)}：${quoted.text.replace(/\s+/g, ' ').slice(0, 72)}${quoted.text.length > 72 ? '…' : ''}` : '较早消息'}</div>}
+              {message.ownerInterruption && <small className="room-interruption-target">打断提问 · @{message.ownerInterruption.memberName || '全体'}</small>}
+              {quoteId && <div className="room-user-quote">{message.ownerInterruption?'引用':'回复'} {quoted ? `${name(quoted)}：${quoted.text.replace(/\s+/g, ' ').slice(0, 72)}${quoted.text.length > 72 ? '…' : ''}` : '较早消息'}</div>}
               <div className="room-bubble" onContextMenu={event => openMessageMenu(event, messageMenu(message, false))}>{message.text}</div>
               <AttachmentList items={message.attachments} invoke={invoke} align="end" />
               <div className="room-message-actions">
@@ -845,6 +850,10 @@ export function RoomView({ snapshot, invoke: rawInvoke, onOpenSession, onDocumen
       <div className="modal-body">
         {questionDialog.questionId ? <blockquote>{ownerQuestions.find(item=>item.id===questionDialog.questionId)?.text??'这条问题已处理。'}</blockquote> : <>
           <label className="field">谁先回答<select value={questionDialog.memberId} disabled={questionBusy} onChange={e=>setQuestionDialog({...questionDialog,memberId:e.target.value})}><option value="">所有可用参会成员</option>{questionMembers.map(member=><option key={member.id} value={member.id}>{member.name}</option>)}</select></label>
+          <label className="field">引用发言<select value={questionDialog.quote?.id??''} disabled={questionBusy} onChange={event=>setQuestionDialog({...questionDialog,quote:quoteOptions.find(item=>item.id===event.target.value)})}>
+            <option value="">不引用</option>
+            {quoteOptions.map(item=><option value={item.id} key={item.id}>{name(item)}：{item.text.replace(/\s+/g,' ').slice(0,65)}</option>)}
+          </select></label>
           {questionDialog.quote&&<blockquote>{name(questionDialog.quote)}：{questionDialog.quote.text.slice(0,350)}</blockquote>}
         </>}
         <form id="owner-question-form" onSubmit={event=>{event.preventDefault();void submitQuestion();}}>

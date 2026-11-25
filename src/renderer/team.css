@@ -547,6 +547,7 @@ button.room-system.link:hover { border-color: var(--ink-3); color: var(--ink); }
 .room-cast-chip.speaking { box-shadow: 0 0 0 2px color-mix(in srgb, var(--m) 24%, transparent); }
 @media (max-width: 980px) { .room-portrait-stage { display: none; } }
 
+.room-interruption-target { color: var(--focus); font-size: var(--fs-xs); }
 .room-user-quote { max-width: 100%; padding: 4px 10px; border-left: 2px solid var(--focus); border-radius: 6px; background: color-mix(in srgb, var(--surface) 75%, transparent); color: var(--ink-3); font-size: var(--fs-xs); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 .image-lightbox { position: fixed; inset: 0; z-index: 120; display: grid; place-items: center; padding: 28px; background: rgb(8 10 16 / 82%); backdrop-filter: blur(8px); cursor: zoom-out; }
