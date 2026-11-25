@@ -241,10 +241,6 @@
 .reaction-picker button { width: 30px; height: 30px; border: 0; border-radius: 50%; background: transparent; font-size: var(--fs-lg); cursor: pointer; transition: transform .15s var(--ease), background .15s; }
 .reaction-picker button:hover, .reaction-picker button:focus-visible { background: var(--surface-2); transform: scale(1.18); }
 @keyframes reaction-pop { from { opacity: 0; transform: scale(.85); } to { opacity: 1; transform: none; } }
-.room-bubble-wrap { position: relative; }
-/* With no reactions yet, the add button floats beside the bubble instead of reserving a row. */
-.room-reactions.empty { position: absolute; left: 100%; bottom: 4px; margin-left: 6px; }
-
 /* Topics: summaries in the topic bar, the management panel and the new-topic dialog. */
 .room { position: relative; }
 .room-topic-bar { flex-wrap: wrap; }
@@ -311,10 +307,13 @@
 .modal-overlay > .error-fallback { margin: auto; }
 
 /* Handing room conclusions to a project. */
-/* Hover tools sit beside the bubble's lower edge, next to the emoji button, instead of stacking under the message. */
-.room-tools { position: absolute; left: 100%; bottom: 4px; margin-left: 6px; display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; opacity: 0; transition: opacity .15s; }
-.room-reactions.empty + .room-tools { margin-left: 36px; }
-.room-line.mine .room-tools { left: auto; right: 100%; margin: 0 6px 0 0; }
+/* Keep actions below the bubble, aligned with its right edge. */
+.room-message-actions { position: relative; align-self: stretch; display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 4px 6px; min-width: 0; }
+.room-message-actions:empty { display: none; }
+.room-message-actions .room-reactions { justify-content: flex-end; min-width: 0; max-width: 100%; }
+.room-message-actions .reaction-add-wrap { position: static; }
+.room-message-actions .reaction-picker { left: auto; right: 0; max-width: 100%; width: max-content; flex-wrap: wrap; }
+.room-tools { display: inline-flex; flex-wrap: wrap; justify-content: flex-end; align-items: center; gap: 6px; max-width: 100%; opacity: 0; transition: opacity .15s; }
 .room-line:hover .room-tools, .room-tools:focus-within { opacity: 1; }
 .room-tools .room-reply-button { margin: 0; }
 .room-more-button { width: 26px; height: 24px; }

@@ -678,8 +678,10 @@ export function RoomView({ snapshot, invoke: rawInvoke, onOpenSession, onDocumen
               {quoteId && <div className="room-user-quote">回复 {quoted ? `${name(quoted)}：${quoted.text.replace(/\s+/g, ' ').slice(0, 72)}${quoted.text.length > 72 ? '…' : ''}` : '较早消息'}</div>}
               <div className="room-bubble" onContextMenu={event => openMessageMenu(event, messageMenu(message, false))}>{message.text}</div>
               <AttachmentList items={message.attachments} invoke={invoke} align="end" />
-              <Reactions message={message} name={authorName} userAvatar={profile.avatar} />
-              <span className="room-tools">{!historyOnly && !archived && !personal && snapshot.backendReady && <button type="button" className="link-button room-reply-button" aria-label="撤回并重新编辑" onClick={() => void recallMessage(message, true)}>撤回并编辑</button>}{moreButton(message, false)}</span>
+              <div className="room-message-actions">
+                <Reactions message={message} name={authorName} userAvatar={profile.avatar} />
+                <span className="room-tools">{!historyOnly && !archived && !personal && snapshot.backendReady && <button type="button" className="link-button room-reply-button" aria-label="撤回并重新编辑" onClick={() => void recallMessage(message, true)}>撤回并编辑</button>}{moreButton(message, false)}</span>
+              </div>
               {personal?.messageActions?.(message,messages)}
             </div>
             <UserAvatar name={name(message)} avatar={profile.avatar} size={36} />
@@ -722,8 +724,10 @@ export function RoomView({ snapshot, invoke: rawInvoke, onOpenSession, onDocumen
             {message.imageGeneration&&message.status==='speaking'&&!message.generatedImages?.length&&<small className="room-reply-note">正在生成图片，可以随时停止。</small>}
             <GeneratedImages images={message.generatedImages} invoke={invoke} onEdit={!archived&&!state.active&&canGenerateImage?image=>setImageDialog({text:draft,draftVersion:composer.version,attachments:[image]}):undefined}/>
             {message.status === 'failed' && message.error && text && <small className="room-error">{message.error}</small>}
-            <Reactions message={message} name={authorName} userAvatar={profile.avatar} onToggle={reactable ? emoji => void react(message, emoji) : undefined} />
-            {message.status !== 'speaking' && <span className="room-tools">{canReply && <button type="button" className="link-button room-reply-button" aria-label={`回复 ${name(message)} 的消息`} onClick={() => replyToMessage(message)}>回复这条</button>}{moreButton(message, canReply)}</span>}
+            <div className="room-message-actions">
+              <Reactions message={message} name={authorName} userAvatar={profile.avatar} onToggle={reactable ? emoji => void react(message, emoji) : undefined} />
+              {message.status !== 'speaking' && <span className="room-tools">{canReply && <button type="button" className="link-button room-reply-button" aria-label={`回复 ${name(message)} 的消息`} onClick={() => replyToMessage(message)}>回复这条</button>}{moreButton(message, canReply)}</span>}
+            </div>
             {personal?.messageActions?.(message,messages)}
           </div>
         </div>;
