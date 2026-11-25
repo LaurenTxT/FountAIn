@@ -88,6 +88,8 @@ export default function App() {
   const [projectId, setProjectId] = useState('');
   const [sessionId, setSessionId] = useState('');
   const [modal, setModal] = useState<ModalName>(null);
+  const draggingProject=useRef<Project|null>(null);
+  const [projectDrop,setProjectDrop]=useState<{id:string;position:'before'|'after'}>();
   const [hierarchy,setHierarchy]=useState<{mode:'child'|'move';target:Project}>();
   const [collapsedProjects,setCollapsedProjects]=useState<Set<string>>(()=>{try{const ids=JSON.parse(localStorage.getItem('fountain.project-tree.collapsed')??'[]');return new Set(Array.isArray(ids)?ids.filter(id=>typeof id==='string').slice(0,5000):[]);}catch{return new Set();}});
   useEffect(()=>{try{localStorage.setItem('fountain.project-tree.collapsed',JSON.stringify([...collapsedProjects]));}catch{}},[collapsedProjects]);
@@ -265,6 +267,14 @@ export default function App() {
     } catch (error) { notify(errorText(error), true); }
     finally { setRestarting(false); }
   }
+  async function reorderProject(source:Project,target:Project,position:'before'|'after') {
+    if(source.id===target.id||source.parentId!==target.parentId)return;
+    try{
+      await invoke('project.reorder',{projectId:source.id,targetId:target.id,position,
+        expectedRevision:source.hierarchyRevision??0,targetRevision:target.hierarchyRevision??0,requestId:crypto.randomUUID()});
+      await refresh();
+    }catch{/* invoke reports the error and the tree keeps its current order. */}
+  }
   async function createdProject(params: { name: string; directory: string }) {
     const result = await invoke<Project>('project.create', params);
     const next = await refresh();
@@ -439,7 +449,33 @@ export default function App() {
       <ErrorBoundary area="项目和会话列表" compact resetKey={projectId}><div className="project-list" role="tree" aria-label="项目树">
         {workProjects.length === 0 ? <div className="sidebar-empty">还没有项目，先添加一个吧</div> : projectRows(workProjects,collapsedProjects).map(({project:item,depth,hasChildren,path:treePath}) => renaming?.kind === 'project' && renaming.id === item.id
           ? <RenameInput key={item.id} value={renaming.value} label="项目名称" onChange={value => setRenaming({ ...renaming, value })} onCommit={() => void commitRename()} onCancel={() => setRenaming(null)} />
-          : <div className={`list-row project-item project-tree-row ${item.id === projectId ? (view === 'project' ? 'selected current' : 'current') : ''}`} key={item.id} role="treeitem" aria-level={depth+1} aria-selected={item.id===projectId} aria-expanded={hasChildren?!collapsedProjects.has(item.id):undefined} style={{paddingLeft:Math.min(depth,6)*13}} onContextMenu={event => openMenu(event, projectMenuItems(item))}>
+          : <div className={`list-row project-item project-tree-row ${item.id === projectId ? (view === 'project' ? 'selected current' : 'current') : ''}`} key={item.id} role="treeitem" aria-level={depth+1}
+            draggable={snapshot.backendReady} data-project-drop={projectDrop?.id===item.id?projectDrop.position:undefined}
+            onDragStart={event=>{draggingProject.current=item;event.dataTransfer.setData('text/plain',item.name);event.dataTransfer.effectAllowed='move';}}
+            onDragEnd={()=>{draggingProject.current=null;setProjectDrop(undefined);}}
+            onDragOver={event=>{
+              const source=draggingProject.current;
+              if(!source||source.id===item.id||source.parentId!==item.parentId){setProjectDrop(old=>old?undefined:old);return;}
+              event.preventDefault();event.dataTransfer.dropEffect='move';
+              const bounds=event.currentTarget.getBoundingClientRect();
+              const position=event.clientY<bounds.top+bounds.height/2?'before':'after';
+              setProjectDrop(old=>old?.id===item.id&&old.position===position?old:{id:item.id,position});
+            }}
+            onDrop={event=>{
+              const source=draggingProject.current;
+              draggingProject.current=null;setProjectDrop(undefined);
+              if(!source||source.id===item.id||source.parentId!==item.parentId)return;
+              const bounds=event.currentTarget.getBoundingClientRect();
+              event.preventDefault();
+              void reorderProject(source,item,event.clientY<bounds.top+bounds.height/2?'before':'after');
+            }}
+            onKeyDown={event=>{
+              if(!snapshot.backendReady||!event.altKey||!['ArrowUp','ArrowDown'].includes(event.key))return;
+              event.preventDefault();
+              const siblings=projectRows(workProjects).map(row=>row.project).filter(p=>p.parentId===item.parentId);
+              const up=event.key==='ArrowUp',index=siblings.findIndex(p=>p.id===item.id),target=siblings[index+(up?-1:1)];
+              if(target)void reorderProject(item,target,up?'before':'after');
+            }} aria-selected={item.id===projectId} aria-expanded={hasChildren?!collapsedProjects.has(item.id):undefined} style={{paddingLeft:Math.min(depth,6)*13}} onContextMenu={event => openMenu(event, projectMenuItems(item))}>
             {hasChildren?<button type="button" className="project-tree-toggle" aria-label={(collapsedProjects.has(item.id)?'展开':'收起')+' '+item.name+' 的子项目'} onClick={()=>setCollapsedProjects(old=>{const next=new Set(old);if(next.has(item.id))next.delete(item.id);else next.add(item.id);return next;})}>{collapsedProjects.has(item.id)?<ChevronRight size={13}/>:<ChevronDown size={13}/>}</button>:<span className="project-tree-spacer"/>}
             <button type="button" className="list-row-main" onClick={() => openProject(item)} onDoubleClick={() => { window.clearTimeout(inviteTimer.current); setRenaming({ kind: 'project', id: item.id, value: item.name }); }} title={treePath.join(' / ')+' · '+item.directory}>{item.id === projectId ? <FolderOpen size={15} /> : <Folder size={15} />}<span>{item.name}</span></button>
             <button type="button" className="row-more" aria-label={`${item.name} 的更多操作`} onClick={event => openMenu(event, projectMenuItems(item))}><MoreHorizontal size={15} /></button>
@@ -661,4 +697,3 @@ function Welcome({ project, snapshot, team, moods, invoke, onProject, onSettings
     <div className="welcome-network-corner"><Globe2 size={11} /><span>{snapshot.settings.networkMode === 'tun' ? '网络沿用当前 TUN 环境' : '网络使用已配置的代理'} · 所有记录保存在本机</span></div>
   </div>;
 }
-

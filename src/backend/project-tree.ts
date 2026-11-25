@@ -1,6 +1,6 @@
 import {randomUUID} from 'node:crypto';
 import type {Project} from '../shared/types';
-import {descendantIds} from '../shared/project-tree';
+import {descendantIds,projectRows} from '../shared/project-tree';
 import {FlowError} from '../shared/project-flow';
 import {normalizeWriteScopes,assertProjectIdle} from './project-access';
 import {readStudyRoom,studyBriefLeader,studyWriteScopes} from './study-room';
@@ -15,5 +15,19 @@ export class ProjectTree {
   private once<T>(method:string,p:Record<string,unknown>,job:()=>T):T{if(p.requestId===undefined)return this.store.transaction(job);if(typeof p.requestId!=='string'||!p.requestId||p.requestId.length>200)throw new FlowError('INVALID_REQUEST','操作编号无效。');const signature=JSON.stringify([method,Object.fromEntries(Object.entries(p).sort(([a],[b])=>a.localeCompare(b)))]),old=this.store.get<{signature:string;result:T}>('project_tree_requests',p.requestId);if(old){if(old.signature!==signature)throw new FlowError('IDEMPOTENCY_CONFLICT','操作编号已用于另一项变更。');return old.result;}let result:T;this.store.transaction(()=>{result=job();this.store.put('project_tree_requests',String(p.requestId),{signature,result});});return result!;}
   create(directory:string,p:Record<string,unknown>):Project{return this.once('create',p,()=>{const study=readStudyRoom(directory);const parentId=this.parent(p.parentId),order=this.order(p.order,parentId),writeScopes=studyWriteScopes(directory,p.writeScopes===undefined?undefined:normalizeWriteScopes(directory,p.writeScopes)),name=String(p.name||directory.split(/[\\/]/).at(-1)).trim();if(!name)throw new FlowError('INVALID_REQUEST','项目名称不能为空。');const project:Project={id:randomUUID(),name:name.slice(0,120),directory,createdAt:new Date().toISOString(),collaborationPaused:false,hierarchyRevision:1,order,...(parentId?{parentId}:{}),...(writeScopes?{writeScopes}:{} )};const leader=study&&this.studyLeader(study.brief);if(leader)project.meetingLeaderId=leader;this.store.put('projects',project.id,project);this.store.ensureProjectRoom(project.id,true);return project;});}
   move(p:Record<string,unknown>):Project{return this.once('move',p,()=>{const project=this.work(String(p.projectId));if(p.expectedRevision!==(project.hierarchyRevision??0))throw new FlowError('STALE_REVISION','项目归属或范围已更新，请刷新后再保存。');for(const key of Object.keys(p))if(!['projectId','parentId','order','writeScopes','expectedRevision','requestId'].includes(key))throw new FlowError('INVALID_REQUEST','不支持的项目字段：'+key);const parentId=Object.hasOwn(p,'parentId')?this.parent(p.parentId,project.id):project.parentId,order=p.order===undefined?project.order??0:this.order(p.order,parentId),writeScopes=studyWriteScopes(project.directory,p.writeScopes===undefined?project.writeScopes:normalizeWriteScopes(project.directory,p.writeScopes));if(JSON.stringify([...(writeScopes??['.'])].sort())!==JSON.stringify([...(project.writeScopes??['.'])].sort()))assertProjectIdle(this.store,project.id);const next={...project,parentId,order,writeScopes,hierarchyRevision:(project.hierarchyRevision??0)+1};this.store.put('projects',next.id,next);return next;});}
+  reorder(p:Record<string,unknown>):void {
+    this.once('reorder',p,()=>{
+      const project=this.work(String(p.projectId)),target=this.work(String(p.targetId));
+      if(project.parentId!==target.parentId || project.id===target.id)throw new FlowError('INVALID_ORDER','只能拖动调整同级项目的顺序。');
+      if(p.expectedRevision!==(project.hierarchyRevision??0) || p.targetRevision!==(target.hierarchyRevision??0))
+        throw new FlowError('STALE_REVISION','项目顺序已更新，请重新拖动。');
+      if(p.position!=='before'&&p.position!=='after')throw new FlowError('INVALID_ORDER','请选择放在目标项目上方或下方。');
+      const siblings=projectRows(this.store.list<Project>('projects')).map(row=>row.project)
+        .filter(item=>item.parentId===project.parentId&&item.id!==project.id);
+      siblings.splice(siblings.findIndex(item=>item.id===target.id)+(p.position==='after'?1:0),0,project);
+      siblings.forEach((item,order)=>{if(item.order!==order)this.store.put('projects',item.id,{...item,order,hierarchyRevision:(item.hierarchyRevision??0)+1});});
+      return {reordered:true};
+    });
+  }
   assertRemovable(projectId:string){this.work(projectId);if(descendantIds(this.store.list<Project>('projects'),projectId).length>1)throw new FlowError('PROJECT_HAS_CHILDREN','请先把子项目移到其他归属或移为独立项目，再移除父项目。');assertProjectIdle(this.store,projectId);}
 }

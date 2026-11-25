@@ -92,6 +92,7 @@ export const RENDERER_METHODS: readonly string[] = [
   'collaboration.resume',
   'diagnostics.export',
   'dialog.directory',
+  'dialog.projectMaterials',
   'provider.login',
   'provider.loginCode',
   'provider.tokenLogin',

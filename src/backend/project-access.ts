@@ -10,6 +10,7 @@ import {scopePath} from '../shared/project-flow-protocol';
 import {resolveSafePath} from './security';
 import {folderPath} from './folder-path';
 import {studyWriteScopes} from './study-room';
+import {PROJECT_CONTEXT_DIRECTORY} from '../shared/project-tree';
 interface Claim {projectId:string;directory:string;keys:string[];reason:string;kind:'execution'|'journal'|'write'|'removal';journalState?:ApplyJournal['state']}
 interface Lease extends Claim {lockKeys:string[];id:string;state:'pending'|'running';run:()=>Promise<unknown>;resolve:(v:unknown)=>void;reject:(e:unknown)=>void}
 const leases=new WeakMap<Store,Map<string,Lease>>(),removals=new WeakMap<Store,Set<string>>();
@@ -43,7 +44,14 @@ export function assertProjectBoundary(store:Store,id:string,b?:WriteBoundary){
 }
 export function assertProjectPaths(store:Store,projectId:string,paths:string[]){
   const p=project(store,projectId),scopes=(p.kind?p.writeScopes:studyWriteScopes(p.directory,p.writeScopes))??['.'];try{
-    const allowed=scopes.map(s=>physicalPath(p,s));for(const value of paths){const target=physicalPath(p,scopePath(value));if(!allowed.some(root=>contains(root,target)))throw new FlowError('OUT_OF_SCOPE','任务或改动超出项目声明的修改范围：'+value);}
+    const allowed=scopes.map(s=>physicalPath(p,s));
+    const referenceRoot=path.join(folderPath(p.directory).key,process.platform==='win32'?PROJECT_CONTEXT_DIRECTORY.toLowerCase():PROJECT_CONTEXT_DIRECTORY);
+    for(const value of paths){
+      const relative=scopePath(value),target=physicalPath(p,relative);
+      if(!p.kind&&(contains(referenceRoot,target)||contains(referenceRoot,path.resolve(folderPath(p.directory).key,process.platform==='win32'?relative.toLowerCase():relative))))
+        throw new FlowError('OUT_OF_SCOPE','立项资料为只读副本，不能写回：'+value);
+      if(!allowed.some(root=>contains(root,target)))throw new FlowError('OUT_OF_SCOPE','任务或改动超出项目声明的修改范围：'+value);
+    }
   }catch(error){if(error instanceof FlowError)throw error;throw new FlowError('INVALID_SCOPE','无法安全核对项目目录或修改范围：'+(error as Error).message);}
 }
 /** A missing historical boundary keeps the whole directory reserved. Invalid live paths never free a claim. */

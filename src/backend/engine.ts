@@ -196,6 +196,7 @@ import { BackupRestorer } from "./backup-restore";
 import { writeBackup } from "./backup-writer";
 import type { BackupReason } from "../shared/backup";
 import { ProjectFlowController } from "./project-flow";
+import { copyProjectMaterials } from "./project-materials";
 import {
   migrateFlowCards,
   migrateRoundReports,
@@ -3752,6 +3753,13 @@ export class Engine {
         this.broadcast();
         return project;
       }
+      case "project.reorder": {
+        this.projectTree.reorder(params);
+        this.broadcast();
+        return { reordered: true };
+      }
+      case "project.materials.copy":
+        return copyProjectMaterials(this.store, String(params.projectId ?? ""), params.files);
       case "project.move": {
         const project = this.projectTree.move(params);
         this.broadcast();

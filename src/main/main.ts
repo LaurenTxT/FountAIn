@@ -557,6 +557,12 @@ function registerIpc() {
       const result = await dialog.showOpenDialog(window!, { properties: ['openFile'], title: '选择 AI 程序', filters: [{ name: '程序或脚本', extensions: ['exe', 'cmd', 'js', 'mjs', 'cjs'] }, { name: '所有文件', extensions: ['*'] }] });
       return result.canceled ? null : result.filePaths[0];
     }
+    if (method === 'dialog.projectMaterials') {
+      const { project } = await request('internal.lookup', { projectId: params.projectId }) as Lookup;
+      if (!project || project.kind) throw new Error('找不到资料所在的大项目。');
+      const result = await dialog.showOpenDialog(window!, { defaultPath: project.directory, properties: ['openFile', 'multiSelections'], title: '选择需要复制的项目资料' });
+      return result.canceled ? [] : result.filePaths;
+    }
     if (method === 'dialog.directory') { const defaultDir = process.env.FOUNTAIN_DESKTOP_ROOT && existsSync(process.env.FOUNTAIN_DESKTOP_ROOT) ? process.env.FOUNTAIN_DESKTOP_ROOT : undefined; const result = await dialog.showOpenDialog(window!, { properties: ['openDirectory'], title: '选择项目目录', ...(defaultDir ? { defaultPath: defaultDir } : {}) }); return result.canceled ? null : result.filePaths[0]; }
     if (method === 'provider.login') return login(params?.provider);
     if(method==='provider.loginStatus')return providerLoginState.get(String(params?.provider));
