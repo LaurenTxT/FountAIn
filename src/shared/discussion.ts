@@ -61,15 +61,24 @@ export const DISCUSSION_LABELS: Record<DiscussionPhase, string> = {
 export function parseDiscussionReply(text: string, turn: string, revision: number): DiscussionReply {
   const value = discussionObject(text);
   const keys = ['version','turn','revision','action','body','replyTo','next','proposalId','questions','answers','emoji'];
+  const closureAction = ['propose','accept','reject'].includes(value.action);
+  const warnings: string[] = [];
   for (const [key,expected] of Object.entries({version:1,turn,revision})) {
-    if (value[key] === undefined) throw new DiscussionFormatError('讨论控制信息缺少必需的轮次字段。', true);
-    if (value[key] !== expected) throw new DiscussionFormatError('讨论控制信息与当前轮次不符，请核对后继续。');
+    if (value[key] === undefined) {
+      if (closureAction || key === 'version') throw new DiscussionFormatError('讨论控制信息缺少必需的轮次字段。', true);
+      warnings.push(`已自动补齐 ${key}`);
+      continue;
+    }
+    if (value[key] !== expected) {
+      if (closureAction || key === 'version') throw new DiscussionFormatError('讨论控制信息与当前轮次不符，请核对后继续。');
+      warnings.push(`已自动对齐 ${key}`);
+    }
   }
   if (!['speak','pass','react','propose','accept','reject','ask_user'].includes(value.action) || typeof value.body !== 'string' || value.body.length > 12000) throw new DiscussionFormatError('讨论动作或正文格式无效。', true);
   const silent = ['pass','react','accept'].includes(value.action);
   if (silent ? value.body.trim() !== '' : !value.body.trim()) throw new DiscussionFormatError('发言与讨论动作不一致。', true);
   if (silent && (value.next || value.questions !== undefined && (!Array.isArray(value.questions) || value.questions.length) || value.answers !== undefined && (!Array.isArray(value.answers) || value.answers.length))) throw new DiscussionFormatError('沉默或收尾确认不能同时提出新的调度要求。');
-  const reply: DiscussionReply = { version:1,turn,revision,action:value.action,body:value.body,formatWarnings:[] };
+  const reply: DiscussionReply = { version:1,turn,revision,action:value.action,body:value.body,formatWarnings:warnings };
   const warn = (text:string) => reply.formatWarnings!.push(text);
   if (reply.action === 'react') {
     const emoji = typeof value.emoji === 'string' ? roomReaction(value.emoji) : undefined;
