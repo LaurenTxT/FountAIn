@@ -35,7 +35,7 @@ export function RoomPresence({ discussion: d, state, invited, ready, locked, bus
   const available = d?.limit ? Math.max(0, d.limit - (speechBudget?d.speechCalls??0:d.calls)) : undefined;
   const roundCost = !speechBudget&&d?.handRaise && d.members.length > 1 ? d.members.length + 1 : 1;
   const details = d ? [
-    ...(d.phase !== 'idle' && d.reason ? [d.reason] : []),
+    ...(d.phase !== 'idle' && d.reason && d.reason !== '重启后已暂停讨论，请核对进展后继续；不会自动重发旧轮次。' ? [d.reason] : []),
     ...(d.phase === 'closing' ? ['正在确认每位成员是否还有遗漏或异议。'] : []),
     ...(handActive && d.handRound?.status === 'done' ? [d.handRound.fallback ? '没有人需要补充，等你说话' : `本轮补充：${name(d.handRound.selected ?? '')}`] : []),
   ] : [];
@@ -52,7 +52,7 @@ export function RoomPresence({ discussion: d, state, invited, ready, locked, bus
           if (onRest && state.restingMemberIds?.includes(member.id)) return <button key={member.id} type="button"
             className="guest-chip guest-chip-resting" disabled={busy} aria-label={'请 '+member.name+' 回来'}
             title={'请 '+member.name+' 回来参加后续讨论'} onClick={()=>onRest(member.id,false)}>
-            <Avatar member={member} size={24} ring={false} mood="resting"/><span className="guest-chip-name">{member.name}</span><small>休息中 · 回来</small>
+            <Avatar member={member} size={24} ring={false} mood="resting"/><span className="guest-chip-name">{member.name}</span><small>休息中</small>
           </button>;
           const speaking = state.active && state.speaking === member.id;
           const ballot = handActive && on ? d?.handRound?.ballots[member.id] : undefined;
