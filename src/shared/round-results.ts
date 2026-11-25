@@ -32,4 +32,4 @@ export interface ReportSystemNote {
   eventIds?: string[];
 }
 export const RESULT_READS = ['projectFlow.round.results', 'projectFlow.round.preview'] as const;
-export const OPENABLE_DOCUMENT = /\.(?:txt|md|json|ya?ml|csv|log|png|jpe?g|webp|gif|pdf|docx|xlsx|pptx)$/i;
+export const OPENABLE_DOCUMENT = /\.(?:txt|md|json|ya?ml|csv|log|png|jpe?g|webp|gif|pdf|docx|xlsx|pptx|mp4)$/i;

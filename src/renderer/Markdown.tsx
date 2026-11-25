@@ -1,6 +1,7 @@
 import { createElement, useState, type ReactNode } from 'react';
 import { Check, Copy } from 'lucide-react';
 import { copyText } from './ui';
+import { OPENABLE_DOCUMENT } from '../shared/round-results';
 
 // Member output is rendered as React nodes only. No HTML from a member is ever parsed or executed.
 
@@ -83,7 +84,7 @@ export function inline(text: string, key = 'i', onDocument?: DocumentLink): Reac
       try { path = decodeURIComponent(target); } catch { /* Literal percent signs may occur in filenames. */ }
       const label = inline(match[9], id);
       const local = !/^(?:[a-z][a-z\d+.-]*:|[/\\]{2})/i.test(path) || /^[a-z]:[/\\]/i.test(path);
-      nodes.push(onDocument && local && /\.(?:md|txt|pdf|docx|xlsx|pptx|csv|log|json|ya?ml)$/i.test(path)
+      nodes.push(onDocument && local && OPENABLE_DOCUMENT.test(path)
         ? <button type="button" className="md-link md-document-link" key={id} title={path} onClick={() => onDocument(path)}>{label}</button>
         : <span className="md-link" key={id} title={path}>{label}</span>);
     }

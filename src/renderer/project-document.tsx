@@ -39,7 +39,7 @@ export function ProjectDocument({ selection, invoke, onClose }: {
     </header>
     {preview && <div className="project-document-actions">
       <button type="button" className="button small secondary" onClick={() => open('reveal')}><FolderOpen size={15}/>打开所在文件夹</button>
-      <button type="button" className="button small quiet" onClick={() => open('open')}>用系统应用打开</button>
+      <button type="button" className="button small quiet" onClick={() => open('open')}>{/\.mp4$/i.test(preview.relativePath) ? '用系统播放器打开' : '用系统应用打开'}</button>
     </div>}
     <div className="project-document-body">
       {actionError && <p role="alert">{actionError}</p>}
