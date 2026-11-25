@@ -7929,6 +7929,9 @@ export class Engine {
       this.qqBridge.sendReply(target, "跨项目请求失败：" + redact((error as Error).message));
       return;
     }
+    // In group chats, only explicit /room, /stop, /back, or cross-project relay commands
+    // wake FountAIn so ordinary group chatter stays silent and never collides with other bots.
+    if (msg.chatType === "group") return;
     // Always route directly to the fixed lead member (e.g. DeepSeek) when configured,
     // so ordinary QQ messages NEVER wake up Gemini/Claude/ChatGPT unless the lead explicitly @s them.
     const inboundText = fixedMember ? `@${fixedMember.name} ${baseText}` : baseText;
