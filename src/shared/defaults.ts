@@ -65,7 +65,7 @@ export function parseEnv(text: string): Record<string, string> {
 export const DEFAULT_SETTINGS: Settings = {
   networkMode:'tun', proxyUrl:'http://127.0.0.1:7897', npmRegistry:'official',nodeRuntime:'bundled',claudeAuthMode:'subscription',paths:{}, models:{}, efforts:{},
   deepseekEnabled:true, deepseekBaseUrl:'https://api.deepseek.com', dshProfile:'fountain',
-  maxParallel:3, stopTimeoutMs:10000, defaultWriteMode:true, defaultAutoApprove:true, autoCompressContext:true,
+  maxParallel:3, stopTimeoutMs:10000, defaultWriteMode:true, defaultAutoApprove:true, autoCompressContext:true, nativeContextLimitKB:400,
   maxRunMinutes:30, deepseekMaxRequests:12,
   // Personal, unattended work: normal-user full access, with task copies, logs and stop controls retained.
   permissions:{ codex:{commands:'auto',fileScope:'any',network:true}, claude:{commands:'auto',fileScope:'any',network:true}, dsh:{commands:'auto',fileScope:'any',network:true} }

@@ -193,6 +193,15 @@ export function SettingsModal({ sharedUsage, snapshot, invoke, onClose, notify, 
           <div className="settings-section-heading"><h3>工作台设置</h3></div>
           <section className="settings-group" aria-label="对话">
             <DiscussionCallSettings settings={settings} onChange={limits=>setSettings(previous=>({...previous,discussionCallLimits:limits}))}/>
+            <label className="field">成员原生会话上限（全员防超额缓存）
+              <select aria-label="成员原生会话上限" value={String(settings.nativeContextLimitKB ?? 400)} onChange={event => setSettings(previous => ({ ...previous, nativeContextLimitKB: Number(event.target.value) }))}>
+                <option value="0">按官方默认（不提前重置，交由各 CLI 自行压缩）</option>
+                <option value="200">200 KB（省钱轻量，推荐 API 按量计费）</option>
+                <option value="400">400 KB（均衡推荐，防爆窗兼顾连贯性）</option>
+                <option value="800">800 KB（长上下文，适合大型代码库）</option>
+              </select>
+              <small>对 Claude、ChatGPT、DeepSeek、Gemini 等所有成员统一生效。超过上限后自动换新会话并从房间摘要无感接续，聊天记录不会丢失。</small>
+            </label>
           </section>
           <section className="settings-group" aria-label="外观与提醒"><h3>外观与提醒</h3>
             <div className="field">外观<div className="segmented wide" role="radiogroup" aria-label="外观">{([['system', '跟随系统'], ['light', '白天'], ['dark', '夜晚']] as const).map(([id, label]) => <button type="button" role="radio" aria-checked={theme === id} className={theme === id ? 'selected' : ''} key={id} onClick={() => onTheme(id)}><Palette size={13} />{label}</button>)}</div><small>只影响这台电脑上的显示，立即生效。</small></div>

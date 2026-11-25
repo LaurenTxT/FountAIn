@@ -81,6 +81,8 @@ export interface Settings {
   stopTimeoutMs: number; defaultWriteMode: boolean;
   /** Context Keeper: automatically compress long room threads when idle (manual compression always stays available). */
   autoCompressContext?: boolean;
+  /** Max native transcript/context size in KB per room member before resetting to a fresh session from FountAIn summary (0 = official default, no early reset). */
+  nativeContextLimitKB?: number;
   /** Optional local OneBot v11 (NapCat) QQ bridge for remote-controlling FountAIn rooms from QQ. */
   qqBridge?: QqBridgeSettings;
   /** Background speech is independently opt-in; explicit user conversations keep their own budgets. */
@@ -290,6 +292,8 @@ export interface RoomState { active: boolean; mode: 'chat' | 'meeting' | 'discus
 export interface Session {
   executorIdentity?: import('./compatibility').ExecutorIdentity;
   id: string; projectId: string; provider: ProviderId; title: string; nativeId?: string; nativeHome?: 'shared' | 'fountain';
+  /** Approximate cumulative native context bytes for room-level reset fuse across all executors. */
+  nativeContextBytes?: number;
   roomId?: RoomId; roomThreadId?: string;
   /** Acknowledged persona in this exact native history; never used after a native reset. */
   nativePersona?: { nativeId: string; hash: string };

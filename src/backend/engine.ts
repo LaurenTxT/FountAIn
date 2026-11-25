@@ -890,6 +890,36 @@ export class Engine {
             onRun(sent.runId);
             const result = await this.waitForReply(sent.runId, session.id),
               run = this.store.get<Run>("runs", sent.runId);
+            const latestSess = this.store.get<Session>("sessions", session.id);
+            if (latestSess && latestSess.nativeId) {
+              const turnEvents = this.store.eventsForRuns([sent.runId]);
+              const turnBytes = turnEvents.reduce(
+                (sum, ev) =>
+                  sum +
+                  Buffer.byteLength(ev.text ?? "", "utf8") +
+                  (ev.data ? Buffer.byteLength(JSON.stringify(ev.data), "utf8") : 0),
+                0,
+              );
+              const limitKB = this.settings.nativeContextLimitKB ?? 400;
+              const contextThrashing =
+                run?.status === "failed" &&
+                /Autocompact is thrashing|context.*limit|prompt is too long|context_length_exceeded/i.test(
+                  run.error ?? "",
+                );
+              if (limitKB > 0 && contextThrashing) {
+                this.store.put("sessions", latestSess.id, {
+                  ...latestSess,
+                  nativeId: undefined,
+                  nativeHome: undefined,
+                  nativeContextBytes: 0,
+                });
+              } else {
+                this.store.put("sessions", latestSess.id, {
+                  ...latestSess,
+                  nativeContextBytes: (latestSess.nativeContextBytes ?? 0) + turnBytes,
+                });
+              }
+            }
             const connectionFailure =
                 run?.status === "failed" &&
                 isConnectionFailure(run.error ?? ""),
@@ -4928,11 +4958,18 @@ export class Engine {
       (!purpose || purpose === "room-mention");
     const targetWorkspace = this.projectRoomDirectory(this.roomId) || project.directory;
     if (existing) {
+      const limitKB = this.settings.nativeContextLimitKB ?? 400;
+      const contextExceeded =
+        limitKB > 0 &&
+        !purpose &&
+        Boolean(existing.nativeId) &&
+        (existing.nativeContextBytes ?? 0) > limitKB * 1024;
       const staleNative =
         Boolean(purpose && existing.nativeId) ||
         Boolean(allowWrite && !existing.writeMode) ||
         Boolean(existing.nativeId && existing.workspace !== targetWorkspace) ||
-        Boolean(allowWrite && member.executor === "dsh" && existing.nativeId && !(existing as { dshFullAccess?: boolean }).dshFullAccess);
+        Boolean(allowWrite && member.executor === "dsh" && existing.nativeId && !(existing as { dshFullAccess?: boolean }).dshFullAccess) ||
+        contextExceeded;
       if (staleNative) {
         const fresh = {
           ...existing,
@@ -4943,6 +4980,7 @@ export class Engine {
           ...(allowWrite && member.executor === "dsh" ? { dshFullAccess: true } : {}),
           nativeId: undefined,
           nativeHome: undefined,
+          nativeContextBytes: 0,
           roomId: this.roomId,
           roomThreadId: threadId,
         };

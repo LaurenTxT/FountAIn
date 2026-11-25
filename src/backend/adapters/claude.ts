@@ -116,8 +116,8 @@ export function adoptClaudeTranscript(nativeId: string, source: NodeJS.ProcessEn
   }
   return false;
 }
-/** Room native transcripts above 200 KB trigger a clean reset from FountAIn's compact summary to avoid runaway cache/compaction billing. */
-const CLAUDE_ROOM_TRANSCRIPT_LIMIT_BYTES = 200 * 1024;
+/** Default room native transcript cap in KB before resetting from FountAIn's compact summary (0 = official default). */
+const DEFAULT_NATIVE_CONTEXT_LIMIT_KB = 400;
 export function claudeTranscriptBytes(nativeId: string, home: string): number {
   if (!/^[0-9a-f-]{36}$/i.test(nativeId)) return 0;
   const name = `${nativeId}.jsonl`, projects = join(home, 'projects');
@@ -365,7 +365,9 @@ export class ClaudeAdapter implements Adapter {
   async start(context: AdapterContext, text: string): Promise<AdapterResult> {
     if (this.context) throw new Error('这个 Claude 适配器已有活动任务。');
     const envPreview = claudeEnvironment(context.env);
+    const limitKB = context.settings.nativeContextLimitKB ?? DEFAULT_NATIVE_CONTEXT_LIMIT_KB;
     const bloatedTranscriptBytes =
+      limitKB > 0 &&
       context.session.purpose !== 'room-hand' &&
       context.session.roomThreadId &&
       !context.run.flowOperationId &&
@@ -373,7 +375,7 @@ export class ClaudeAdapter implements Adapter {
       context.session.nativeId
         ? claudeTranscriptBytes(context.session.nativeId, envPreview.CLAUDE_CONFIG_DIR!)
         : 0;
-    const resetBloated = bloatedTranscriptBytes > CLAUDE_ROOM_TRANSCRIPT_LIMIT_BYTES;
+    const resetBloated = limitKB > 0 && bloatedTranscriptBytes > limitKB * 1024;
     const stamp=this.runtimeFingerprint(context),reuse=!resetBloated&&context.roomRuntime&&context.session.purpose!=='room-hand'&&this.canReuse()&&this.stamp===stamp&&this.nativeSessionId===context.session.nativeId;
     this.context = context; this.stopped = false; this.sent = false; this.acknowledged = false;
     this.strictTurn=!!reuse;this.correlated=false;this.streamCorrelation=true;this.malformed=false;this.streamOwners.clear();this.messageOwners.clear();this.matchedAssistantMessages=0;this.turnTools.clear();
