@@ -1,5 +1,6 @@
 import { ConfigurationHint, useProviderConfiguration } from './provider-configuration';
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { createPortal } from 'react-dom';
 import { CornerDownLeft, Search } from 'lucide-react';
 import { PROVIDER_NAMES } from '../shared/defaults';
 import type { Approval, RunSummary, Session, Snapshot } from '../shared/types';
@@ -41,7 +42,7 @@ export function ContextMenu({ menu, onClose }: { menu: MenuState; onClose: () =>
     };
   }, [menu, onClose]);
   if (!menu) return null;
-  return <div className="context-menu" ref={node} role="menu" style={{ left: position.x, top: position.y }} onKeyDown={event => {
+  return createPortal(<div className="context-menu" ref={node} role="menu" style={{ left: position.x, top: position.y }} onKeyDown={event => {
     if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return;
     event.preventDefault();
     const items = [...(node.current?.querySelectorAll<HTMLButtonElement>('button:not(:disabled)') ?? [])];
@@ -49,7 +50,7 @@ export function ContextMenu({ menu, onClose }: { menu: MenuState; onClose: () =>
     items[(index + (event.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length]?.focus();
   }}>
     {menu.items.map((item, index) => item === 'separator' ? <hr key={index} /> : <button type="button" role="menuitem" key={index} className={item.danger ? 'danger' : ''} disabled={item.disabled} onClick={() => { onClose(); item.onSelect(); }}>{item.icon}<span>{item.label}</span></button>)}
-  </div>;
+  </div>, document.body);
 }
 
 /* ───────── Quick switcher (Ctrl+K) ───────── */
@@ -159,7 +160,7 @@ export function ModelPopover({ anchor, session, info, defaults, onSave, onSettin
   const configuration = useProviderConfiguration(session.provider, info, model || defaults.model, invoke);
   const { options, efforts } = configuration;
   const defaultModel = defaults.model || options.find(option => option.isDefault)?.label || info?.model || '成员默认';
-  return <div className="model-popover" ref={node} role="dialog" aria-label="这个会话的模型" style={{ left: anchor.left, bottom: window.innerHeight - anchor.top + 8 }}>
+  return createPortal(<div className="model-popover" ref={node} role="dialog" aria-label="这个会话的模型" style={{ left: anchor.left, bottom: window.innerHeight - anchor.top + 8 }}>
     <strong>这个会话用哪个模型</strong>
     <label className="field compact">模型
       {options.length ? <select disabled={!configuration.modelConfigurable} value={model} onChange={event => setModel(event.target.value)}>
@@ -180,5 +181,5 @@ export function ModelPopover({ anchor, session, info, defaults, onSave, onSettin
       <button type="button" className="link-button" onClick={() => { onClose(); onSettings(); }}>修改成员默认</button>
       <button type="button" className="button small primary" onClick={() => { onSave({ model: model || null, effort: effort || null }); onClose(); }}>保存</button>
     </div>
-  </div>;
+  </div>, document.body);
 }
