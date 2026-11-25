@@ -21,8 +21,24 @@ export function ContextMenu({ menu, onClose }: { menu: MenuState; onClose: () =>
     setPosition({ x: Math.min(menu.x, window.innerWidth - width - 8), y: Math.min(menu.y, window.innerHeight - height - 8) });
     node.current?.querySelector<HTMLButtonElement>('button:not(:disabled)')?.focus();
     const close = (event: Event) => { if (event instanceof KeyboardEvent ? event.key === 'Escape' : !node.current?.contains(event.target as Node)) onClose(); };
-    const timer = window.setTimeout(() => { document.addEventListener('mousedown', close); document.addEventListener('keydown', close); window.addEventListener('blur', onClose); window.addEventListener('resize', onClose); }, 0);
-    return () => { window.clearTimeout(timer); document.removeEventListener('mousedown', close); document.removeEventListener('keydown', close); window.removeEventListener('blur', onClose); window.removeEventListener('resize', onClose); };
+    const onScroll = (event: Event) => { if (!node.current?.contains(event.target as Node)) onClose(); };
+    const timer = window.setTimeout(() => {
+      document.addEventListener('pointerdown', close, true);
+      document.addEventListener('mousedown', close, true);
+      document.addEventListener('keydown', close);
+      document.addEventListener('scroll', onScroll, true);
+      window.addEventListener('blur', onClose);
+      window.addEventListener('resize', onClose);
+    }, 0);
+    return () => {
+      window.clearTimeout(timer);
+      document.removeEventListener('pointerdown', close, true);
+      document.removeEventListener('mousedown', close, true);
+      document.removeEventListener('keydown', close);
+      document.removeEventListener('scroll', onScroll, true);
+      window.removeEventListener('blur', onClose);
+      window.removeEventListener('resize', onClose);
+    };
   }, [menu, onClose]);
   if (!menu) return null;
   return <div className="context-menu" ref={node} role="menu" style={{ left: position.x, top: position.y }} onKeyDown={event => {
@@ -126,8 +142,19 @@ export function ModelPopover({ anchor, session, info, defaults, onSave, onSettin
   const [effort, setEffort] = useState(session.effort ?? '');
   useEffect(() => {
     const close = (event: Event) => { if (event instanceof KeyboardEvent ? event.key === 'Escape' : !node.current?.contains(event.target as Node)) onClose(); };
-    const timer = window.setTimeout(() => { document.addEventListener('mousedown', close); document.addEventListener('keydown', close); }, 0);
-    return () => { window.clearTimeout(timer); document.removeEventListener('mousedown', close); document.removeEventListener('keydown', close); };
+    const timer = window.setTimeout(() => {
+      document.addEventListener('pointerdown', close, true);
+      document.addEventListener('mousedown', close, true);
+      document.addEventListener('keydown', close);
+      window.addEventListener('resize', onClose);
+    }, 0);
+    return () => {
+      window.clearTimeout(timer);
+      document.removeEventListener('pointerdown', close, true);
+      document.removeEventListener('mousedown', close, true);
+      document.removeEventListener('keydown', close);
+      window.removeEventListener('resize', onClose);
+    };
   }, [onClose]);
   const configuration = useProviderConfiguration(session.provider, info, model || defaults.model, invoke);
   const { options, efforts } = configuration;
