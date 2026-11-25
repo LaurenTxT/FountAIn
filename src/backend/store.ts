@@ -139,7 +139,7 @@ export class Store {
   }
   put(entity:string,id:string,value:unknown):void {
     if(this.roomsReady&&entity==='room'&&(id==='state'||id==='current')){entity=id==='state'?'room_states':'room_cursors';id='global';}
-    if(entity==='room_states'){const old=this.get<RoomState>(entity,id);value={...(value as RoomState),roomId:id,revision:(old?.revision??0)+1};}
+    if(entity==='room_states'){const old=this.get<RoomState>(entity,id);value={restingMemberIds:old?.restingMemberIds,...(value as RoomState),roomId:id,revision:(old?.revision??0)+1};}
     if(this.roomsReady&&entity==='room_threads')value={...(value as RoomThread),roomId:(value as RoomThread).roomId??this.get<RoomThread>(entity,id)?.roomId??'global'};
     if(this.roomsReady&&entity==='room_messages'){
       const message=value as RoomMessage;

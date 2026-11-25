@@ -283,7 +283,7 @@ export interface RoomThread {
   count?: number;
 }
 export interface RoomHistory { threadId: string; messages: RoomMessage[]; hasMore: boolean; before?: string; readToken?: string }
-export interface RoomState { active: boolean; mode: 'chat' | 'meeting' | 'discuss'; discussion?: import('./discussion').RoomDiscussion; topic?: string; speaking?: string; round?: number; rounds?: number;
+export interface RoomState { restingMemberIds?: string[]; active: boolean; mode: 'chat' | 'meeting' | 'discuss'; discussion?: import('./discussion').RoomDiscussion; topic?: string; speaking?: string; round?: number; rounds?: number;
   roomId?: RoomId; revision?: number;
   generatingImage?: boolean;
   /** The member condensing a topic right now. */

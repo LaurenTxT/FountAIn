@@ -89,7 +89,7 @@ export class RoomDiscussionController {
   private get() { return this.store.roomState().discussion; }
   private quotaWeights(d:RoomDiscussion){return Object.fromEntries(d.members.map(id=>{const value=this.host.working?.(id)||d.stoppedMembers?.includes(id)||d.skippedMembers?.[id]?0:this.host.quotaPreference?.(id);return [id,typeof value==='number'&&Number.isFinite(value)?Math.max(0,Math.min(1,value)):1];}));}
   private blockingQuestion(d:RoomDiscussion,q:RoomDiscussion['questions'][number]) {
-    return pendingDiscussionQuestion(q) && !(d.style==='chat' && q.to==='user') && !d.skippedMembers?.[q.to];
+    return pendingDiscussionQuestion(q) && !(d.style==='chat' && q.to==='user') && !d.skippedMembers?.[q.to] && !this.store.roomState().restingMemberIds?.includes(q.to);
   }
   private trimQuestions(d:RoomDiscussion) {
     const blocking=(q:RoomDiscussion['questions'][number])=>this.blockingQuestion(d,q);
@@ -116,7 +116,7 @@ export class RoomDiscussionController {
       ? this.store.allRoomMessages(this.store.currentRoomThread().id).filter(m=>m.discussionId===d.id&&m.status==='failed'&&m.runId).slice(-1).map(m=>m.runId!) : [];
     for(const runId of [...new Set([...unknown,...failed])]){
       const run=this.store.get<Run>('runs',runId),session=run&&this.store.get<Session>('sessions',run.sessionId),author=session&&(session.memberId??session.provider);
-      if(author&&!d.skippedMembers?.[author])
+      if(author&&!this.store.roomState().restingMemberIds?.includes(author)&&!d.skippedMembers?.[author])
         d=this.failedMember(d,author,run?.error??d.reason??'上一轮没有完成，暂时跳过。',runId,unknown.includes(runId),run?.status==='rate_limited');
     }
     return d;
@@ -176,9 +176,13 @@ export class RoomDiscussionController {
     let d = this.get();
     if (this.host.busy() && (!d || this.store.roomState().mode !== 'discuss')) throw new Error('请先等当前聊天结束');
     const team = this.store.members();
-    const requested = new Set(Array.isArray(params.memberIds) ? params.memberIds.map(String) : []),members = team.filter(m=>requested.has(m.id)).map(m=>m.id);
+    const resting = new Set(this.store.roomState().restingMemberIds);
+    const requested = new Set(Array.isArray(params.memberIds) ? params.memberIds.map(String) : []),members = team.filter(m=>requested.has(m.id)&&!resting.has(m.id)).map(m=>m.id);
     const mentions = params.materialContext?{ids:[],unknown:[],ambiguous:[]}:roomMentions(text, team);
     // Treat unrecognized @tokens (e.g. emails or prose like "我@你") as plain text instead of blocking send.
+    const addressed = mentions.ids.filter(id => !resting.has(id));
+    if (mentions.ids.length && !addressed.length) throw new Error('被点名的成员正在休息，请先在「在场」栏请 TA 回来。');
+    mentions.ids = addressed;
     if (mentions.ambiguous.length) throw new Error(`存在同名成员：${mentions.ambiguous.join('、')}。请先修改名字再点名。`);
     // Switching between 闲聊 and 开会 starts a new discussion instead of continuing a paused one of the other kind.
     const sameStyle = params.style === undefined || (params.style === 'chat') === (d?.style === 'chat');
@@ -189,9 +193,9 @@ export class RoomDiscussionController {
     const participants = members.length
       ? members
       : continuing
-        ? d!.members
+        ? d!.members.filter(id => !resting.has(id))
         : mentions.ids.filter(id=>this.host.working?.(id));
-    if (!participants.length) throw new Error('请至少邀请一位成员');
+    if (!participants.length) throw new Error(resting.size ? '当前没有可参会的成员，请先邀请成员或请休息中的成员回来。' : '请至少邀请一位成员');
     const absent=mentions.ids.filter(id=>!participants.includes(id)&&!this.host.working?.(id));
     if (absent.length) throw new Error(`请先在顶部「在场」栏点一下邀请 ${absent.map(id=>team.find(m=>m.id===id)!.name).join('、')}，再点名。`);
     const replyTo = params.replyTo ? this.store.get<RoomMessage>('room_messages', String(params.replyTo)) : undefined;
@@ -244,6 +248,64 @@ export class RoomDiscussionController {
     this.kick(d);
     return { accepted: true, members: d.members.length, phase: d.phase };
   }
+  setMemberRest(memberId: string, resting: boolean) {
+    const state = this.store.roomState();
+    if (!this.store.members().some(member => member.id === memberId)) throw new Error('这位成员已不可用。');
+    const ids = new Set(state.restingMemberIds);
+    if (ids.has(memberId) === resting) return { resting };
+    if (resting) ids.add(memberId); else ids.delete(memberId);
+    const patch = { restingMemberIds: [...ids] };
+    const d = state.discussion;
+    if (!resting || !d) {
+      this.store.put('room', 'state', { ...state, ...patch });
+      this.host.changed();
+      return { resting };
+    }
+    if (this.requestedMinutes?.memberId === memberId) this.minutesSerial++;
+    const skippedMembers = { ...d.skippedMembers };
+    const previousSkip = skippedMembers[memberId];
+    delete skippedMembers[memberId];
+    const unknown = [...new Set([...(d.unknownRunIds ?? []), ...(d.unknownRunId ? [d.unknownRunId] : [])])];
+    const unknownRunIds = unknown.filter(id => {
+      const run = this.store.get<Run>('runs', id);
+      const session = run && this.store.get<Session>('sessions', run.sessionId);
+      return id !== previousSkip?.runId && (session?.memberId ?? session?.provider) !== memberId;
+    });
+    const next:RoomDiscussion = {
+      ...d, members: d.members.filter(id => id !== memberId),
+      stoppedMembers: [...new Set([...d.stoppedMembers ?? [], memberId])],
+      skippedMembers, unknownRunId: unknownRunIds[0], unknownRunIds,
+      priority: d.priority.filter(id => id !== memberId),
+      reviewRequired: d.reviewRequired.filter(id => id !== memberId),
+      mentionQueue: d.mentionQueue?.filter(item => item.memberId !== memberId),
+      ...(d.handoff === memberId ? { handoff: undefined, handoffFromMessageId: undefined } : {}),
+      meetingRound: d.meetingRound ? { ...d.meetingRound, pending: d.meetingRound.pending.filter(id=>id!==memberId) } : undefined,
+    };
+    if (next.meetingRound?.handSelection && !next.meetingRound.pending.length)
+      next.meetingRound.handSelection = false;
+    if (next.phase === 'summarizing' && next.meetingMinutes?.memberId === memberId) {
+      next.phase = 'waiting_user';
+      next.meetingMinutes = { ...next.meetingMinutes, status: 'stopped' };
+      next.reason = '纪要成员正在休息，可以另选一位成员整理。';
+    } else if (!next.members.length && next.phase !== 'idle') {
+      next.phase = 'waiting_user';
+      next.reason = '目前没有可参会的成员，等你请成员回来。';
+    } else if (next.phase === 'awaiting-host' && !next.members.some(id =>
+      (next.handRound?.ballots[id]?.want ?? 0) > 0 && !next.skippedMembers?.[id])) {
+      next.phase = 'waiting_user';
+      next.reason = '本轮补充已结束，等你说话。';
+    } else if (next.phase === 'blocked' && previousSkip && !unknownRunIds.length && !Object.keys(skippedMembers).length) {
+      next.phase = 'waiting_user';
+      next.reason = '该成员已休息，等你继续发消息。';
+    } else if (next.phase === 'closing' && next.proposal) {
+      next.proposal = { ...next.proposal, skipped: [...new Set([...next.proposal.skipped ?? [], memberId])] };
+      if (next.members.every(id => next.proposal!.accepted.includes(id) || next.proposal!.skipped?.includes(id))) this.acceptClosure(next);
+    }
+    this.save(next, undefined, { ...patch, ...(!active(next) ? { active: false, speaking: undefined } : {}) });
+    this.kick(next);
+    return { resting };
+  }
+
   stopMember(memberId:string){if(this.requestedMinutes?.memberId===memberId)this.minutesSerial++;const d=this.get();if(d&&d.phase!=='idle'&&(d.members.includes(memberId)||d.mentionQueue?.some(q=>q.memberId===memberId))){this.save({...d,stoppedMembers:[...new Set([...d.stoppedMembers??[],memberId])],mentionQueue:d.mentionQueue?.filter(q=>q.memberId!==memberId)});this.kick(this.get()!);}}
   private completedTurn(d:RoomDiscussion,author:string){return d.style==='chat'?d:{...d,meetingCursor:author,meetingRound:d.meetingRound?{...d.meetingRound,pending:d.meetingRound.pending.filter(id=>id!==author)}:undefined};}
   private afterHandTurn(d:RoomDiscussion){return d.style!=='chat'&&d.meetingRound?.handSelection&&!d.meetingRound.pending.length?{...d,meetingRound:{...d.meetingRound,handSelection:false,supplemented:[...new Set([...d.meetingRound.supplemented??[],...(d.meetingCursor?[d.meetingCursor]:[])])]}}:d;}
@@ -396,7 +458,7 @@ ${JSON.stringify(context)}`;
       warn('已忽略未经授权的问题解决关联，原问题仍待回答'); return false;
     });
     const remaining = d.questions.filter(q => this.blockingQuestion(d,q) && !reply.answers?.includes(q.id) && !(d.style === 'chat' && caughtUp && q.to === author));
-    const newBlocking=reply.questions?.filter(q=>!(d.style==='chat'&&q.to==='user')&&!d.skippedMembers?.[q.to]);
+    const newBlocking=reply.questions?.filter(q=>!(d.style==='chat'&&q.to==='user')&&!d.skippedMembers?.[q.to]&&!this.store.roomState().restingMemberIds?.includes(q.to));
     if (remaining.length + (newBlocking?.length ?? 0) > 64) throw new Error('还有太多问题没回答，请先说明这次最需要讨论什么。');
     if (reply.action === 'ask_user' && !reply.questions?.some(q => q.to === 'user')) throw new DiscussionFormatError('等待用户时必须给出待回答问题。', true);
     if (reply.action === 'propose' && (d.phase !== 'talking' || !caughtUp || remaining.length || newBlocking?.length || reply.next || reply.reviewQuestions || d.reviewRequired.some(id => id !== author&&!d.skippedMembers?.[id]))) { reply.action = 'speak'; warn('仍有消息或问题待核对，收尾提议已作为普通发言保留'); }
@@ -444,8 +506,9 @@ ${JSON.stringify(context)}`;
 这是举手意愿，不是正式发言；不要给出完整回答，不要认可或提出收尾。正文、收尾、问题解决都留到真正被选中发言时。${d.meetingRound?.supplemented?.length?'\n这是点名补充之后的再次询问，已经完成首次举手。supplementedMembers 中的成员已补充过；根据近期发言判断你现在是否仍有新内容，不要再次执行“首次举手”的要求。':'\n这是本轮首次举手询问。'}${d.style === 'chat' ? '\n这是聊天：回应、追问、不同看法、自己的经历都算想说的内容。' : ''}
 FOUNTAIN_HAND_CONTEXT
 ${JSON.stringify(payload)}`;
-        result = await this.turn(member,prompt,id => { runId = id; this.handBallot(round,author,{runId:id}); },{hand:true,shouldStart:()=>current()&&!this.host.working?.(author),attachments:()=>attached.images});
+        result = await this.turn(member,prompt,id => { runId = id; this.handBallot(round,author,{runId:id}); },{hand:true,shouldStart:()=>current()&&Boolean(this.get()?.members.includes(author))&&!this.host.working?.(author),attachments:()=>attached.images});
       } catch (error) { result = { text:'', status:'failed', error:(error as Error).message }; }
+      if (this.store.roomState().restingMemberIds?.includes(author) || !this.get()?.members.includes(author)) return;
       if (result.unknown) {
         this.handBallot(round,author,{status:'failed',error:'举手请求的结果未知，暂时不能确认成员是否收到或完成。'});
         const latest = this.get();
@@ -472,7 +535,8 @@ ${JSON.stringify(payload)}`;
       return;
     }
     const ballots=latest.handRound!.ballots;
-    if(voters.some(id=>ballots[id]?.status==='done')&&!voters.some(id=>ballots[id]?.status==='done'&&(ballots[id].want??0)>0)){
+    const remaining = voters.filter(id=>latest.members.includes(id));
+    if(!remaining.length || remaining.some(id=>ballots[id]?.status==='done')&&!remaining.some(id=>ballots[id]?.status==='done'&&(ballots[id].want??0)>0)){
       this.save({...latest,phase:'waiting_user',reason:'没有成员需要补充，等你说话。',handRound:{...latest.handRound!,status:'done',fallback:true}},undefined,{active:false,speaking:undefined});return;
     }
     if(latest.hostPick&&latest.members.some(id=>ballots[id]?.status==='done'&&(ballots[id].want??0)>0&&this.quotaWeights(latest)[id]>0)){
@@ -501,6 +565,9 @@ ${JSON.stringify(payload)}`;
     let result:Awaited<ReturnType<DiscussionHost['turn']>>;
     try{result=await this.turn(member,prompt(),runId=>{message={...message,runId};this.store.put('room_messages',message.id,message);this.host.changed();},{mention:true,freshPrompt:()=>prompt(),shouldStart:current,attachments:()=>this.host.attachments?.(member,[asked]).images??[]});}catch(error){result={text:'',status:'failed',error:(error as Error).message};}
     const latest=this.get();if(!latest||latest.id!==d.id)return;
+    if(this.store.roomState().restingMemberIds?.includes(member.id)||!latest.members.includes(member.id)&&latest.stoppedMembers?.includes(member.id)){
+      this.save(latest,{...message,text:'',status:'stopped',discussionStale:true});return;
+    }
     if(result.unknown||result.status!=='done'&&current()){const reason=result.error??'点名回复未完成，已跳过。';this.save(this.failedMember(latest,member.id,reason,message.runId,result.unknown,result.limited),this.failedMessage(message,reason,result.unknown));return;}
     if(!current()||result.status!=='done'){this.save(latest,{...message,text:'',status:result.status==='stopped'?'stopped':'failed',discussionStale:true,error:result.error});return;}
     try{const reply=parseDiscussionReply(result.text,turn,revision);if(reply.action!=='speak'||reply.next||reply.questions?.length||reply.answers?.length||reply.proposalId||reply.emoji)throw new Error('点名回复只能回一次话，不能改变任务或调度讨论。');this.host.read?.(member.id,[asked.id]);const next=latest.latestUserId===asked.id?this.completedTurn(latest,member.id):latest;this.save(next,{...message,text:reply.body.trim(),status:'done',discussionRevision:latest.revision,discussionStale:latest.latestUserId!==asked.id});}
@@ -567,6 +634,9 @@ ${JSON.stringify(payload)}`;
         },callKind:attempt===1?'correction':'normal'}); }
         catch (error) { result = { text: '', status: 'failed', error: (error as Error).message }; }
         d = this.get(); if (!d || d.id !== id) return;
+        if(this.store.roomState().restingMemberIds?.includes(author)||!d.members.includes(author)&&d.stoppedMembers?.includes(author)){
+          this.save(d,{...message,text:'',status:'stopped',discussionStale:true});break;
+        }
         if(!result.unknown&&d.stoppedMembers?.includes(author)){this.save(d,{...message,text:'',status:'stopped',discussionStale:true});this.skipMember(d,author);break;}
         if (result.unknown || result.status !== 'done') {
           if(!result.unknown&&result.status==='stopped'&&(this.host.working?.(author)||d.stoppedMembers?.includes(author))){this.save(d,{...message,text:'',status:'stopped',discussionStale:true});this.skipMember(d,author);break;}
@@ -763,6 +833,9 @@ ${JSON.stringify(payload)}`;
       if(latest?.id===d.id&&latest.meetingMinutes?.messageId===message.id)this.save({...latest,meetingMinutes:{...latest.meetingMinutes,runId}},message);
     },{summary:true,shouldStart:current});}catch(error){result={text:'',status:'failed',error:(error as Error).message};}
     let latest=this.get();if(!latest||latest.id!==d.id)return;
+    if(this.store.roomState().restingMemberIds?.includes(member.id)||!latest.members.includes(member.id)&&latest.stoppedMembers?.includes(member.id)){
+      this.save(latest,{...message,text:'',status:'stopped',discussionStale:true});return;
+    }
     if(result.unknown){
       const unknown=[...new Set([...(latest.unknownRunIds??[]),...(latest.unknownRunId?[latest.unknownRunId]:[]),...(message.runId?[message.runId]:[])])];
       const error='会议纪要请求的结果还不确定，已暂停。请查看活动记录后明确继续；没有自动重发。';

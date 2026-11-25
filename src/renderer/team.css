@@ -1728,3 +1728,7 @@ body.is-fullscreen .studio-welcome > .room-backdrop {
   display: block;
   border-radius: 6px;
 }
+.guest-chip-rest { display: inline-grid; place-items: center; flex: none; width: 28px; height: 28px; margin-left: 2px; padding: 0; border: 1px solid transparent; border-radius: 50%; background: transparent; color: var(--ink-3); }
+.guest-chip-rest:hover:not(:disabled), .guest-chip-rest:focus-visible { border-color: var(--line-strong); background: var(--surface-2); color: var(--ink); }
+.guest-chip-resting { color: var(--ink-2); }
+.guest-chip-resting small { color: var(--focus); font-size: var(--fs-xs); }

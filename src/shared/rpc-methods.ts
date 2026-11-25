@@ -47,6 +47,7 @@ export const RENDERER_METHODS: readonly string[] = [
   'room.stop',
   'room.pause',
   'room.pace',
+  'room.member.rest',
   'room.resume',
   'room.host',
   'room.react',

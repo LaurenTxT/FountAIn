@@ -2985,6 +2985,23 @@ export class Engine {
         return this.discussion.pause();
       case "room.pace":
         return this.discussion.setPace(params);
+      case "room.member.rest": {
+        if (this.roomId !== "global" && !this.roomId.startsWith("project:"))
+          throw new Error("只能在会议室或茶歇室设置休息。");
+        if (typeof params.resting !== "boolean") throw new Error("请选择休息或回来。");
+        const memberId = String(params.memberId ?? "");
+        const result = this.discussion.setMemberRest(memberId, params.resting);
+        if (params.resting) {
+          const sessions = new Set(this.roomSessions()
+            .filter(session => (session.memberId ?? session.provider) === memberId)
+            .map(session => session.id));
+          for (const id of sessions) this.withdrawQueued(id, "成员在当前会议室休息，已撤回待发言。");
+          await Promise.allSettled([...this.active.entries()]
+            .filter(([, active]) => sessions.has(active.ctx.session.id))
+            .map(([id]) => this.stopRun(id)));
+        }
+        return result;
+      }
       case "room.end": {
         const state = this.roomStore.roomState(),
           d = state.discussion;

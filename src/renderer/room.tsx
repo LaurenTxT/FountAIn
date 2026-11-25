@@ -142,7 +142,7 @@ export function RoomView({ snapshot, invoke: rawInvoke, onOpenSession, onDocumen
   // A project room's people are the project's roster; the tea room remembers its own invitation.
   const invited = personal ? [personal.memberId] : project ? project.roster : ownInvited;
   const setInvited = (next: string[] | ((previous: string[]) => string[])) => { const value = typeof next === 'function' ? next(invited) : next; if (project) project.onRoster(value); else setOwnInvited(value); };
-  const usable = invited.map(id => team.members.find(member => member.id === id)).filter((member): member is TeamMember => Boolean(member && ready(member.executor)));
+  const usable = invited.map(id => team.members.find(member => member.id === id)).filter((member): member is TeamMember => Boolean(member && ready(member.executor) && !state.restingMemberIds?.includes(member.id)));
   const [mode, setMode] = useState<'chat' | 'meeting'>('chat');
   const [paceMs, setPaceMs] = useState<number>(() => {
     try { const raw = Number(localStorage.getItem(PACE_KEY)); if ([0, 6000, 12000].includes(raw)) return raw; } catch {}
@@ -158,7 +158,7 @@ export function RoomView({ snapshot, invoke: rawInvoke, onOpenSession, onDocumen
   const minutesMembers=team.members.filter(m=>discussion?.members.includes(m.id)&&ready(m.executor));
   async function openMinutes(){if(!discussion)return;const saved=discussion;setMinutesBusy(true);setMinutesError('');try{let lead:string|undefined;if(roomId.startsWith('project:')){const data=await rawInvoke<{flow?:{leadMemberId:string};overview?:{stage?:{leadMemberId?:string}}}>('projectFlow.get',{projectId:roomId.slice(8)});lead=data.overview?.stage?.leadMemberId??data.flow?.leadMemberId;}const candidates=saved.members.filter(id=>minutesMembers.some(m=>m.id===id));setMinutesDialog({discussionId:saved.id,revision:saved.revision,memberId:lead&&candidates.includes(lead)?lead:candidates[0]??'',interrupt:state.active});}catch{}finally{setMinutesBusy(false);}}
   async function confirmMinutes(){if(!minutesDialog)return;setMinutesBusy(true);setMinutesError('');try{await invoke('room.minutes',{discussionId:minutesDialog.discussionId,revision:minutesDialog.revision,memberId:minutesDialog.memberId});setMinutesDialog(undefined);}catch(e){setMinutesError((e as Error).message);}finally{setMinutesBusy(false);}}
-  useEffect(() => { if (discussion) { const chat = discussion.style === 'chat'; setMode(chat ? 'chat' : 'meeting'); setInvited(discussion.members); setHandRaise(Boolean(discussion.handRaise));setHostPick(discussion.hostPick!==false); } }, [discussion?.id]);
+  useEffect(() => { if (discussion) { const chat = discussion.style === 'chat'; setMode(chat ? 'chat' : 'meeting'); setInvited([...new Set([...discussion.members,...(state.restingMemberIds ?? [])])]); setHandRaise(Boolean(discussion.handRaise));setHostPick(discussion.hostPick!==false); } }, [discussion?.id]);
   const [sending, setSending] = useState(false), [busy, setBusy] = useState(false),[stopping,setStopping]=useState(false);
   const [archiveId, setArchiveId] = useState<string>();
   const [panel, setPanel] = useState(false), [newTopic, setNewTopic] = useState<{ from?: RoomThread } | null>(null);
@@ -641,6 +641,7 @@ export function RoomView({ snapshot, invoke: rawInvoke, onOpenSession, onDocumen
     {!archived && !personal && !surface?.readOnly && <RoomPresence discussion={discussion} state={state} invited={invited} ready={member => ready(member.executor)}
       locked={state.active} busy={busy || Boolean(compressing) || !snapshot.backendReady} onToggle={toggle}
       showNextStep={!surface} flowNextStep={Boolean(project?.flowNextStep)} onConfigure={project?.onConfigureMember}
+      onRest={relayEnabled ? (memberId,resting)=>void invoke('room.member.rest',{memberId,resting}).catch(()=>{}) : undefined}
       onHost={id=>void chooseHand('member',id)} onMention={member => quickMention(member.name)}
       onPause={() => void invoke('room.pause').catch(() => {})} onResume={() => void resumeDiscussion()} onEnd={() => void endDiscussion()} />}
     </div>

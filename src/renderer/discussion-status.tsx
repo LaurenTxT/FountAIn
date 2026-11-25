@@ -1,4 +1,4 @@
-import { Check, Hand, Users, X } from 'lucide-react';
+import { Check, Hand, Moon, Users, X } from 'lucide-react';
 import type { RoomDiscussion } from '../shared/discussion';
 import { DISCUSSION_LABELS, pendingDiscussionQuestion } from '../shared/discussion';
 import type { RoomState } from '../shared/types';
@@ -16,12 +16,13 @@ function phaseLabel(d: RoomDiscussion) {
 }
 
 /** Who is in the room and how the conversation stands, in one bar: the invite chips double as the speakers' status. */
-export function RoomPresence({ discussion: d, state, invited, ready, locked, busy, onToggle, onPause, onResume, onEnd, onConfigure,onHost,onMention,showNextStep=true,flowNextStep=false }: {
+export function RoomPresence({ discussion: d, state, invited, ready, locked, busy, onToggle, onPause, onResume, onEnd, onConfigure,onHost,onMention,onRest,showNextStep=true,flowNextStep=false }: {
   discussion?: RoomDiscussion; state: RoomState; invited: string[]; ready: (member: TeamMember) => boolean; locked: boolean; busy: boolean;
   onToggle: (id: string) => void; onPause: () => void; onResume: () => void; onEnd: () => void;
   onConfigure?:(id:string)=>void;
   onHost?:(id:string)=>void;
   onMention?:(member:TeamMember)=>void;
+  onRest?:(memberId:string,resting:boolean)=>void;
   showNextStep?:boolean;
   /** A project flow step is already offered; skip the minutes suggestion so only one 下一步 shows. */
   flowNextStep?:boolean;
@@ -47,6 +48,11 @@ export function RoomPresence({ discussion: d, state, invited, ready, locked, bus
       <span className="room-presence-label"><Users size={13} />在场</span>
       <div className="room-presence-members" role="group" aria-label="邀请谁加入">{team.members.map(member => {
         const on = invited.includes(member.id), ok = ready(member);
+        if (onRest && state.restingMemberIds?.includes(member.id)) return <button key={member.id} type="button"
+          className="guest-chip guest-chip-resting" disabled={busy} aria-label={'请 '+member.name+' 回来'}
+          title={'请 '+member.name+' 回来参加后续讨论'} onClick={()=>onRest(member.id,false)}>
+          <Avatar member={member} size={24} ring={false} mood="resting"/><span>{member.name}</span><small>休息中 · 回来</small>
+        </button>;
         const speaking = state.active && state.speaking === member.id;
         const ballot = handActive && on ? d?.handRound?.ballots[member.id] : undefined;
         const raised = ballot?.status === 'done' && (ballot.want ?? 0) > 0;
@@ -60,7 +66,8 @@ export function RoomPresence({ discussion: d, state, invited, ready, locked, bus
           <span className="guest-chip-name">{member.name}</span>
           {tag ? <small className="guest-chip-tag">{tag}</small> : on && !locked && <Check size={12} />}
           {pick&&ballot?.why&&<small className="guest-chip-reason">{ballot.why}</small>}
-        </button>{onConfigure&&on&&<button type="button" className="guest-chip-leave" aria-label={'请 '+member.name+' 离开'} title={'请 '+member.name+' 离开会议室'} disabled={locked||busy} onClick={()=>onToggle(member.id)}><X size={11}/></button>}</span>;
+        </button>{onRest&&on&&<button type="button" className="guest-chip-rest" aria-label={'让 '+member.name+' 休息'}
+          title={'让 '+member.name+' 暂时休息'} disabled={busy} onClick={()=>onRest(member.id,true)}><Moon size={13}/></button>}{onConfigure&&on&&<button type="button" className="guest-chip-leave" aria-label={'请 '+member.name+' 离开'} title={'请 '+member.name+' 离开会议室'} disabled={locked||busy} onClick={()=>onToggle(member.id)}><X size={11}/></button>}</span>;
       })}</div>
       {d && <div className="room-presence-status">
         {d.callUsage&&<small className="room-presence-usage" aria-label="本次讨论调用次数" title={`${callUsageLabel(d.callUsage)}${speechBudget?` · 正式发言 ${d.speechCalls??0} 次 · 辅助调用 ${Math.max(0,d.calls-(d.speechCalls??0))} 次`:''}\n按实际运行记录计数；发言、举手、纪要、补正、重试均计入，未发出失败单列。`}>{`已发出 ${d.callUsage.delivered} 次 · 完成 ${d.callUsage.completed} 次`}{d.callUsage.unknown?<span className="room-presence-unknown"> · 结果未知 {d.callUsage.unknown} 次</span>:null}</small>}
