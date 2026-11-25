@@ -60,8 +60,9 @@ export function parseBlocks(source: string): Block[] {
   return blocks;
 }
 
-const INLINE = /(`+)([^`]+?)\1|\*\*([^*]+?)\*\*|__([^_]+?)__|~~([^~]+?)~~|\*([^*\s][^*]*?)\*|!\[([^\]]*)\]\(([^)\s]+)\)|\[([^\]]+)\]\(([^)\s]+)\)/g;
-export function inline(text: string, key = 'i'): ReactNode[] {
+const INLINE = /(`+)([^`]+?)\1|\*\*([^*]+?)\*\*|__([^_]+?)__|~~([^~]+?)~~|\*([^*\s][^*]*?)\*|!\[([^\]]*)\]\(([^)\s]+)\)|\[([^\]]+)\]\((<[^<>\r\n]+>|[^)\s]+)\)/g;
+type DocumentLink = (target: string) => void;
+export function inline(text: string, key = 'i', onDocument?: DocumentLink): ReactNode[] {
   // A fresh pattern per call: nested emphasis recurses, and a shared global regex would lose its place.
   const pattern = new RegExp(INLINE.source, 'g');
   const nodes: ReactNode[] = []; let last = 0; let match: RegExpExecArray | null; let count = 0;
@@ -69,15 +70,23 @@ export function inline(text: string, key = 'i'): ReactNode[] {
     if (match.index > last) nodes.push(text.slice(last, match.index));
     const id = `${key}-${count++}`;
     if (match[2] !== undefined) nodes.push(<code key={id}>{match[2]}</code>);
-    else if (match[3] !== undefined || match[4] !== undefined) nodes.push(<strong key={id}>{inline(match[3] ?? match[4], id)}</strong>);
-    else if (match[5] !== undefined) nodes.push(<del key={id}>{inline(match[5], id)}</del>);
-    else if (match[6] !== undefined) nodes.push(<em key={id}>{inline(match[6], id)}</em>);
+    else if (match[3] !== undefined || match[4] !== undefined) nodes.push(<strong key={id}>{inline(match[3] ?? match[4], id, onDocument)}</strong>);
+    else if (match[5] !== undefined) nodes.push(<del key={id}>{inline(match[5], id, onDocument)}</del>);
+    else if (match[6] !== undefined) nodes.push(<em key={id}>{inline(match[6], id, onDocument)}</em>);
     else if (match[8] !== undefined) {
       const label = match[7]?.trim() || match[8].split(/[\\/]/).pop() || '图片';
       nodes.push(<span className="md-image-chip" key={id} title={match[8]}>🖼️ {label}</span>);
     }
-    // Links stay as text: the workbench never navigates or opens member-supplied URLs.
-    else if (match[9] !== undefined) nodes.push(<span className="md-link" key={id} title={match[10]}>{inline(match[9], id)}</span>);
+    else if (match[9] !== undefined) {
+      const target = match[10].replace(/^<(.+)>$/, '$1');
+      let path = target;
+      try { path = decodeURIComponent(target); } catch { /* Literal percent signs may occur in filenames. */ }
+      const label = inline(match[9], id);
+      const local = !/^(?:[a-z][a-z\d+.-]*:|[/\\]{2})/i.test(path) || /^[a-z]:[/\\]/i.test(path);
+      nodes.push(onDocument && local && /\.(?:md|txt|pdf|docx|xlsx|pptx|csv|log|json|ya?ml)$/i.test(path)
+        ? <button type="button" className="md-link md-document-link" key={id} title={path} onClick={() => onDocument(path)}>{label}</button>
+        : <span className="md-link" key={id} title={path}>{label}</span>);
+    }
     last = pattern.lastIndex;
   }
   if (last < text.length) nodes.push(text.slice(last));
@@ -97,18 +106,19 @@ function CodeBlock({ lang, text }: { lang: string; text: string }) {
   </div>;
 }
 
-export function Markdown({ text, className = '' }: { text: string; className?: string }) {
+export function Markdown({ text, className = '', onDocument }: { text: string; className?: string; onDocument?: DocumentLink }) {
+  const renderInline = (value: string, key: string) => inline(value, key, onDocument);
   const blocks = parseBlocks(text);
   return <div className={`markdown ${className}`}>{blocks.map((block, index) => {
     const key = `b${index}`;
     switch (block.type) {
       case 'code': return <CodeBlock key={key} lang={block.lang} text={block.text} />;
-      case 'heading': return createElement(`h${Math.min(6, block.level + 2)}`, { key }, ...inline(block.text, key));
-      case 'list': return createElement(block.ordered ? 'ol' : 'ul', { key }, block.items.map((item, itemIndex) => <li key={itemIndex}>{inline(item.replace(/^\[( |x|X)\]\s+/, (_all, mark) => mark.trim() ? '✅ ' : '⬜ '), `${key}-${itemIndex}`)}</li>));
-      case 'quote': return <blockquote key={key}>{inline(block.text, key)}</blockquote>;
-      case 'table': return <div className="md-table" key={key}><table><thead><tr>{block.header.map((cell, cellIndex) => <th key={cellIndex}>{inline(cell, `${key}-h${cellIndex}`)}</th>)}</tr></thead><tbody>{block.rows.map((row, rowIndex) => <tr key={rowIndex}>{block.header.map((_cell, cellIndex) => <td key={cellIndex}>{inline(row[cellIndex] ?? '', `${key}-${rowIndex}-${cellIndex}`)}</td>)}</tr>)}</tbody></table></div>;
+      case 'heading': return createElement(`h${Math.min(6, block.level + 2)}`, { key }, ...renderInline(block.text, key));
+      case 'list': return createElement(block.ordered ? 'ol' : 'ul', { key }, block.items.map((item, itemIndex) => <li key={itemIndex}>{renderInline(item.replace(/^\[( |x|X)\]\s+/, (_all, mark) => mark.trim() ? '✅ ' : '⬜ '), `${key}-${itemIndex}`)}</li>));
+      case 'quote': return <blockquote key={key}>{renderInline(block.text, key)}</blockquote>;
+      case 'table': return <div className="md-table" key={key}><table><thead><tr>{block.header.map((cell, cellIndex) => <th key={cellIndex}>{renderInline(cell, `${key}-h${cellIndex}`)}</th>)}</tr></thead><tbody>{block.rows.map((row, rowIndex) => <tr key={rowIndex}>{block.header.map((_cell, cellIndex) => <td key={cellIndex}>{renderInline(row[cellIndex] ?? '', `${key}-${rowIndex}-${cellIndex}`)}</td>)}</tr>)}</tbody></table></div>;
       case 'rule': return <hr key={key} />;
-      default: return <p key={key}>{inline(block.text, key)}</p>;
+      default: return <p key={key}>{renderInline(block.text, key)}</p>;
     }
   })}</div>;
 }

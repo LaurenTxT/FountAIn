@@ -3695,6 +3695,8 @@ export class Engine {
   /** Projects, sessions, runs, approvals, work copies and legacy collaborations. */
   private async invokeWork(method: string, params: any): Promise<unknown> {
     switch (method) {
+      case "project.document.read":
+        return new RoundResultReader(this.store).readDocument(params);
       case "project.openPath":
         return new RoundResultReader(this.store).openPath(params);
       case "project.create": {

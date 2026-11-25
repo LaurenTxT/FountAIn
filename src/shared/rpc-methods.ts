@@ -12,6 +12,7 @@ export const RENDERER_METHODS: readonly string[] = [
   'settings.save',
   'project.create',
   'project.openPath',
+  'project.document.read',
   'session.create',
   'session.send',
   'session.events',

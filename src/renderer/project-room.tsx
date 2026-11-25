@@ -28,6 +28,8 @@ import { Avatar, useTeam, type TeamMember } from './members';
 import { RoomView, type RoomFocus } from './room';
 import type { AttentionItem } from '../shared/attention';
 import { Markdown } from './Markdown';
+import { ProjectDocument, type DocumentSelection } from './project-document';
+import { useSidePanelWidth } from './side-panel-width';
 import { migrateProjectMembers, projectMembers, saveProjectMembers } from './project-members';
 import { dateTime, runnable, time, type Invoke } from './ui';
 import { planChanges } from '../shared/plan-changes';
@@ -73,6 +75,9 @@ const allowed = (list: AllowedAction[] | undefined, name: string) => action(list
 export function ProjectRoom({ snapshot, project, invoke, onOpenSession,onRoundtable,reports=[],onOpenReport,onOpenAttention }: { snapshot: Snapshot; project: Project; invoke: Invoke; onOpenSession: (sessionId: string) => void;onRoundtable?:(source:Omit<RoundtableSource,'projectId'>|{topicId:string})=>void;reports?:ReportEntry[];onOpenReport?:(memberId:string)=>void; onOpenAttention:(item:AttentionItem)=>void }) {
   const team = useTeam();
   const [logTarget,setLogTarget]=useState<LogTarget|null>(null);
+  const [document, setDocument] = useState<DocumentSelection>();
+  const activeDocument = document?.projectId === project.id ? document : undefined;
+  const panelWidth = useSidePanelWidth('fountain.projectPanelWidth');
   const [boardOpen,setBoardOpen]=useState(()=>{try{return localStorage.getItem('fountain.projectBoard')!=='closed';}catch{return true;}});
   const toggleBoard=(open:boolean)=>{setBoardOpen(open);try{localStorage.setItem('fountain.projectBoard',open?'open':'closed');}catch{}};
   const [recordOpen,setRecordOpen]=useState(false),[includePreviousRecord,setIncludePreviousRecord]=useState(true),[addition,setAddition]=useState<{memberId:string;goal:string;task?:Task;proposal?:TaskAddition}|null>(null);
@@ -328,9 +333,9 @@ export function ProjectRoom({ snapshot, project, invoke, onOpenSession,onRoundta
   return <main className="project-room" aria-label={`${project.name} 的项目会议室`}>
     <header className="project-room-head">
       <span className="project-room-icon"><FolderOpen size={19} /></span>
-      <div className="project-room-title"><h1>{project.name}<small>项目会议室</small></h1>{flow&&live&&data?.overview.stage?<p className="project-stage" aria-label="当前阶段" title={`项目原目录：${project.directory}
-任务在独立副本中执行，验收后写回。`}>{currentRound && flow.status === 'active' && <strong>第 {currentRound.index + 1} 轮「{currentRound.title}」 · </strong>}{data.overview.stage.label} · 本轮负责人 <MemberName id={data.overview.stage.leadMemberId??flow.leadMemberId}/> · {REVIEW_LEVEL_LABELS[reviewLevel(flow)]}</p>:<p title={`项目原目录：${project.directory}
-讨论只读；任务在独立副本中执行，验收后写回。`}>项目原目录：{project.directory}</p>}</div>
+      <div className="project-room-title"><h1>{project.name}<small>项目会议室</small></h1>{flow&&live&&data?.overview.stage?<p className="project-stage" aria-label="当前阶段" title={`${project.directory}
+任务在独立副本中执行，验收后写回。`}>{currentRound && flow.status === 'active' && <strong>第 {currentRound.index + 1} 轮「{currentRound.title}」 · </strong>}{data.overview.stage.label} · 本轮负责人 <MemberName id={data.overview.stage.leadMemberId??flow.leadMemberId}/> · {REVIEW_LEVEL_LABELS[reviewLevel(flow)]}</p>:<p title={`${project.directory}
+讨论只读；任务在独立副本中执行，验收后写回。`}>{project.directory}</p>}</div>
       {fresh&&flow&&<label className="project-record-setting"><input type="checkbox" checked={includePreviousRecord} onChange={e=>setIncludePreviousRecord(e.target.checked)}/>起草时参考上一段记录</label>}
       {flow && live && <div className="project-room-numbers" aria-label="本段工作进度">
         <span><strong>{data!.overview.working}</strong>在做</span><span><strong>{data!.overview.remaining}</strong>待完成</span>
@@ -356,12 +361,13 @@ export function ProjectRoom({ snapshot, project, invoke, onOpenSession,onRoundta
     {rounds.filter(round=>round.studyHandoffError).map(round=><p key={round.id} className="inline-notice error" role="status">等交接：{round.title} · {round.studyHandoffError} <button type="button" className="button small secondary" disabled={busy} onClick={()=>void invoke<{error?:string}>('projectFlow.study.handoff.retry',{projectId:project.id,roundId:round.id}).then(result=>{if(result.error)setError(result.error);void load();}).catch(reason=>setError((reason as Error).message))}>重新写入交接</button></p>)}
     {data?.taskAdditions?.map(proposal=><p key={proposal.id} className="inline-notice" role="status"><button className="button small secondary" aria-label={'查看待确认追加：'+proposal.title} onClick={()=>setAddition({memberId:proposal.memberId,goal:proposal.goal,proposal})}>{proposal.status==='preparing'?'查看正在准备的追加任务':proposal.status==='blocked'?'查看未完成的追加任务':'查看待确认追加任务'}：{proposal.title}</button></p>)}
     {snapshot.workLogFailures?.filter(r=>r.projectId===project.id).map(r=><p key={r.roundId} className="task-meta bad" role="status">成果已经验收，工作日志保存失败。<button className="link-button" onClick={()=>setLogTarget({kind:'round',id:r.roundId})}>查看日志并重试</button></p>)}
-    {!data ? <div className="project-room-loading"><LoaderCircle size={16} className="spin" />正在打开会议室…</div> : <div className={`project-room-grid ${boardOpen?'':'board-collapsed'}`}>
-      <RoomView snapshot={snapshot} invoke={invoke} roomId={roomId} focus={roomFocus} onOpenSession={(_, sessionId) => setLogTarget({kind:'session',id:sessionId})}
+    {!data ? <div className="project-room-loading"><LoaderCircle size={16} className="spin" />正在打开会议室…</div> : <div className={`project-room-grid ${boardOpen||activeDocument?'panel-resizable':'board-collapsed'}`} style={panelWidth.style}>
+      <RoomView snapshot={snapshot} invoke={invoke} roomId={roomId} focus={roomFocus} onDocument={target => setDocument({projectId: project.id, target})} onOpenSession={(_, sessionId) => setLogTarget({kind:'session',id:sessionId})}
         project={{ roster, onRoster: changeRoster, renderFlow, dock, onTaskRequest:async(memberId,goal,mode)=>{if(!flow||flow.status!=='active'){setError('先确认方案后再安排或补充任务。');return false;}const task=mode==='supplement'?(tasks.find(t=>t.memberId===memberId&&['running','correcting'].includes(t.status))??tasks.find(t=>t.memberId===memberId&&['pending','ready','queued','awaiting_review'].includes(t.status))):undefined;if(mode==='supplement'&&!task){setError('该成员暂无可补充任务，请安排新任务。');return false;}setAddition({memberId,goal,...(task?{task}:{})});return true;}, onConfigureMember:memberId=>{setConfig({memberId,value:project.memberConfigs?.[memberId]??{},revision:project.memberConfigRevision??0});setConfigError('');},
           flowNextStep: Boolean(dock && ((fresh && !picking) || nextStep)),
           empty: <div className="room-empty project-room-empty"><div className="room-empty-team">{people.map(member => <Avatar key={member.id} member={member} size={48} />)}</div><h2>这次想一起做什么？</h2><p>先在这里说说目标、范围和要求，大家会一起讨论。讨论清楚后，在输入框上方选负责人起草方案。</p></div> }} />
-      {!boardOpen?<aside className="project-side-rail" aria-label="看板已收起"><button type="button" className="icon-button" aria-label="展开看板" title="展开看板" onClick={()=>toggleBoard(true)}><PanelRightOpen size={16}/></button><button type="button" className="project-side-rail-label" onClick={()=>toggleBoard(true)}>看板</button>{data.overview.needsUser>0&&<span className="project-side-rail-count" title={`${data.overview.needsUser} 项待你决定`}>{data.overview.needsUser}</span>}</aside>:
+      {(boardOpen||activeDocument)&&panelWidth.separator}
+      {activeDocument?<ProjectDocument selection={activeDocument} invoke={invoke} onClose={()=>setDocument(undefined)}/>:!boardOpen?<aside className="project-side-rail" aria-label="看板已收起"><button type="button" className="icon-button" aria-label="展开看板" title="展开看板" onClick={()=>toggleBoard(true)}><PanelRightOpen size={16}/></button><button type="button" className="project-side-rail-label" onClick={()=>toggleBoard(true)}>看板</button>{data.overview.needsUser>0&&<span className="project-side-rail-count" title={`${data.overview.needsUser} 项待你决定`}>{data.overview.needsUser}</span>}</aside>:
       <div className="project-side">
         <div className="project-side-bar">
           <div className="segmented" role="tablist" aria-label="项目看板视图">{([['work','本段工作'],['hud','会议状态'],['progress','项目进度']] as const).map(([id,text])=><button key={id} type="button" role="tab" aria-selected={boardView===id} className={boardView===id?'selected':''} onClick={()=>setBoardView(id)}>{text}</button>)}</div>

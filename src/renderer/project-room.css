@@ -556,3 +556,30 @@ button.meeting-hud-member:hover { background: #8882; }
 .dock-progress-item.done > svg { color: var(--ok); }
 .dock-progress-item p { margin: 0; font-size: var(--fs-sm); line-height: 1.55; color: var(--ink-2); }
 .dock-progress-meta { margin-left: 6px; color: var(--ink-3); }
+
+.markdown .md-document-link { padding: 0; border: 0; background: none; font: inherit; cursor: pointer; text-align: left; }
+.project-document { min-width: 0; min-height: 0; display: flex; flex-direction: column; overflow: hidden; border: 1px solid var(--line); border-radius: var(--r-lg); background: var(--surface); }
+.project-document > header, .project-document-actions { display: flex; align-items: center; gap: 8px; padding: 8px 12px; border-bottom: 1px solid var(--line); }
+.project-document > header { justify-content: space-between; }
+.project-document > header > strong { min-width: 0; overflow-wrap: anywhere; }
+.project-document-actions { flex-wrap: wrap; }
+.project-document-body { flex: 1; min-height: 0; overflow: auto; padding: 12px; overflow-wrap: anywhere; }
+.project-document-body > pre { white-space: pre-wrap; }
+@media (max-width: 860px) { .project-document { min-height: 320px; max-height: 65vh; } }
+.report-chat-workspace > .project-document { flex: 0 0 min(380px, 45%); }
+.project-panel-resize { position: relative; min-height: 0; cursor: col-resize; touch-action: none; user-select: none; }
+.project-panel-resize::before { content: ''; position: absolute; inset: 0 5px; border-radius: 2px; background: var(--line); }
+.project-panel-resize:hover::before, .project-panel-resize:focus-visible::before { background: var(--focus); }
+.project-room-grid.panel-resizable, .report-chat-workspace.with-panel {
+  --panel-width: min(var(--preferred-panel-width, var(--default-panel-width)), 72%, max(240px, calc(100% - 296px)));
+}
+.project-room-grid.panel-resizable { --default-panel-width: 380px; grid-template-columns: minmax(0, 1fr) 14px var(--panel-width); gap: 0; }
+.report-chat-workspace.with-panel { --default-panel-width: 320px; }
+.report-chat-workspace > .project-panel-resize { flex: 0 0 14px; }
+.report-chat-workspace.with-panel > :is(.project-document, .report-work-panel) { flex: 0 0 var(--panel-width); }
+@media (max-width: 1180px) { .project-room-grid.panel-resizable { --default-panel-width: 270px; } }
+@media (max-width: 1150px) { .report-chat-workspace.with-panel { --default-panel-width: 290px; } }
+@media (max-width: 860px) {
+  .project-room-grid.panel-resizable { grid-template-columns: minmax(0, 1fr); gap: 14px; }
+  .project-room-grid > .project-panel-resize { display: none; }
+}

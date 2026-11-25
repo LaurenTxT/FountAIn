@@ -101,6 +101,24 @@ export class RoundResultReader {
     }
     return result;
   }
+  async readDocument(p: Record<string, unknown>) {
+    const project = this.store.get<Project>('projects', text(p.projectId));
+    if (!project) throw new FlowError('NOT_FOUND', '项目不存在。');
+    const link = text(p.target);
+    const relativePath = scopePath(path.isAbsolute(link) ? path.relative(project.directory, link) : link.replace(/^\.[/\\]/, ''));
+    if (!OPENABLE_DOCUMENT.test(relativePath) || relativePath.split('/').some(part => part.startsWith('.')))
+      throw new FlowError('INVALID_REQUEST', '请选择当前项目中的文档。');
+    const root = await fs.realpath(project.directory);
+    const target = resolveSafePath(root, relativePath);
+    try {
+      if (!(await fs.stat(target)).isFile()) throw new FlowError('NOT_FILE', '请选择项目内的文件。');
+      const document = /\.(?:txt|md|json|ya?ml|csv|log)$/i.test(relativePath) ? await readArtifact(root, relativePath) : undefined;
+      return { relativePath, document: document && { ...document, content: redact(document.content) } };
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') throw new FlowError('NOT_FOUND', '当前项目里找不到这个文件，可能已移动或删除。');
+      throw error;
+    }
+  }
   async openPath(p: Record<string, unknown>) {
     const project = this.store.get<Project>('projects', text(p.projectId));
     if (!project) throw new FlowError('NOT_FOUND', '项目不存在。');
