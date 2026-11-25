@@ -116,6 +116,20 @@ export function adoptClaudeTranscript(nativeId: string, source: NodeJS.ProcessEn
   }
   return false;
 }
+/** Room native transcripts above 200 KB trigger a clean reset from FountAIn's compact summary to avoid runaway cache/compaction billing. */
+const CLAUDE_ROOM_TRANSCRIPT_LIMIT_BYTES = 200 * 1024;
+export function claudeTranscriptBytes(nativeId: string, home: string): number {
+  if (!/^[0-9a-f-]{36}$/i.test(nativeId)) return 0;
+  const name = `${nativeId}.jsonl`, projects = join(home, 'projects');
+  if (!existsSync(projects)) return 0;
+  try {
+    for (const folder of readdirSync(projects)) {
+      const file = join(projects, folder, name);
+      if (existsSync(file)) return statSync(file).size;
+    }
+  } catch { /* ignore unreadable directory */ }
+  return 0;
+}
 /** Opens the CLI's own subscription OAuth flow; FountAIn does not inspect resulting credentials. */
 export function getClaudeLoginLaunch(settings: Settings, sourceEnv: NodeJS.ProcessEnv): { command: string; args: string[]; env: NodeJS.ProcessEnv } {
   const env = defaultBrowserLoginEnvironment(claudeEnvironment(sourceEnv)); delete env.CLAUDE_CODE_OAUTH_TOKEN;
@@ -350,7 +364,17 @@ export class ClaudeAdapter implements Adapter {
   }
   async start(context: AdapterContext, text: string): Promise<AdapterResult> {
     if (this.context) throw new Error('这个 Claude 适配器已有活动任务。');
-    const stamp=this.runtimeFingerprint(context),reuse=context.roomRuntime&&context.session.purpose!=='room-hand'&&this.canReuse()&&this.stamp===stamp&&this.nativeSessionId===context.session.nativeId;
+    const envPreview = claudeEnvironment(context.env);
+    const bloatedTranscriptBytes =
+      context.session.purpose !== 'room-hand' &&
+      context.session.roomThreadId &&
+      !context.run.flowOperationId &&
+      context.freshInput &&
+      context.session.nativeId
+        ? claudeTranscriptBytes(context.session.nativeId, envPreview.CLAUDE_CONFIG_DIR!)
+        : 0;
+    const resetBloated = bloatedTranscriptBytes > CLAUDE_ROOM_TRANSCRIPT_LIMIT_BYTES;
+    const stamp=this.runtimeFingerprint(context),reuse=!resetBloated&&context.roomRuntime&&context.session.purpose!=='room-hand'&&this.canReuse()&&this.stamp===stamp&&this.nativeSessionId===context.session.nativeId;
     this.context = context; this.stopped = false; this.sent = false; this.acknowledged = false;
     this.strictTurn=!!reuse;this.correlated=false;this.streamCorrelation=true;this.malformed=false;this.streamOwners.clear();this.messageOwners.clear();this.matchedAssistantMessages=0;this.turnTools.clear();
     this.result = undefined; this.textStreamed = false; this.thinkingStreamed = false; this.lastText = '';this.rejectedLimit=false;
@@ -393,7 +417,10 @@ export class ClaudeAdapter implements Adapter {
       args[args.indexOf('--append-system-prompt') + 1] += `\n\n${latestPersona(context.persona)}`;
       // Rebuild even when the last convention file was removed between turns.
       args.push('--system-prompt-snapshot', 'off');
-      let resume = context.session.purpose==='room-hand'?undefined:context.session.nativeId;
+      let resume = context.session.purpose==='room-hand' || resetBloated ? undefined : context.session.nativeId;
+      if (resetBloated) {
+        context.emit('warning', `Claude 原生会话已达 ${Math.round(bloatedTranscriptBytes / 1024)} KB，已自动切换全新轻量会话并从房间摘要接续（防止高额缓存与压缩循环）。`, { previousNativeId: context.session.nativeId, bytes: bloatedTranscriptBytes, restoration: 'rebuilt' }, 'lossy');
+      }
       if (resume && context.session.nativeHome !== 'fountain' && !adoptClaudeTranscript(resume, context.env, env.CLAUDE_CONFIG_DIR!)) {
         if(!context.freshInput||!context.session.roomThreadId||context.run.flowOperationId)throw new Error('Claude 原会话记录未找到，任务尚未发送；没有新建上下文继续执行。');
         context.emit('warning', 'Claude 原生历史未找到，本次使用应用记录重建聊天室上下文。', { previousNativeId: resume, restoration: 'rebuilt' }, 'lossy');
