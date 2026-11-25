@@ -331,7 +331,7 @@ export class MemberWorkspaces {
     this.store.transaction(()=>{if(current)this.store.put('room_threads',current.id,{...current,archivedAt:now()});this.store.put('room_threads',threadId,{...thread,archivedAt:undefined});this.remember(room,threadId);this.store.put('room_states',roomId,{...this.store.roomState(roomId),active:false});});
     this.host.changed();return {threadId};
   }
-  async send(roomId:RoomId,p:Record<string,unknown>){
+  async send(roomId:RoomId,p:Record<string,unknown>,relay?:{context:string;complete:(message:RoomMessage)=>void}){
     const room=this.room(roomId),member=this.member(room.memberId);this.idle(roomId);
     const text=String(p.text??'').trim();if(!text&&!(p.attachments as Attachment[]|undefined)?.length)throw new Error('请输入消息');if(text.length>200000)throw new Error('消息过长');
     const thread=this.requiredCurrent(room),attachments=Array.isArray(p.attachments)?p.attachments as Attachment[]:[];
@@ -347,13 +347,13 @@ export class MemberWorkspaces {
     }
     this.putMessage(message);this.replying.add(roomId);this.host.changed();
     const work=this.work(room.projectId!,member.id),facts={reports:work.reports,tasks:work.tasks,operations:work.operations,runs:work.runs.map(({id,status,error,input,createdAt,completedAt})=>({id,status,error,input,createdAt,completedAt}))};
-    const conversation=this.ordered(thread.id,roomId).filter(m=>!m.memberReport).slice(-30).map(m=>`${m.author==='user'?this.store.profile().name:member.name}：${m.text}`).join('\n\n');
-    const prompt=`[FountAIn 项目个人汇报 · 只读问答]\n你只回答 ${room.projectId} 项目里与 ${member.name} 有关的工作。以下是已保存事实与对话，引用其中的信息时区分已完成、未完成和待核对。默认只读：不要修改文件，不要执行命令，不要改变任务或已确认的方案。用户想加任务或改要求时，说明可用“转成追加任务 / 补充到当前任务”按钮，由用户确认后走项目流程。不要声称已经执行。正文只输出用户需要的回答，不附内部校验过程、协议字段、编号、指纹、运行记录或来源追溯。\n\n已保存汇报与相关记录：\n${JSON.stringify(facts).slice(-100000)}\n\n本对话：\n${conversation.slice(-30000)}`;
+    const conversation=this.ordered(thread.id,roomId).filter(m=>!m.memberReport&&!m.projectRelay).slice(-30).map(m=>`${m.author==='user'?this.store.profile().name:member.name}：${m.text}`).join('\n\n');
+    const prompt=`[FountAIn 项目个人汇报 · 只读问答]\n你只回答 ${room.projectId} 项目里与 ${member.name} 有关的工作。以下是已保存事实与对话，引用其中的信息时区分已完成、未完成和待核对。默认只读：不要修改文件，不要执行命令，不要改变任务或已确认的方案。用户想加任务或改要求时，说明可用“转成追加任务 / 补充到当前任务”按钮，由用户确认后走项目流程。不要声称已经执行。正文只输出用户需要的回答，不附内部校验过程、协议字段、编号、指纹、运行记录或来源追溯。\n\n已保存汇报与相关记录：\n${JSON.stringify(facts).slice(-100000)}\n\n${relay?.context??''}\n\n本对话：\n${conversation.slice(-30000)}`;
     const generation=this.generations.get(roomId)??0,shouldStart=()=>generation===(this.generations.get(roomId)??0);
     const replyId=randomUUID();this.putMessage({id:replyId,roomId,threadId:thread.id,author:member.id,text:'',at:now(),status:'speaking',replyTo:message.id});
     const task=this.host.reply(roomId,member,prompt,attachments,runId=>{const old=this.store.get<RoomMessage>('room_messages',replyId)!;this.putMessage({...old,runId});this.host.changed();},shouldStart).then(result=>{
       const old=this.store.get<RoomMessage>('room_messages',replyId)!;this.putMessage({...old,text:result.text,at:now(),status:result.status==='done'?'done':result.status==='stopped'?'stopped':'failed',...(result.error?{error:result.error}:{})});
-    }).catch(error=>{const old=this.store.get<RoomMessage>('room_messages',replyId)!;this.putMessage({...old,status:'failed',error:redact((error as Error).message)});}).finally(()=>{this.replying.delete(roomId);this.host.changed();});
+    }).catch(error=>{const old=this.store.get<RoomMessage>('room_messages',replyId)!;this.putMessage({...old,status:'failed',error:redact((error as Error).message)});}).finally(()=>{this.replying.delete(roomId);this.host.changed();const reply=this.store.get<RoomMessage>('room_messages',replyId);if(reply)relay?.complete(reply);});
     this.host.track(task);return {messageId:message.id};
   }
   private executionScope(projectId:string,memberId:string,data=this.executionData()){

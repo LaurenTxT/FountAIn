@@ -242,6 +242,7 @@ export interface RoomMessage { id: string; author: string; authorName?: string; 
   jointReview?: {jointReviewId:string};
   roundtable?: {topicId:string;kind:'material'|'candidate'|'conclusion';slotId?:string;conclusionId?:string};
   taskRequest?:boolean;
+  projectRelay?:boolean;
   /** An independent reply to a working member; never a new project requirement. */
   intent?:'readonly-question';
   roomId?:RoomId;
