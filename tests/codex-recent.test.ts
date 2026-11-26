@@ -181,4 +181,10 @@ test('costMode downgrades models in casual rooms and keeps full power for projec
 
   const keywordBumpDsh = applyCostModeToConfig({ ...base, model: 'deepseek-v4-pro' }, { executor: 'dsh', costMode: 'economy' }, classifyCostTier({ isCasualRoom: true, promptText: '帮忙捉虫一下' }));
   assert.equal(keywordBumpDsh.model, 'deepseek-flash');
+
+  const mentionBump = applyCostModeToConfig(base, { executor: 'claude', costMode: 'economy' }, classifyCostTier({ purpose: 'room-mention', isCasualRoom: true, promptText: '看看这个' }));
+  assert.equal(mentionBump.model, 'opus');
+
+  const tracebackBump = applyCostModeToConfig(base, { executor: 'claude', costMode: 'economy' }, classifyCostTier({ isCasualRoom: true, promptText: 'Traceback (most recent call last):\nTypeError: x' }));
+  assert.equal(tracebackBump.model, 'opus');
 });

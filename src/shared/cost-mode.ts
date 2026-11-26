@@ -9,13 +9,19 @@ export interface CostRoutingContext {
 }
 
 const ESCALATION_PATTERN = /(?:用\s*opus|换\s*opus|请\s*opus|深度复核|捉虫|找\s*bug|挑刺|排雷|深度检查|架构设计|出个?好点子|大工程)/i;
+const COMPLEXITY_PATTERN = /```|Traceback \(most recent call last\)|(?:TypeError|SyntaxError|ReferenceError|ValueError|RuntimeError|AssertionError|Exception):|\bstack\s*trace\b/i;
 
 export function normalizeCostMode(value: unknown): MemberCostMode {
   return value === 'economy' || value === 'on_demand' ? value : 'normal';
 }
 
 export function promptRequestsDeepReview(text?: string): boolean {
-  return Boolean(text && ESCALATION_PATTERN.test(text));
+  if (!text) return false;
+  const trimmed = text.trim();
+  if (ESCALATION_PATTERN.test(trimmed)) return true;
+  if (COMPLEXITY_PATTERN.test(trimmed)) return true;
+  if (trimmed.length >= 120) return true;
+  return false;
 }
 
 export function classifyCostTier(options: {
@@ -33,7 +39,9 @@ export function classifyCostTier(options: {
     return { tier: 'engineering' };
   }
   if (options.isCasualRoom) {
-    if (promptRequestsDeepReview(options.promptText)) return { tier: 'keyword_bump' };
+    if (options.purpose === 'room-mention' || promptRequestsDeepReview(options.promptText)) {
+      return { tier: 'keyword_bump' };
+    }
     return { tier: 'casual' };
   }
   return { tier: 'review' };

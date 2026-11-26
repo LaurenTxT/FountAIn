@@ -6433,11 +6433,17 @@ export class Engine {
       rawProject.kind === "lounge" &&
       !rawProject.roomId?.startsWith("desk:") &&
       !rawProject.roomId?.startsWith("report:");
+    let userSignalText = promptText;
+    if (isCasualRoom && rawProject.roomId) {
+      const latestUserId = this.store.roomState(rawProject.roomId).discussion?.latestUserId;
+      const latestUser = latestUserId ? this.store.get<RoomMessage>("room_messages", latestUserId) : undefined;
+      userSignalText = latestUser?.text ?? "";
+    }
     const routing = classifyCostTier({
       purpose: session.purpose,
       flowId: session.flowId,
       isCasualRoom,
-      promptText,
+      promptText: userSignalText,
       isRetry,
     });
     const frozen =
