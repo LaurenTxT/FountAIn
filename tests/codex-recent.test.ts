@@ -211,6 +211,29 @@ test('roomNaturalMentions resolves names without @ while ignoring model IDs and 
   assert.deepEqual(roomNaturalMentions('让 DeepSeek 和 GPT 评一下', roster), ['m-dsh', 'm-codex']);
   assert.deepEqual(roomNaturalMentions('问问小克这个架构行不行', roster), ['m-claude']);
   assert.deepEqual(roomNaturalMentions('大肥鱼你觉得呢', roster), ['m-dsh']);
+  assert.deepEqual(roomNaturalMentions('哈基米帮我看看', roster), ['m-gem']);
+  assert.deepEqual(roomNaturalMentions('碳基米和氢基米来评一下', roster), ['m-gem']);
+  assert.deepEqual(roomNaturalMentions('氖基米说说看法', roster), ['m-gem']);
   assert.deepEqual(roomNaturalMentions('今天用 gpt-6.2-sol 和 deepseek-flash 跑的', roster), []);
   assert.deepEqual(roomNaturalMentions('看下 `claude.exe` 的日志', roster), []);
+});
+
+test('natural language model switching overrides tier routing cleanly', () => {
+  const base = { model: 'opus', effort: 'low' as const, modelSource: 'default' as const, effortSource: 'default' as const, capturedAt: '2026-11-27T00:00:00Z' };
+  const carbon = applyCostModeToConfig({ ...base, model: 'gemini-4-neon' }, { executor: 'acp-5d1dde7ed341', costMode: 'economy' }, classifyCostTier({ isCasualRoom: true, promptText: '碳基米帮我看看这段' }));
+  assert.equal(carbon.model, 'gemini-4-carbon-low');
+  assert.equal(carbon.effort, undefined);
+
+  const hydrogen = applyCostModeToConfig({ ...base, model: 'gemini-4-neon' }, { executor: 'acp-5d1dde7ed341', costMode: 'economy' }, classifyCostTier({ isCasualRoom: true, promptText: '让氢基米高思考算一下' }));
+  assert.equal(hydrogen.model, 'gemini-4-hydrogen-high');
+  assert.equal(hydrogen.effort, undefined);
+
+  const neon = applyCostModeToConfig({ ...base, model: 'gemini-4-carbon' }, { executor: 'acp-5d1dde7ed341', costMode: 'normal' }, classifyCostTier({ isCasualRoom: true, promptText: '氖基米来说两句' }));
+  assert.equal(neon.model, 'gemini-4-neon');
+
+  const fable = applyCostModeToConfig(base, { executor: 'claude', costMode: 'economy' }, classifyCostTier({ isCasualRoom: true, promptText: 'Claude 用 fable 写一个方案' }));
+  assert.equal(fable.model, 'fable');
+
+  const astra = applyCostModeToConfig({ ...base, model: 'gpt-6.2-sol' }, { executor: 'codex', costMode: 'economy' }, classifyCostTier({ isCasualRoom: true, promptText: 'GPT 换 astra 看看' }));
+  assert.equal(astra.model, 'gpt-6.2-astra');
 });

@@ -55,7 +55,7 @@ function naturalMemberAliases(member: Pick<MemberProfile, 'id' | 'name'> & { exe
     for (const a of ['DeepSeek', 'DS', 'DSH', '大肥鱼']) aliases.add(a);
   }
   if (lowName.includes('gemini') || exec.includes('gemini')) {
-    for (const a of ['Gemini', '双子']) aliases.add(a);
+    for (const a of ['Gemini', '哈基米', '氖基米', '碳基米', '氢基米', '氩基米']) aliases.add(a);
   }
   return [...aliases];
 }
