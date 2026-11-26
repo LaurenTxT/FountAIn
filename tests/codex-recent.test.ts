@@ -214,6 +214,8 @@ test('roomNaturalMentions resolves names without @ while ignoring model IDs and 
   assert.deepEqual(roomNaturalMentions('哈基米帮我看看', roster), ['m-gem']);
   assert.deepEqual(roomNaturalMentions('碳基米和氢基米来评一下', roster), ['m-gem']);
   assert.deepEqual(roomNaturalMentions('氖基米说说看法', roster), ['m-gem']);
+  assert.deepEqual(roomNaturalMentions('gemini多余了，最终视频就是要带字幕的', roster), ['m-gem']);
+  assert.deepEqual(roomNaturalMentions('不是你咋一直打不开obs啊gpt', roster), ['m-codex']);
   assert.deepEqual(roomNaturalMentions('今天用 gpt-6.2-sol 和 deepseek-flash 跑的', roster), []);
   assert.deepEqual(roomNaturalMentions('看下 `claude.exe` 的日志', roster), []);
 });

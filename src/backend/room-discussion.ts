@@ -276,7 +276,13 @@ export class RoomDiscussionController {
     const available=d.members.filter(id=>!d.stoppedMembers?.includes(id)&&!d.skippedMembers?.[id]&&
       !this.host.working?.(id)&&this.host.quotaPreference?.(id)!==0&&
       this.store.members().some(member=>member.id===id&&this.host.available?.(member)!==false));
-    const pending=params.memberId == null ? available : available.filter(id=>id===params.memberId);
+    let pending=params.memberId == null ? available : available.filter(id=>id===params.memberId);
+    if(params.memberId == null && available.length > 1){
+      const availableMembers=this.store.members().filter(m=>available.includes(m.id));
+      const explicitIds=roomMentions(text, availableMembers).ids;
+      const addressedIds=(explicitIds.length ? explicitIds : roomNaturalMentions(text, availableMembers)).filter(id=>available.includes(id));
+      if(addressedIds.length) pending=addressedIds;
+    }
     if(!pending.length)throw new Error('所选成员暂时无法回答，请选择其他在场成员。');
     const quoted=params.replyTo ? this.store.get<RoomMessage>('room_messages',String(params.replyTo)) : undefined;
     if(params.replyTo&&(!quoted||quoted.threadId!==this.store.currentRoomThread().id||quoted.discussionControl||quoted.contextOnly))
@@ -304,11 +310,24 @@ export class RoomDiscussionController {
       questions:d.questions.map(item=>item.id===question.id?{...item,answeredBy:message.id}:item)};
     if(!this.waitingForOwner(next)&&next.phase==='waiting_user'){
       next.phase='talking';next.reason=undefined;next.workWaiting=false;
-      const eligible=d.members.includes(question.from)&&!d.stoppedMembers?.includes(question.from)&&
-        !d.skippedMembers?.[question.from];
-      if(!d.interruption&&d.style==='chat'&&eligible)next.priority=[...new Set([question.from,...d.priority])];
-      if(!d.interruption&&d.style!=='chat'&&!d.meetingRound?.pending.length&&eligible){
-        next.meetingRound={messageId:message.id,pending:[question.from],mentionedOnly:true,waitAfterRound:true,supplemented:[]};
+      const team=this.store.members();
+      const resting=new Set(this.store.roomState().restingMemberIds);
+      const canSpeak=(id:string)=>d.members.includes(id)&&!resting.has(id)&&!d.stoppedMembers?.includes(id)&&!d.skippedMembers?.[id];
+      const seatedMembers=team.filter(m=>canSpeak(m.id));
+      const explicitIds=roomMentions(text, team).ids.filter(canSpeak);
+      const addressed=explicitIds.length ? explicitIds : roomNaturalMentions(text, seatedMembers).filter(canSpeak);
+      const eligible=canSpeak(question.from);
+      if(!d.interruption&&d.style==='chat'){
+        const lead=[...addressed, ...(eligible?[question.from]:[])];
+        if(lead.length)next.priority=[...new Set([...lead,...d.priority])];
+      }
+      if(!d.interruption&&d.style!=='chat'){
+        if(addressed.length){
+          next.meetingRound={messageId:message.id,pending:addressed,mentionedOnly:true,waitAfterRound:true,supplemented:[]};
+          next.meetingCursor=undefined;
+        }else if(!d.meetingRound?.pending.length&&eligible){
+          next.meetingRound={messageId:message.id,pending:[question.from],mentionedOnly:true,waitAfterRound:true,supplemented:[]};
+        }
       }
     }
     this.save(next,message);
