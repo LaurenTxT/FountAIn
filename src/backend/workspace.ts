@@ -8,7 +8,7 @@ import { resolveSafePath } from './security';
 import {beginWriteback} from './workspace-writeback';
 
 const exec=promisify(execFile);
-const excluded=new Set(['node_modules','.git','.fountain','.npm-cache','.electron-cache','.electron-temp','.builder-cache','.test-cache','.fountain-smoke','.venv','venv','__pycache__','.pytest_cache','.ipynb_checkpoints','.mypy_cache','.ruff_cache']);
+const excluded=new Set(['node_modules','.git','.fountain','.npm-cache','.electron-cache','.electron-temp','.builder-cache','.test-cache','.fountain-smoke','.venv','venv','__pycache__','.pytest_cache','.ipynb_checkpoints','.mypy_cache','.ruff_cache','.cache','.torch','.huggingface','wandb']);
 const MAX_FILES=30000, MAX_COPY_BYTES=1024*1024*1024, MAX_FILE_BYTES=128*1024*1024;
 interface Baseline { directory:string; files:Record<string,string>; inherited?:{sessionId:string;fingerprint:string} }
 let preparing=Promise.resolve();
@@ -74,7 +74,12 @@ export async function workspaceFingerprint(root:string):Promise<string> {
   const files=(await workspaceFiles(root)).sort((a,b)=>key(a.relativePath).localeCompare(key(b.relativePath)));let total=0;
   if(files.length>MAX_FILES)throw new Error('交接文件数量过多，请缩小项目范围。');
   const digest=createHash('sha256');
-  for(const file of files){total+=file.size;if(file.size>MAX_FILE_BYTES||total>MAX_COPY_BYTES)throw new Error('交接文件超过复制上限，请先整理工作副本。');digest.update(JSON.stringify([key(file.relativePath),hash(await fs.readFile(resolveSafePath(root,file.relativePath)))]));}
+  for(const file of files){
+    total+=file.size;
+    if(file.size>MAX_FILE_BYTES)throw new Error(`文件过大超过单文件 128MB 复制上限：${key(file.relativePath)}（${Math.round(file.size/1024/1024)}MB）。请将大体积数据集移到任务房外的共享数据目录按相对路径读取。`);
+    if(total>MAX_COPY_BYTES)throw new Error(`交接文件总大小超过 1GB 复制上限（当前已超限，触发文件：${key(file.relativePath)}）。请将大体积数据集移到任务房外的共享数据目录按相对路径读取。`);
+    digest.update(JSON.stringify([key(file.relativePath),hash(await fs.readFile(resolveSafePath(root,file.relativePath)))]));
+  }
   return digest.digest('hex');
 }
 
