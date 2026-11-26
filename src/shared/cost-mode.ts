@@ -1,7 +1,7 @@
 import type { MemberCostMode, MemberProfile, Session } from './types';
 import type { RequestedRunConfig } from './executor-config';
 
-export type CostTier = 'casual' | 'engineering' | 'review';
+export type CostTier = 'casual' | 'engineering' | 'review' | 'keyword_bump';
 
 export interface CostRoutingContext {
   tier: CostTier;
@@ -33,7 +33,7 @@ export function classifyCostTier(options: {
     return { tier: 'engineering' };
   }
   if (options.isCasualRoom) {
-    if (promptRequestsDeepReview(options.promptText)) return { tier: 'review' };
+    if (promptRequestsDeepReview(options.promptText)) return { tier: 'keyword_bump' };
     return { tier: 'casual' };
   }
   return { tier: 'review' };
@@ -47,11 +47,32 @@ function replacePreservingCase(input: string, from: RegExp, lowerReplacement: st
   );
 }
 
+function resolveLightModel(executor: string, raw: string, lower: string, customEconomyModel?: string): string | undefined {
+  const custom = customEconomyModel?.trim();
+  if (custom) return custom;
+  if (executor === 'claude' || lower.includes('claude') || lower.includes('fable') || lower.includes('opus')) {
+    return 'sonnet';
+  }
+  if (lower.includes('carbon')) return replacePreservingCase(raw, /carbon/gi, 'neon', 'Neon');
+  if (lower.includes('neon')) return raw;
+  if (executor.startsWith('acp-') && !raw) return 'gemini-4-neon';
+  if (lower.includes('astra')) return replacePreservingCase(raw, /astra/gi, 'sol', 'Sol');
+  if (/(?:^|[-_\s])sol(?:$|[-_\s])/.test(lower)) return raw;
+  if (executor === 'codex') return raw && /(?:^|[-_\s])(?:mini|nano|sol)(?:$|[-_\s])/.test(lower) ? raw : 'gpt-6.2-sol';
+  if (executor === 'dsh' || executor === 'deepseek' || lower.includes('deepseek')) return 'deepseek-flash';
+  if (/pro/i.test(raw) && !/(?:^|[-_\s])(?:flash|lite|mini|neon)(?:$|[-_\s])/.test(lower)) {
+    return replacePreservingCase(raw, /pro/gi, 'flash', 'Flash');
+  }
+  return raw || undefined;
+}
+
 /**
  * Pick the right model for a tier:
- * - casual:      Claude Sonnet | Gemini 4 Neon | GPT-6.2-Sol | DeepSeek-Flash
- * - engineering: Claude Fable  | Gemini 4 Carbon | GPT-6.2-Astra | DeepSeek-V4-Pro
- * - review:      Claude Opus   | Gemini 4 Carbon | GPT-6.2-Astra | DeepSeek-V4-Pro
+ * - casual:       Claude Sonnet | Gemini 4 Neon   | GPT-6.2-Sol   | DeepSeek-Flash
+ * - keyword_bump: Claude Opus   | Gemini 4 Neon   | GPT-6.2-Sol   | DeepSeek-Flash
+ * - engineering:  Claude Opus   | Gemini 4 Neon   | GPT-6.2-Sol   | DeepSeek-Flash
+ * - review:       Claude Fable  | Gemini 4 Carbon | GPT-6.2-Astra | DeepSeek-V4-Pro
+ * - escalated:    Claude Opus   | Gemini 4 Carbon (Medium) | GPT-6.2-Astra | DeepSeek-V4-Pro
  */
 export function resolveTierModel(
   executor: string,
@@ -63,40 +84,28 @@ export function resolveTierModel(
   const lower = raw.toLowerCase();
 
   if (tier === 'casual') {
-    const custom = overrides?.economyModel?.trim();
-    if (custom) return custom;
-    if (executor === 'claude' || lower.includes('claude') || lower.includes('fable') || lower.includes('opus')) {
-      return 'sonnet';
+    return resolveLightModel(executor, raw, lower, overrides?.economyModel);
+  }
+
+  if (tier === 'keyword_bump') {
+    if (executor === 'claude' || lower.includes('claude') || lower.includes('fable') || lower.includes('sonnet')) {
+      return 'opus';
     }
-    if (lower.includes('carbon')) return replacePreservingCase(raw, /carbon/gi, 'neon', 'Neon');
-    if (lower.includes('neon')) return raw;
-    if (executor.startsWith('acp-') && !raw) return 'gemini-4-neon';
-    if (lower.includes('astra')) return replacePreservingCase(raw, /astra/gi, 'sol', 'Sol');
-    if (/(?:^|[-_\s])sol(?:$|[-_\s])/.test(lower)) return raw;
-    if (executor === 'codex') return raw && /(?:^|[-_\s])(?:mini|nano|sol)(?:$|[-_\s])/.test(lower) ? raw : 'gpt-6.2-sol';
-    if (executor === 'dsh' || executor === 'deepseek' || lower.includes('deepseek')) return 'deepseek-flash';
-    if (/pro/i.test(raw) && !/(?:^|[-_\s])(?:flash|lite|mini|neon)(?:$|[-_\s])/.test(lower)) {
-      return replacePreservingCase(raw, /pro/gi, 'flash', 'Flash');
-    }
-    return raw || undefined;
+    return resolveLightModel(executor, raw, lower, overrides?.economyModel);
   }
 
   if (tier === 'engineering') {
     const custom = overrides?.engineeringModel?.trim();
     if (custom) return custom;
-    if (executor === 'claude' || lower.includes('claude') || lower.includes('opus') || lower.includes('fable')) {
-      return 'fable';
+    if (executor === 'claude' || lower.includes('claude') || lower.includes('fable') || lower.includes('sonnet')) {
+      return 'opus';
     }
-    if (executor === 'codex') return raw && lower.includes('astra') ? raw : 'gpt-6.2-astra';
-    if (executor === 'dsh' || executor === 'deepseek') return 'deepseek-v4-pro';
-    if (lower.includes('neon')) return replacePreservingCase(raw, /neon/gi, 'carbon', 'Carbon');
-    if (executor.startsWith('acp-') && !raw) return 'gemini-4-carbon-low';
-    return raw || undefined;
+    return resolveLightModel(executor, raw, lower, overrides?.economyModel);
   }
 
-  // review / architecture / bug-hunting / escalated retry
-  if (executor === 'claude' || lower.includes('claude') || lower.includes('fable') || lower.includes('sonnet')) {
-    return 'opus';
+  // review / architecture / inspiration (or escalated retry)
+  if (executor === 'claude' || lower.includes('claude') || lower.includes('fable') || lower.includes('sonnet') || lower.includes('opus')) {
+    return overrides?.escalated ? 'opus' : 'fable';
   }
   if (executor === 'codex') return raw && lower.includes('astra') ? raw : 'gpt-6.2-astra';
   if (executor === 'dsh' || executor === 'deepseek') return 'deepseek-v4-pro';

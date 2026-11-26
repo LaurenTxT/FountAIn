@@ -161,11 +161,14 @@ test('costMode downgrades models in casual rooms and keeps full power for projec
   assert.equal(casual.effort, 'low');
 
   const eng = applyCostModeToConfig(base, { executor: 'claude', costMode: 'economy' }, classifyCostTier({ purpose: 'flow-task', flowId: 'f1', isCasualRoom: false }));
-  assert.equal(eng.model, 'fable');
+  assert.equal(eng.model, 'opus');
   assert.equal(eng.effort, 'low');
 
+  const engCodex = applyCostModeToConfig({ ...base, model: 'gpt-6.2-astra' }, { executor: 'codex', costMode: 'economy' }, classifyCostTier({ purpose: 'flow-task', flowId: 'f1', isCasualRoom: false }));
+  assert.equal(engCodex.model, 'gpt-6.2-sol');
+
   const review = applyCostModeToConfig(base, { executor: 'claude', costMode: 'economy' }, classifyCostTier({ purpose: 'flow-review', flowId: 'f1', isCasualRoom: false }));
-  assert.equal(review.model, 'opus');
+  assert.equal(review.model, 'fable');
   assert.equal(review.effort, 'low');
 
   const retry = applyCostModeToConfig(base, { executor: 'claude', costMode: 'economy' }, classifyCostTier({ purpose: 'flow-task', flowId: 'f1', isCasualRoom: false, isRetry: true }));
@@ -175,4 +178,7 @@ test('costMode downgrades models in casual rooms and keeps full power for projec
   const keywordBump = applyCostModeToConfig(base, { executor: 'claude', costMode: 'economy' }, classifyCostTier({ isCasualRoom: true, promptText: '帮忙深度复核捉虫一下这段架构' }));
   assert.equal(keywordBump.model, 'opus');
   assert.equal(keywordBump.effort, 'low');
+
+  const keywordBumpDsh = applyCostModeToConfig({ ...base, model: 'deepseek-v4-pro' }, { executor: 'dsh', costMode: 'economy' }, classifyCostTier({ isCasualRoom: true, promptText: '帮忙捉虫一下' }));
+  assert.equal(keywordBumpDsh.model, 'deepseek-flash');
 });
