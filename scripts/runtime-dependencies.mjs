@@ -39,11 +39,29 @@ export async function verifyRuntimeDependencies(appRoot) {
   return { packages: records.size, peers: manifest.packages.filter(item => item.peer).length, nested: manifest.packages.filter(item => item.path.slice(13).includes('/node_modules/')).length };
 }
 
+function archName(arch) {
+  if (arch === 3 || arch === 'arm64') return 'arm64';
+  if (arch === 0 || arch === 'ia32') return 'ia32';
+  return 'x64';
+}
+function expectedOutDir(platform, arch) {
+  if (platform === 'win32') return path.join(root, 'release', arch === 'arm64' ? 'win-arm64-unpacked' : 'win-unpacked');
+  if (platform === 'linux') return path.join(root, 'release', arch === 'arm64' ? 'linux-arm64-unpacked' : 'linux-unpacked');
+  throw new Error('Unsupported packaging platform: ' + platform);
+}
+function sevenZipBinary(platform, arch) {
+  if (platform === 'win32') return `node_modules/7zip-bin/win/${arch}/7za.exe`;
+  if (platform === 'linux') return `node_modules/7zip-bin/linux/${arch}/7za`;
+  return undefined;
+}
+
 /** electron-builder's automatic dependency collection omits installed peer and nested packages. */
 export default async function afterPack(context) {
+  const platform = context.electronPlatformName;
+  const arch = archName(context.arch);
   const output = path.resolve(context.appOutDir);
-  const expected = path.join(root, 'release', 'win-unpacked');
-  if (output !== expected || context.electronPlatformName !== 'win32') throw new Error('Unexpected packaging target: ' + output);
+  const expected = expectedOutDir(platform, arch);
+  if (output !== expected || !['win32', 'linux'].includes(platform)) throw new Error('Unexpected packaging target: ' + output);
   // A custom Electron distribution also copies its demo app; ship only FountAIn.
   await rm(path.join(expected, 'resources', 'default_app.asar'), {force:true});
   const appRoot = path.join(output, 'resources', 'app');
@@ -51,22 +69,25 @@ export default async function afterPack(context) {
   // Validate the absolute deletion target before removing builder's incomplete tree.
   if (targetModules !== path.join(expected, 'resources', 'app', 'node_modules')) throw new Error('Unsafe runtime dependency target');
   await rm(targetModules, { recursive: true, force: true });
-  const dependencies=await copyProductionDependencies(appRoot);
+  const dependencies=await copyProductionDependencies(appRoot, { platform, arch });
   console.log('[FountAIn] Complete production dependency tree:', dependencies);
 }
 
 /** Copy the same production payload into an empty package or disposable desktop test app. */
-export async function copyProductionDependencies(appRoot) {
+export async function copyProductionDependencies(appRoot, options = {}) {
+  const platform = options.platform ?? (process.platform === 'linux' ? 'linux' : 'win32');
+  const arch = options.arch ?? (process.arch === 'arm64' ? 'arm64' : 'x64');
   const lockBytes = await readFile(path.join(root, 'package-lock.json'));
   const lock = JSON.parse(lockBytes);
-  const manifest = { schemaVersion: 1, platform: 'win32', arch: 'x64', lockSha256: sha(lockBytes), packages: [], excluded: [], equivalentFiles: [] };
-  for (const [name, pkg] of productionPackages(lock)) {
+  const manifest = { schemaVersion: 1, platform, arch, lockSha256: sha(lockBytes), packages: [], excluded: [], equivalentFiles: [] };
+  for (const [name, pkg] of productionPackages(lock, platform, arch)) {
     const source = dependencyPath(root, name);
     try { await stat(path.join(source, 'package.json')); }
     catch (error) { if (pkg.optional && error.code === 'ENOENT') { manifest.excluded.push({path:name,reason:'optional package absent from source installation'});continue;}throw new Error('Required source dependency missing: ' + name); }
     const bytes = await readFile(path.join(source, 'package.json'));
     if (JSON.parse(bytes).version !== pkg.version) throw new Error('Source dependency does not match lockfile: ' + name);
     // Nested installed packages are copied individually at their exact lockfile paths.
+    const sevenPlatform = platform === 'win32' ? 'win' : 'linux';
     await cp(source, dependencyPath(appRoot, name), {recursive:true,dereference:true,filter:file => {
       const parts=path.relative(source,file).split(path.sep);
       if(parts[0]==='node_modules')return false;
@@ -74,14 +95,14 @@ export async function copyProductionDependencies(appRoot) {
       // every package/license, while omitting its rendered and source help pages.
       if(name==='node_modules/npm'&&['docs','man'].includes(parts[0]))return false;
       if(name==='node_modules/7zip-bin'){
-        if(['linux','mac'].includes(parts[0]))return false;
-        if(parts[0]==='win'&&parts.length>1&&parts[1]!=='x64')return false;
+        if(['win','linux','mac'].includes(parts[0]) && parts[0]!==sevenPlatform)return false;
+        if(parts[0]===sevenPlatform&&parts.length>1&&parts[1]!==arch)return false;
       }
       return true;
     }});
     if(name==='node_modules/7zip-bin'){
-      const binary='node_modules/7zip-bin/win/x64/7za.exe';
-      manifest.equivalentFiles.push({path:binary,sha256:sha(await readFile(dependencyPath(root,binary)))});
+      const binary=sevenZipBinary(platform, arch);
+      if(binary)manifest.equivalentFiles.push({path:binary,sha256:sha(await readFile(dependencyPath(root,binary)))});
     }
     manifest.packages.push({path:name,version:pkg.version,packageJsonSha256:sha(bytes),peer:!!pkg.peer,optional:!!pkg.optional});
   }

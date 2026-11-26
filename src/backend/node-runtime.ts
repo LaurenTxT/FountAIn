@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import path from 'node:path';
 import type { Settings } from '../shared/types';
@@ -10,9 +10,16 @@ export function nodeAtLeast(version:string,minimum:string){
   const a=version.replace(/^v/,'').split('.').map(Number),b=minimum.split('.').map(Number);
   for(let index=0;index<3;index++){if(!Number.isFinite(a[index]))return false;if(a[index]!==b[index])return a[index]>b[index];}return true;
 }
+function npmCliForNode(nodeFile:string){
+  const dir=path.dirname(nodeFile);
+  return [
+    path.join(dir,'node_modules/npm/bin/npm-cli.js'),
+    path.join(dir,'../lib/node_modules/npm/bin/npm-cli.js'),
+  ].find(existsSync);
+}
 function localRuntime(env:NodeJS.ProcessEnv){
   const file=env.FOUNTAIN_LOCAL_NODE_EXE || (!process.versions.electron?env.FOUNTAIN_NODE_EXE:undefined);
-  if(!file||!existsSync(file)||!existsSync(path.join(path.dirname(file),'node_modules/npm/bin/npm-cli.js')))return;
+  if(!file||!existsSync(file)||!npmCliForNode(file))return;
   if(!localVersions.has(file)){
     const clean={...env};delete clean.ELECTRON_RUN_AS_NODE;
     const result=spawnSync(file,['-p','process.versions.node'],{encoding:'utf8',timeout:5000,windowsHide:true,env:clean});
@@ -38,8 +45,8 @@ export function npmLaunch(env:NodeJS.ProcessEnv,cwd:string){
   const node=env.FOUNTAIN_NODE_EXE&&existsSync(env.FOUNTAIN_NODE_EXE)?env.FOUNTAIN_NODE_EXE:process.execPath;
   const root=env.FOUNTAIN_APP_ROOT||process.cwd();
   const choices=env.FOUNTAIN_NODE_SOURCE==='local'
-    ?[path.join(path.dirname(node),'node_modules/npm/bin/npm-cli.js')]
-    :[path.join(root,'node_modules/npm/bin/npm-cli.js'),path.join(path.dirname(node),'node_modules/npm/bin/npm-cli.js')];
+    ?[npmCliForNode(node)].filter((item): item is string => Boolean(item))
+    :[path.join(root,'node_modules/npm/bin/npm-cli.js'),npmCliForNode(node)].filter((item): item is string => Boolean(item));
   const cli=choices.find(existsSync);if(!cli)throw new Error('FountAIn 自带的 npm 组件缺失，请重新安装完整工作台。');
   const childEnv={...env};for(const key of Object.keys(childEnv))if(key.toUpperCase()==='ELECTRON_RUN_AS_NODE')delete childEnv[key];
   const electron=path.resolve(node).toLowerCase()===path.resolve(env.FOUNTAIN_BUNDLED_NODE_EXE||process.execPath).toLowerCase()&&!!process.versions.electron;
@@ -48,8 +55,14 @@ export function npmLaunch(env:NodeJS.ProcessEnv,cwd:string){
     childEnv.ELECTRON_RUN_AS_NODE='1';
     // npm's approved lifecycle scripts invoke `node`; keep this shim inside the managed staging directory.
     const bin=path.join(cwd,'.fountain-node-bin');mkdirSync(bin,{recursive:true});
-    const quote=node.replaceAll('%','%%');
-    writeFileSync(path.join(bin,'node.cmd'),`@echo off\r\nset "ELECTRON_RUN_AS_NODE=1"\r\n"${quote}" %*\r\n`);
+    if(process.platform==='win32'){
+      const quote=node.replaceAll('%','%%');
+      writeFileSync(path.join(bin,'node.cmd'),`@echo off\r\nset "ELECTRON_RUN_AS_NODE=1"\r\n"${quote}" %*\r\n`);
+    } else {
+      const shim=path.join(bin,'node');
+      writeFileSync(shim,`#!/bin/sh\nexport ELECTRON_RUN_AS_NODE=1\nexec '${node.replace(/'/g,"'\\''")}' "$@"\n`);
+      chmodSync(shim,0o755);
+    }
     directories.unshift(bin);
   }
   const pathKey=Object.keys(childEnv).find(key=>key.toLowerCase()==='path')||'PATH';

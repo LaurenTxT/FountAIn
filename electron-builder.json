@@ -29,5 +29,16 @@
   "portable": {
     "artifactName": "FountAIn-${version}-Windows.exe",
     "requestExecutionLevel": "user"
+  },
+  "linux": {
+    "target": ["AppImage", "deb"],
+    "icon": "build/fountain.png",
+    "category": "Development",
+    "artifactName": "FountAIn-${version}-${arch}.${ext}",
+    "desktop": {
+      "Name": "FountAIn",
+      "Comment": "FountAIn — 本地多模型 AI 协作工作台",
+      "StartupWMClass": "fountain"
+    }
   }
 }

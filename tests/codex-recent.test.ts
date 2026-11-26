@@ -7,6 +7,7 @@ import { extractMaterialTerms } from '../src/backend/project-materials';
 import { initializeStudyRoom } from '../src/backend/study-room';
 import { workspaceProfileInstructions } from '../src/backend/workspace-profile';
 import { parseDiscussionReply } from '../src/shared/discussion';
+import { productionPackages } from '../scripts/runtime-dependencies.mjs';
 import type { Project } from '../src/shared/types';
 
 test('extractMaterialTerms splits natural Chinese sentences into searchable terms', () => {
@@ -130,4 +131,13 @@ test('parseDiscussionReply parses proposeKickoff safely and rejects mismatched t
     1,
   );
   assert.equal(nonSpeak.proposeKickoff, undefined);
+});
+
+test('productionPackages resolves runtime dependencies for both linux and win32', () => {
+  const lock = JSON.parse(fs.readFileSync(path.resolve('package-lock.json'), 'utf8'));
+  const linuxPkgs = new Map(productionPackages(lock, 'linux', 'x64'));
+  const winPkgs = new Map(productionPackages(lock, 'win32', 'x64'));
+  assert.ok(linuxPkgs.has('node_modules/7zip-bin'));
+  assert.ok(linuxPkgs.has('node_modules/undici'));
+  assert.ok(winPkgs.has('node_modules/7zip-bin'));
 });

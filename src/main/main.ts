@@ -126,15 +126,25 @@ function hudSnapshot(): HudSnapshot {
 
 function resolveAgyExecutable(): string | undefined {
   const fromExecutors = lastSnapshot?.executors?.find(e => /(?:^|[\\/])agy(?:\.exe)?$/i.test(e.command))?.command;
-  const candidates = [
-    fromExecutors,
-    process.env.LOCALAPPDATA ? path.join(process.env.LOCALAPPDATA, 'agy', 'bin', 'agy.exe') : undefined,
-    process.env.USERPROFILE ? path.join(process.env.USERPROFILE, '.local', 'bin', 'agy.exe') : undefined,
-  ];
+  const homeDir = process.env.USERPROFILE || process.env.HOME;
+  const candidates = process.platform === 'win32'
+    ? [
+        fromExecutors,
+        process.env.LOCALAPPDATA ? path.join(process.env.LOCALAPPDATA, 'agy', 'bin', 'agy.exe') : undefined,
+        homeDir ? path.join(homeDir, '.local', 'bin', 'agy.exe') : undefined,
+      ]
+    : [
+        fromExecutors,
+        homeDir ? path.join(homeDir, '.local', 'bin', 'agy') : undefined,
+        '/usr/local/bin/agy',
+      ];
   return candidates.find((p): p is string => Boolean(p && existsSync(p)));
 }
 
 async function openAgyQuota() {
+  if (process.platform !== 'win32') {
+    throw new Error('Antigravity 终端配额自动读取目前仅支持 Windows，请直接在终端查看 agy 状态。');
+  }
   const agyExe = resolveAgyExecutable();
   if (!agyExe) throw new Error('未找到本机 Antigravity CLI (agy.exe)，请先在「设置与连接」中配置 Antigravity 执行端。');
   const resultPath = agyQuotaFile;
@@ -791,7 +801,7 @@ function createWindow() {
   window.once('ready-to-show', () => { showMainWindow('ready'); if (lastSnapshot) push({ type: 'snapshot', snapshot: lastSnapshot }); });
   window.on('show',notifyRoomVisibility);window.on('hide',notifyRoomVisibility);window.on('minimize',notifyRoomVisibility);window.on('restore',notifyRoomVisibility);window.on('focus',notifyRoomVisibility);
   window.webContents.on('render-process-gone', (_event, details) => { if (!quitting) startupFailed(new Error(`界面进程退出：${details.reason} (${details.exitCode})`)); });
-  window.on('close', event => { if (!quitting) { event.preventDefault(); window!.hide(); logStartup('window-hidden-to-tray'); } });
+  window.on('close', event => { if (!quitting && (process.platform === 'win32' || tray)) { event.preventDefault(); window!.hide(); logStartup('window-hidden-to-tray'); } });
   window.webContents.session.setPermissionRequestHandler((_contents, _permission, callback) => callback(false));
 }
 function showHudWindow() {
@@ -814,9 +824,15 @@ function showHudWindow() {
 }
 
 function createTray() {
-  tray = new Tray(nativeImage.createFromPath(path.join(dist,'fountain.png')).resize({width:16,height:16})); tray.setToolTip('FountAIn');
-  tray.setContextMenu(Menu.buildFromTemplate([{ label: '打开工作台', click: () => showMainWindow('tray-menu') }, { label: '桌面浮层', click: showHudWindow }, { label: '停止所有成员', click: () => { void emergencyStop(); } }, { type: 'separator' }, { label: '退出 FountAIn', click: () => app.quit() }]));
-  tray.on('double-click', () => showMainWindow('tray-double-click'));
+  try {
+    tray = new Tray(nativeImage.createFromPath(path.join(dist,'fountain.png')).resize({width:16,height:16})); tray.setToolTip('FountAIn');
+    tray.setContextMenu(Menu.buildFromTemplate([{ label: '打开工作台', click: () => showMainWindow('tray-menu') }, { label: '桌面浮层', click: showHudWindow }, { label: '停止所有成员', click: () => { void emergencyStop(); } }, { type: 'separator' }, { label: '退出 FountAIn', click: () => app.quit() }]));
+    tray.on('double-click', () => showMainWindow('tray-double-click'));
+  } catch (error) {
+    if (process.platform === 'win32') throw error;
+    tray = undefined;
+    logStartup(`tray-unavailable: ${(error as Error).message}`);
+  }
 }
 // Uploaded portraits and avatars are served read-only from the asset store, by name only.
 protocol.registerSchemesAsPrivileged([{ scheme: 'fountain-asset', privileges: { standard: true, secure: true, supportFetchAPI: true } }]);

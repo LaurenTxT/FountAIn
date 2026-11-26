@@ -64,7 +64,12 @@ export function resolveCliEntry(provider: ProviderId, settings: Settings, env: N
   }
   const searchPath = Object.entries(env).find(([key]) => key.toLowerCase() === 'path')?.[1] ?? '';
   const names = process.platform === 'win32' ? [`${provider}.exe`, `${provider}.cmd`, `${provider}.ps1`] : [provider];
-  for (const directory of searchPath.split(delimiter)) {
+  const homeDir = env.HOME || env.USERPROFILE || '';
+  const extraDirs = process.platform === 'win32'
+    ? []
+    : [homeDir ? join(homeDir, '.local', 'bin') : '', homeDir ? join(homeDir, '.npm-global', 'bin') : '', '/usr/local/bin'].filter(Boolean);
+  const searchDirs = [...new Set([...searchPath.split(delimiter).filter(Boolean), ...extraDirs])];
+  for (const directory of searchDirs) {
     if (!directory) continue;
     // Desktop applications' versioned internal bins are not a stable installation.
     if (/[/\\](?:OpenAI[/\\]Codex[/\\]bin|Claude(?:[/\\]app-[^/\\]+)?)(?:[/\\]|$)/i.test(directory)) continue;

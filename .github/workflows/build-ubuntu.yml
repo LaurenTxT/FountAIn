@@ -1,0 +1,44 @@
+name: Build Ubuntu Package
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-ubuntu:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Unit tests
+        run: node --import tsx --test tests/*.test.ts
+
+      - name: Build Ubuntu AppImage and deb
+        run: npm run package:linux
+
+      - name: Upload Ubuntu packages
+        uses: actions/upload-artifact@v4
+        with:
+          name: FountAIn-Ubuntu-x64
+          path: |
+            release/*.AppImage
+            release/*.deb
+          if-no-files-found: error
