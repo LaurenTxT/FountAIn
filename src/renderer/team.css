@@ -770,14 +770,30 @@ button.room-system.link:hover { border-color: var(--ink-3); color: var(--ink); }
   box-shadow: 0 0 22px rgba(77, 166, 255, 0.85);
   animation: splash-orb-br 0.82s cubic-bezier(0.22, 1, 0.36, 1) 0.30s forwards;
 }
+@font-face {
+  font-family: 'FountAIn Serif';
+  src: url('./assets/fonts/fountain-serif-italic.woff2') format('woff2');
+  font-weight: 600;
+  font-style: italic;
+  font-display: block;
+}
+@font-face {
+  font-family: 'FountAIn AI';
+  src: url('./assets/fonts/fountain-ai-display.woff2') format('woff2');
+  font-weight: 800;
+  font-style: normal;
+  font-display: block;
+}
 .launch-brand {
   margin: 0;
   display: inline-flex;
   align-items: baseline;
-  font-size: 50px;
-  font-weight: 700;
-  letter-spacing: 0.06em;
-  line-height: 1.08;
+  font-family: 'FountAIn Serif', 'Georgia', 'Times New Roman', serif;
+  font-style: italic;
+  font-size: 56px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  line-height: 1.12;
 }
 .launch-char {
   display: inline-block;
@@ -786,6 +802,7 @@ button.room-system.link:hover { border-color: var(--ink-3); color: var(--ink); }
 }
 .launch-char-glyph {
   display: inline-block;
+  padding: 0 2px;
   background: linear-gradient(115deg, #e2e8ff 0%, #ffffff 34%, #b9c9ff 55%, #d6c2ff 78%, #e2e8ff 100%);
   background-size: 260% 100%;
   -webkit-background-clip: text;
@@ -796,8 +813,16 @@ button.room-system.link:hover { border-color: var(--ink-3); color: var(--ink); }
     splash-char-wave 3.0s ease-in-out calc(1.05s + var(--i, 0) * 0.11s) infinite,
     splash-shimmer 3.2s ease-in-out calc(0.5s + var(--i, 0) * 0.06s) infinite;
 }
+.launch-char.is-ai {
+  margin: 0 1px;
+}
 .launch-char.is-ai .launch-char-glyph {
-  font-weight: 850;
+  font-family: 'FountAIn AI', 'Segoe UI', sans-serif;
+  font-style: normal;
+  font-size: 46px;
+  font-weight: 800;
+  letter-spacing: 0.01em;
+  padding: 0 1px;
   background: linear-gradient(108deg, #5d8cff 0%, #8e84ff 28%, #c06cff 54%, #ff8747 78%, #5d8cff 100%);
   background-size: 260% 100%;
   -webkit-background-clip: text;
