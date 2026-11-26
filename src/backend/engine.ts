@@ -49,7 +49,7 @@ import {
   requestedConfig,
   type RequestedRunConfig,
 } from "../shared/executor-config";
-import { applyCostModeToConfig } from "../shared/cost-mode";
+import { applyCostModeToConfig, classifyCostTier } from "../shared/cost-mode";
 import { createHash, randomUUID } from "node:crypto";
 import { existsSync, realpathSync, unlinkSync } from "node:fs";
 import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
@@ -6415,9 +6415,10 @@ export class Engine {
       this.store.executors().find((item) => item.id === member.executor),
     );
   }
-  private runConfiguration(session: Session): RequestedRunConfig {
+  private runConfiguration(session: Session, promptText?: string, isRetry = false): RequestedRunConfig {
     const member = this.memberFor(session);
-    let project = this.require<Project>("projects", session.projectId);
+    const rawProject = this.require<Project>("projects", session.projectId);
+    let project = rawProject;
     if (project.kind === "lounge" && project.roomId?.startsWith("project:"))
       project = this.require<Project>("projects", project.roomId.slice(8));
     if (project.kind === "lounge" && project.roomId?.startsWith("report:")) {
@@ -6427,6 +6428,18 @@ export class Engine {
       );
       if (room) project = this.require<Project>("projects", room.projectId);
     }
+    const isCasualRoom =
+      !session.flowId &&
+      rawProject.kind === "lounge" &&
+      !rawProject.roomId?.startsWith("desk:") &&
+      !rawProject.roomId?.startsWith("report:");
+    const routing = classifyCostTier({
+      purpose: session.purpose,
+      flowId: session.flowId,
+      isCasualRoom,
+      promptText,
+      isRetry,
+    });
     const frozen =
       session.flowId &&
       (this.store.get<import("../shared/project-flow").ProjectFlow>(
@@ -6437,13 +6450,7 @@ export class Engine {
           "flow_joint_reviews",
           session.flowId,
         )?.memberConfigs?.[member.id]);
-    if (frozen) return { ...frozen, capturedAt: now() };
-    const rawProject = this.require<Project>("projects", session.projectId);
-    const isCasualRoom =
-      !session.flowId &&
-      rawProject.kind === "lounge" &&
-      !rawProject.roomId?.startsWith("desk:") &&
-      !rawProject.roomId?.startsWith("report:");
+    if (frozen) return applyCostModeToConfig({ ...frozen, capturedAt: now() }, member, routing);
     const rebound=this.store.members().find(item=>item.id===member.id)?.executor!==session.provider;
     const baseConfig = requestedConfig(
       rebound?{...project,memberConfigs:undefined}:project,
@@ -6452,7 +6459,7 @@ export class Engine {
       session.flowId ? undefined : session,
       this.store.executors().find((item) => item.id === member.executor),
     );
-    return applyCostModeToConfig(baseConfig, member, isCasualRoom);
+    return applyCostModeToConfig(baseConfig, member, routing);
   }
   createSession(
     projectId: string,
@@ -6844,7 +6851,14 @@ export class Engine {
     const project = this.require<Project>("projects", session.projectId);
     // Model and thinking level: the session's choice, else the member card's, else the executor default.
     const member = this.memberFor(session);
-    const config = run.requestedConfig ?? this.runConfiguration(session);
+    const isRetry =
+      run.origin?.callKind === "correction" ||
+      run.origin?.callKind === "retry" ||
+      (session.purpose === "flow-task" &&
+        this.store
+          .list<Run>("runs")
+          .some((other) => other.sessionId === session.id && other.id !== run.id && other.status === "failed"));
+    const config = run.requestedConfig ?? this.runConfiguration(session, run.input, isRetry);
     if (!run.requestedConfig) {
       run.requestedConfig = config;
       this.persistRun(run, { requestedConfig: config });

@@ -224,10 +224,16 @@ export function CardEditor({ snapshot, memberId, invoke, notify, onBack, onCance
           </select>
           <small>智能省流在茶歇室和日常讨论自动降为低消耗模型，进入项目任务、代码复核和 1v1 工位时自动切回满血主模型。</small>
         </label>
-        {(draft.costMode ?? 'normal') === 'economy' && <label className="field">日常省流模型（可选）
-          <input value={draft.economyModel ?? ''} maxLength={120} placeholder="留空自动匹配（Fable/Opus→Sonnet · Carbon→Neon · Astra→Sol · v4-pro→flash）" onChange={event => set({ economyModel: event.target.value })} />
-          <small>留空时按旗舰→轻量自动映射；也可手动指定任意日常轻量模型名。</small>
-        </label>}
+        {(draft.costMode ?? 'normal') === 'economy' && <>
+          <label className="field">日常省流模型（可选）
+            <input value={draft.economyModel ?? ''} maxLength={120} placeholder="留空自动：Sonnet / Neon / Sol / deepseek-flash" onChange={event => set({ economyModel: event.target.value })} />
+            <small>茶歇室与普通会议默认走此轻量档（effort 自动 low）；说「捉虫 / 架构 / 用 opus」会自动临时升档。</small>
+          </label>
+          <label className="field">工程主力模型（可选）
+            <input value={draft.engineeringModel ?? ''} maxLength={120} placeholder="留空自动：Claude Fable / Carbon / Astra / v4-pro" onChange={event => set({ engineeringModel: event.target.value })} />
+            <small>项目编码任务默认走工程主力档（effort low），遇到失败返工或代码复核时自动升档到旗舰捉虫。</small>
+          </label>
+        </>}
         <LifeEditor draft={draft} onChange={set} />
         <MemoryEditor entries={memoryEntries(draft)} onChange={memories => set({ memories })} executor={connecting ? undefined : draft.executor} invoke={invoke} />
         <div className="card-field-row">

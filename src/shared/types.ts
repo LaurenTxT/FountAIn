@@ -196,6 +196,8 @@ export interface MemberProfile {
   costMode?: MemberCostMode;
   /** Optional explicit model override used in casual rooms when costMode is 'economy'. */
   economyModel?: string;
+  /** Optional explicit model override used for engineering tasks (flow-task) when costMode is 'economy'. */
+  engineeringModel?: string;
   /** Things the user wants this member to keep in mind, as one text: the entries that are on, joined.
    *  Kept for older readers; `memories` is the source of truth once present. */
   memory?: string;

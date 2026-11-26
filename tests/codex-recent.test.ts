@@ -7,7 +7,7 @@ import { extractMaterialTerms } from '../src/backend/project-materials';
 import { initializeStudyRoom } from '../src/backend/study-room';
 import { workspaceProfileInstructions } from '../src/backend/workspace-profile';
 import { parseDiscussionReply } from '../src/shared/discussion';
-import { applyCostModeToConfig, resolveEconomyModel } from '../src/shared/cost-mode';
+import { applyCostModeToConfig, classifyCostTier, resolveEconomyModel } from '../src/shared/cost-mode';
 import { productionPackages } from '../scripts/runtime-dependencies.mjs';
 import type { Project } from '../src/shared/types';
 
@@ -156,11 +156,23 @@ test('costMode downgrades models in casual rooms and keeps full power for projec
   assert.equal(resolveEconomyModel('acp-custom', 'carbon-pro', 'custom-lite'), 'custom-lite');
 
   const base = { model: 'opus', effort: 'high' as const, modelSource: 'default' as const, effortSource: 'default' as const, capturedAt: '2026-11-26T00:00:00Z' };
-  const casual = applyCostModeToConfig(base, { executor: 'claude', costMode: 'economy' }, true);
+  const casual = applyCostModeToConfig(base, { executor: 'claude', costMode: 'economy' }, classifyCostTier({ isCasualRoom: true, promptText: '今天吃啥' }));
   assert.equal(casual.model, 'sonnet');
   assert.equal(casual.effort, 'low');
 
-  const task = applyCostModeToConfig(base, { executor: 'claude', costMode: 'economy' }, false);
-  assert.equal(task.model, 'opus');
-  assert.equal(task.effort, 'high');
+  const eng = applyCostModeToConfig(base, { executor: 'claude', costMode: 'economy' }, classifyCostTier({ purpose: 'flow-task', flowId: 'f1', isCasualRoom: false }));
+  assert.equal(eng.model, 'fable');
+  assert.equal(eng.effort, 'low');
+
+  const review = applyCostModeToConfig(base, { executor: 'claude', costMode: 'economy' }, classifyCostTier({ purpose: 'flow-review', flowId: 'f1', isCasualRoom: false }));
+  assert.equal(review.model, 'opus');
+  assert.equal(review.effort, 'low');
+
+  const retry = applyCostModeToConfig(base, { executor: 'claude', costMode: 'economy' }, classifyCostTier({ purpose: 'flow-task', flowId: 'f1', isCasualRoom: false, isRetry: true }));
+  assert.equal(retry.model, 'opus');
+  assert.equal(retry.effort, 'medium');
+
+  const keywordBump = applyCostModeToConfig(base, { executor: 'claude', costMode: 'economy' }, classifyCostTier({ isCasualRoom: true, promptText: '帮忙深度复核捉虫一下这段架构' }));
+  assert.equal(keywordBump.model, 'opus');
+  assert.equal(keywordBump.effort, 'low');
 });
