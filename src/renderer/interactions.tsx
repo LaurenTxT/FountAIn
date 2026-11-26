@@ -1,10 +1,11 @@
 import { ConfigurationHint, useProviderConfiguration } from './provider-configuration';
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
-import { CornerDownLeft, Search } from 'lucide-react';
+import { CornerDownLeft, Folder, Laptop, MessagesSquare, Search, Users } from 'lucide-react';
 import { PROVIDER_NAMES } from '../shared/defaults';
-import type { Approval, RunSummary, Session, Snapshot } from '../shared/types';
+import type { Approval, Project, RunSummary, Session, Snapshot } from '../shared/types';
 import { Avatar, useTeam, type Team } from './members';
+import { plainText } from './Markdown';
 import { shortDateTime, runLabel, isActiveRun, sessionTitle } from './ui';
 import { isConversationSession } from '../shared/session-classification';
 
@@ -54,33 +55,150 @@ export function ContextMenu({ menu, onClose }: { menu: MenuState; onClose: () =>
 }
 
 /* ───────── Quick switcher (Ctrl+K) ───────── */
-export function QuickSwitcher({ snapshot, firstInput, onPick, onClose }: { snapshot: Snapshot; firstInput: (id: string) => string | undefined; onPick: (session: Session) => void; onClose: () => void }) {
+export type QuickPickTarget =
+  | { kind: 'session'; session: Session }
+  | { kind: 'project'; project: Project }
+  | { kind: 'desk'; memberId: string }
+  | { kind: 'room' }
+  | { kind: 'roundtable'; topicId?: string };
+
+interface SwitcherEntry {
+  key: string;
+  target: QuickPickTarget;
+  title: string;
+  subtitle: string;
+  badge: string;
+  searchText: string;
+  memberId?: string;
+  icon?: ReactNode;
+}
+
+export function QuickSwitcher({ snapshot, firstInput, onPick, onClose }: { snapshot: Snapshot; firstInput: (id: string) => string | undefined; onPick: (target: QuickPickTarget) => void; onClose: () => void }) {
   const [query, setQuery] = useState('');
   const [index, setIndex] = useState(0);
   const team = useTeam();
   const projects = useMemo(() => new Map(snapshot.projects.map(project => [project.id, project])), [snapshot.projects]);
+
+  const entries = useMemo<SwitcherEntry[]>(() => {
+    const list: SwitcherEntry[] = [];
+    for (const project of snapshot.projects) {
+      if (project.kind) continue;
+      list.push({
+        key: `project:${project.id}`,
+        target: { kind: 'project', project },
+        title: project.name,
+        subtitle: project.directory,
+        badge: '项目',
+        searchText: `项目 project ${project.name} ${project.directory}`.toLowerCase(),
+        icon: <Folder size={15} />,
+      });
+    }
+    for (const member of team.members) {
+      if (member.card.cardHidden) continue;
+      const providerName = PROVIDER_NAMES[member.executor] ?? member.executor;
+      list.push({
+        key: `desk:${member.id}`,
+        target: { kind: 'desk', memberId: member.id },
+        title: `${member.name} 的工位`,
+        subtitle: `${providerName} · 1v1 单独对话`,
+        badge: '工位',
+        searchText: `工位 desk ${member.name} ${member.id} ${providerName}`.toLowerCase(),
+        memberId: member.id,
+      });
+    }
+    list.push({
+      key: 'room:tea',
+      target: { kind: 'room' },
+      title: '茶歇室',
+      subtitle: snapshot.room.messages.length ? `${snapshot.room.messages.length} 条消息` : '多人闲聊或开会',
+      badge: '房间',
+      searchText: '茶歇室 群聊 聊天室 lounge room'.toLowerCase(),
+      icon: <MessagesSquare size={15} />,
+    });
+    const topics = snapshot.roundtable?.topics ?? [];
+    if (!topics.length) {
+      list.push({
+        key: 'roundtable:home',
+        target: { kind: 'roundtable' },
+        title: '圆桌',
+        subtitle: '独立评审、比稿与方案比较',
+        badge: '圆桌',
+        searchText: '圆桌 评审 比稿 roundtable'.toLowerCase(),
+        icon: <Users size={15} />,
+      });
+    } else {
+      for (const topic of topics) {
+        list.push({
+          key: `roundtable:${topic.id}`,
+          target: { kind: 'roundtable', topicId: topic.id },
+          title: topic.title || '圆桌议题',
+          subtitle: `圆桌 · ${shortDateTime(topic.updatedAt ?? topic.createdAt)}`,
+          badge: '圆桌',
+          searchText: `圆桌 roundtable ${topic.title ?? ''}`.toLowerCase(),
+          icon: <Users size={15} />,
+        });
+      }
+    }
+    const sessions = [...snapshot.sessions]
+      .filter(session => isConversationSession(session, snapshot.runs))
+      .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+    for (const session of sessions) {
+      const m = team.ofSession(session);
+      const title = sessionTitle(session, firstInput(session.id));
+      const projectName = projects.get(session.projectId)?.name ?? '项目';
+      list.push({
+        key: `session:${session.id}`,
+        target: { kind: 'session', session },
+        title,
+        subtitle: `${m.name} · ${projectName} · ${shortDateTime(session.updatedAt)}${session.archived ? ' · 已归档' : ''}`,
+        badge: '会话',
+        searchText: `会话 session ${title} ${m.name} ${PROVIDER_NAMES[session.provider] ?? session.provider} ${projectName}`.toLowerCase(),
+        memberId: m.id,
+      });
+    }
+    return list;
+  }, [snapshot.projects, snapshot.roundtable, snapshot.room.messages.length, snapshot.sessions, snapshot.runs, projects, firstInput, team]);
+
   const results = useMemo(() => {
     const words = query.toLowerCase().split(/\s+/).filter(Boolean);
-    return [...snapshot.sessions].filter(session => isConversationSession(session,snapshot.runs)).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)).filter(session => {
-      const text = `${sessionTitle(session, firstInput(session.id))} ${team.ofSession(session).name} ${PROVIDER_NAMES[session.provider]} ${projects.get(session.projectId)?.name ?? ''}`.toLowerCase();
-      return words.every(word => text.includes(word));
-    }).slice(0, 30);
-  }, [query, snapshot.sessions, projects, firstInput, team]);
+    if (!words.length) return entries.slice(0, 30);
+    const matched = entries.filter(item => words.every(word => item.searchText.includes(word)));
+    const msgMatches: SwitcherEntry[] = [];
+    for (let i = snapshot.room.messages.length - 1; i >= 0 && msgMatches.length < 8; i--) {
+      const msg = snapshot.room.messages[i];
+      if (!msg.text || msg.system) continue;
+      const body = plainText(msg.text);
+      const hay = `${msg.authorName ?? ''} ${body}`.toLowerCase();
+      if (words.every(word => hay.includes(word))) {
+        msgMatches.push({
+          key: `msg:${msg.id}`,
+          target: { kind: 'room' },
+          title: body.slice(0, 64) + (body.length > 64 ? '…' : ''),
+          subtitle: `茶歇室 · ${msg.authorName || msg.author} · ${shortDateTime(msg.at)}`,
+          badge: '消息',
+          searchText: hay,
+          icon: <MessagesSquare size={15} />,
+        });
+      }
+    }
+    return [...matched, ...msgMatches].slice(0, 30);
+  }, [query, entries, snapshot.room.messages]);
+
   useEffect(() => setIndex(0), [query]);
   return <div className="modal-overlay switcher-overlay" onMouseDown={event => { if (event.target === event.currentTarget) onClose(); }}>
-    <div className="switcher" role="dialog" aria-modal="true" aria-label="快速切换会话">
-      <label className="switcher-search"><Search size={16} /><input autoFocus value={query} onChange={event => setQuery(event.target.value)} placeholder="搜索会话、成员或项目…" aria-label="搜索会话"
+    <div className="switcher" role="dialog" aria-modal="true" aria-label="快速搜索与跳转">
+      <label className="switcher-search"><Search size={16} /><input autoFocus value={query} onChange={event => setQuery(event.target.value)} placeholder="搜索项目、工位、茶歇室、圆桌、会话或聊天内容…" aria-label="快速搜索"
         onKeyDown={event => {
           if (event.key === 'Escape') { event.preventDefault(); onClose(); }
-          else if (event.key === 'ArrowDown') { event.preventDefault(); setIndex(value => Math.min(value + 1, results.length - 1)); }
+          else if (event.key === 'ArrowDown') { event.preventDefault(); setIndex(value => Math.min(value + 1, Math.max(0, results.length - 1))); }
           else if (event.key === 'ArrowUp') { event.preventDefault(); setIndex(value => Math.max(value - 1, 0)); }
-          else if (event.key === 'Enter' && results[index]) { event.preventDefault(); onPick(results[index]); }
+          else if (event.key === 'Enter' && results[index]) { event.preventDefault(); onPick(results[index].target); }
         }} /><kbd>Esc</kbd></label>
       <div className="switcher-list" role="listbox">
-        {!results.length && <div className="switcher-empty">没有找到匹配的会话</div>}
-        {results.map((session, position) => <button type="button" role="option" aria-selected={position === index} key={session.id} className={`switcher-item member-${team.ofSession(session).id} ${position === index ? 'active' : ''}`} onMouseEnter={() => setIndex(position)} onClick={() => onPick(session)}>
-          <Avatar member={team.ofSession(session)} size={28} ring={false} />
-          <span><strong>{sessionTitle(session, firstInput(session.id))}</strong><small>{team.ofSession(session).name} · {projects.get(session.projectId)?.name ?? '项目'} · {shortDateTime(session.updatedAt)}{session.archived ? ' · 已归档' : ''}</small></span>
+        {!results.length && <div className="switcher-empty">没有找到匹配的项目、房间或消息</div>}
+        {results.map((item, position) => <button type="button" role="option" aria-selected={position === index} key={item.key} className={`switcher-item ${item.memberId ? `member-${item.memberId}` : ''} ${position === index ? 'active' : ''}`} onMouseEnter={() => setIndex(position)} onClick={() => onPick(item.target)}>
+          {item.memberId ? <Avatar member={team.get(item.memberId)} size={28} ring={false} /> : <span className="switcher-icon">{item.icon ?? <Laptop size={15} />}</span>}
+          <span><strong>{item.title}</strong><small>{item.badge} · {item.subtitle}</small></span>
           {position === index && <CornerDownLeft size={14} />}
         </button>)}
       </div>

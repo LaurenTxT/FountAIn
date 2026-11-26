@@ -519,7 +519,18 @@ export default function App() {
         onOpenWork={go(() => { if (status.inRoom) setView('room'); else if (status.session) openRecordedSession(status.session); })}
         onDesk={go(()=>openDesk(target.memberId))} onConnect={go(() => openSettings('members', null, executor ?? null))} />;
     })()}
-    {switcher && <QuickSwitcher snapshot={snapshot} firstInput={firstInput} onClose={() => setSwitcher(false)} onPick={target => { setSwitcher(false);openRecordedSession(target); }} />}
+    {switcher && <QuickSwitcher snapshot={snapshot} firstInput={firstInput} onClose={() => setSwitcher(false)} onPick={target => {
+      setSwitcher(false);
+      if (target.kind === 'session') openRecordedSession(target.session);
+      else if (target.kind === 'project') openProject(target.project);
+      else if (target.kind === 'desk') openDesk(target.memberId);
+      else if (target.kind === 'room') setView('room');
+      else if (target.kind === 'roundtable') {
+        if (target.topicId) setRoundtableRequest({ topicId: target.topicId, nonce: Date.now() });
+        setView('roundtable');
+        setSessionId('');
+      }
+    }} />}
     {confirm && (() => {
       const target = confirm.kind === 'remove-project' ? undefined : snapshot.sessions.find(item => item.id === confirm.id);
       const targetProject = confirm.kind === 'remove-project' ? snapshot.projects.find(item => item.id === confirm.id) : undefined;

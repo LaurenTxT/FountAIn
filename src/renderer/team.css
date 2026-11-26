@@ -1734,6 +1734,15 @@ body.is-fullscreen .studio-welcome > .room-backdrop {
   background: color-mix(in srgb, var(--surface-2) 85%, transparent);
   border: 1px solid var(--line);
 }
+button.md-image-chip {
+  cursor: pointer;
+  transition: border-color 0.16s ease, background 0.16s ease, color 0.16s ease;
+}
+button.md-image-chip:hover {
+  color: var(--ink);
+  border-color: var(--line-strong);
+  background: color-mix(in srgb, var(--surface-2) 100%, var(--accent) 8%);
+}
 .room-compressing-pill {
   display: inline-flex;
   align-items: center;

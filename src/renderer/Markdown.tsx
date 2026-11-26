@@ -75,8 +75,12 @@ export function inline(text: string, key = 'i', onDocument?: DocumentLink): Reac
     else if (match[5] !== undefined) nodes.push(<del key={id}>{inline(match[5], id, onDocument)}</del>);
     else if (match[6] !== undefined) nodes.push(<em key={id}>{inline(match[6], id, onDocument)}</em>);
     else if (match[8] !== undefined) {
-      const label = match[7]?.trim() || match[8].split(/[\\/]/).pop() || '图片';
-      nodes.push(<span className="md-image-chip" key={id} title={match[8]}>🖼️ {label}</span>);
+      const target = match[8];
+      const local = projectFileLink(target);
+      const label = match[7]?.trim() || target.split(/[\\/]/).pop() || '图片';
+      nodes.push(onDocument && local
+        ? <button type="button" className="md-image-chip md-document-link" key={id} title={local} onClick={() => onDocument(target)}>🖼️ {label}</button>
+        : <span className="md-image-chip" key={id} title={target}>🖼️ {label}</span>);
     }
     else if (match[9] !== undefined) {
       const target = match[10];
