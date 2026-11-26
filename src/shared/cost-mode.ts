@@ -1,7 +1,7 @@
 import type { MemberCostMode, MemberProfile, Session } from './types';
 import type { RequestedRunConfig } from './executor-config';
 
-export type CostTier = 'casual' | 'engineering' | 'review' | 'keyword_bump';
+export type CostTier = 'casual' | 'meeting' | 'engineering' | 'review' | 'keyword_bump';
 
 export interface CostRoutingContext {
   tier: CostTier;
@@ -28,6 +28,7 @@ export function classifyCostTier(options: {
   purpose?: Session['purpose'];
   flowId?: string;
   isCasualRoom: boolean;
+  isMeeting?: boolean;
   promptText?: string;
   isRetry?: boolean;
 }): CostRoutingContext {
@@ -39,6 +40,7 @@ export function classifyCostTier(options: {
     return { tier: 'engineering' };
   }
   if (options.isCasualRoom) {
+    if (options.isMeeting) return { tier: 'meeting' };
     if (options.purpose === 'room-mention' || promptRequestsDeepReview(options.promptText)) {
       return { tier: 'keyword_bump' };
     }
@@ -92,6 +94,16 @@ export function resolveTierModel(
   const lower = raw.toLowerCase();
 
   if (tier === 'casual') {
+    return resolveLightModel(executor, raw, lower, overrides?.economyModel);
+  }
+
+  if (tier === 'meeting') {
+    if (executor === 'claude' || lower.includes('claude') || lower.includes('fable') || lower.includes('sonnet')) {
+      return 'opus';
+    }
+    if (executor === 'dsh' || executor === 'deepseek' || lower.includes('deepseek')) {
+      return 'deepseek-v4-pro';
+    }
     return resolveLightModel(executor, raw, lower, overrides?.economyModel);
   }
 
