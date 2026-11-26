@@ -299,7 +299,7 @@ export class RoomDiscussionController {
     if(!this.waitingForOwner(next)&&next.phase==='waiting_user'){
       next.phase='talking';next.reason=undefined;next.workWaiting=false;
       const eligible=d.members.includes(question.from)&&!d.stoppedMembers?.includes(question.from)&&
-        !d.skippedMembers?.[question.from]&&!this.host.working?.(question.from);
+        !d.skippedMembers?.[question.from];
       if(!d.interruption&&d.style==='chat'&&eligible)next.priority=[...new Set([question.from,...d.priority])];
       if(!d.interruption&&d.style!=='chat'&&!d.meetingRound?.pending.length&&eligible){
         next.meetingRound={messageId:message.id,pending:[question.from],mentionedOnly:true,waitAfterRound:true,supplemented:[]};
