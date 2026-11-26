@@ -8,6 +8,7 @@ import { initializeStudyRoom } from '../src/backend/study-room';
 import { workspaceProfileInstructions } from '../src/backend/workspace-profile';
 import { parseDiscussionReply } from '../src/shared/discussion';
 import { applyCostModeToConfig, classifyCostTier, resolveEconomyModel } from '../src/shared/cost-mode';
+import { roomNaturalMentions } from '../src/shared/room';
 import { productionPackages } from '../scripts/runtime-dependencies.mjs';
 import type { Project } from '../src/shared/types';
 
@@ -196,4 +197,19 @@ test('costMode downgrades models in casual rooms and keeps full power for projec
   assert.equal(meetingCodex.model, 'gpt-6.2-sol');
   const meetingGemini = applyCostModeToConfig({ ...base, model: 'gemini-4-carbon' }, { executor: 'acp-5d1dde7ed341', costMode: 'economy' }, classifyCostTier({ isCasualRoom: true, isMeeting: true, promptText: '开会讨论' }));
   assert.equal(meetingGemini.model, 'gemini-4-neon');
+});
+
+test('roomNaturalMentions resolves names without @ while ignoring model IDs and code', () => {
+  const roster = [
+    { id: 'm-claude', name: 'Claude', executor: 'claude' },
+    { id: 'm-codex', name: 'ChatGPT', executor: 'codex' },
+    { id: 'm-dsh', name: 'DeepSeek', executor: 'dsh' },
+    { id: 'm-gem', name: 'Gemini', executor: 'acp-gemini' },
+  ];
+  assert.deepEqual(roomNaturalMentions('Claude 帮我看看这段代码', roster), ['m-claude']);
+  assert.deepEqual(roomNaturalMentions('让 DeepSeek 和 GPT 评一下', roster), ['m-dsh', 'm-codex']);
+  assert.deepEqual(roomNaturalMentions('问问小克这个架构行不行', roster), ['m-claude']);
+  assert.deepEqual(roomNaturalMentions('大肥鱼你觉得呢', roster), ['m-dsh']);
+  assert.deepEqual(roomNaturalMentions('今天用 gpt-6.2-sol 和 deepseek-flash 跑的', roster), []);
+  assert.deepEqual(roomNaturalMentions('看下 `claude.exe` 的日志', roster), []);
 });

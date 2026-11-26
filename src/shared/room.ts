@@ -40,6 +40,93 @@ export function roomMentions(text: string, members: Pick<MemberProfile, 'id' | '
   return { ids, unknown: [...new Set(unknown)], ambiguous: [...new Set(ambiguous)] };
 }
 
+function naturalMemberAliases(member: Pick<MemberProfile, 'id' | 'name'> & { executor?: string }): string[] {
+  const aliases = new Set<string>();
+  if (member.name?.trim()) aliases.add(member.name.trim());
+  const lowName = (member.name ?? '').toLowerCase();
+  const exec = (member.executor ?? member.id).toLowerCase();
+  if (exec === 'claude' || lowName.includes('claude')) {
+    for (const a of ['Claude', '小克', '克劳德']) aliases.add(a);
+  }
+  if (exec === 'codex' || lowName.includes('chatgpt') || lowName.includes('codex') || lowName === 'gpt') {
+    for (const a of ['ChatGPT', 'GPT', 'Codex']) aliases.add(a);
+  }
+  if (exec === 'dsh' || exec === 'deepseek' || lowName.includes('deepseek')) {
+    for (const a of ['DeepSeek', 'DS', 'DSH', '大肥鱼']) aliases.add(a);
+  }
+  if (lowName.includes('gemini') || exec.includes('gemini')) {
+    for (const a of ['Gemini', '双子']) aliases.add(a);
+  }
+  return [...aliases];
+}
+
+const escapeRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+/**
+ * Detect seated members addressed naturally by name without `@`, e.g.
+ * "Claude 帮我看看", "让 DeepSeek 和 GPT 评一下", "问问 Gemini 怎么改".
+ * Ignores code blocks, inline code, model IDs like `gpt-6.2-sol`, and file paths.
+ */
+export function roomNaturalMentions(text: string, members: (Pick<MemberProfile, 'id' | 'name'> & { executor?: string })[]): string[] {
+  const stripped = text
+    .replace(/```[\s\S]*?```/g, ' ')
+    .replace(/`[^`]*`/g, ' ')
+    .trim();
+  if (!stripped) return [];
+
+  // Build unique alias -> memberId map (skip ambiguous aliases shared by multiple members).
+  const aliasOwners = new Map<string, Set<string>>();
+  for (const member of members) {
+    for (const alias of naturalMemberAliases(member)) {
+      const key = alias.toLowerCase();
+      if (!aliasOwners.has(key)) aliasOwners.set(key, new Set());
+      aliasOwners.get(key)!.add(member.id);
+    }
+  }
+  const uniqueAliases: { alias: string; id: string }[] = [];
+  for (const member of members) {
+    for (const alias of naturalMemberAliases(member)) {
+      if (aliasOwners.get(alias.toLowerCase())?.size === 1) {
+        uniqueAliases.push({ alias, id: member.id });
+      }
+    }
+  }
+  if (!uniqueAliases.length) return [];
+  uniqueAliases.sort((a, b) => b.alias.length - a.alias.length);
+
+  const hits: { index: number; id: string }[] = [];
+  const usedRanges: [number, number][] = [];
+  const overlaps = (start: number, end: number) => usedRanges.some(([s, e]) => start < e && end > s);
+
+  for (const { alias, id } of uniqueAliases) {
+    const isAscii = /^[A-Za-z0-9]+$/.test(alias);
+    // Avoid matching model IDs / paths like `gpt-6.2-sol`, `claude.exe`, `deepseek-flash`
+    const pattern = isAscii
+      ? new RegExp(`(?<![A-Za-z0-9_./\\\\-])${escapeRe(alias)}(?![A-Za-z0-9_./\\\\-])`, 'gi')
+      : new RegExp(escapeRe(alias), 'g');
+    let m: RegExpExecArray | null;
+    while ((m = pattern.exec(stripped))) {
+      const start = m.index;
+      const end = start + m[0].length;
+      if (overlaps(start, end)) continue;
+      const before = stripped.slice(0, start);
+      const after = stripped.slice(end);
+      // Direct address signals:
+      // 1. At start of sentence (optionally after 喂/嘿/请/让/叫/问问/帮我让/交给/和/跟/、)
+      const leadCall = /(?:^|[\n，,。！？!?\s])(?:喂|嘿|哈喽|你好|那个|麻烦|辛苦|请|让|叫|找|问问|问下|交给|帮我让|帮我叫|帮我问|和|跟|以及|、)?\s*$/u.test(before);
+      // 2. Followed by comma/space/question/action verb ("Claude，..." / "Claude 你看看" / "Claude 怎么看" / "Claude 呢")
+      const trailCall = /^(?:\s*[，,:：、!?！？]|\s*(?:你|您|你们|来|帮|看|说|讲|写|改|查|测|评|分析|解释|回答|处理|做|弄|负责|继续|呢|吧|啊|呀|吗|怎么|咋|觉得|认为|有没有|能不能|可以|先|再|去|跟|和)|\s*$)/u.test(after);
+      if (leadCall || trailCall) {
+        usedRanges.push([start, end]);
+        hits.push({ index: start, id });
+      }
+    }
+  }
+
+  hits.sort((a, b) => a.index - b.index);
+  return [...new Set(hits.map(h => h.id))];
+}
+
 export const isRoomPass = (text: string) => text.trim() === '[PASS]';
 
 /** The few reactions everyone shares; a fixed set keeps their meaning clear. */

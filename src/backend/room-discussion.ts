@@ -4,7 +4,7 @@ import type { Attachment, MemberProfile, RoomMessage, RoomState,Run,Session } fr
 import type { DiscussionReply, HandBallot, RoomDiscussion } from '../shared/discussion';
 import { chooseHandSpeaker, discussionCommand, hasMeetingRemarks, nextDiscussionSpeaker, parseDiscussionReply, parseHandVote, pendingDiscussionQuestion, pendingOwnerQuestions, requiredDiscussionSpeaker } from '../shared/discussion';
 import { DiscussionFormatError } from '../shared/discussion-format';
-import { roomMentions, toggleReaction } from '../shared/room';
+import { roomMentions, roomNaturalMentions, toggleReaction } from '../shared/room';
 import { extractMemberLocalImages } from './generated-images';
 import type { Store } from './store';
 import {discussionAllowance,type DiscussionCallLimits} from '../shared/discussion-budget';
@@ -185,6 +185,12 @@ export class RoomDiscussionController {
     const resting = new Set(this.store.roomState().restingMemberIds);
     const requested = new Set(Array.isArray(params.memberIds) ? params.memberIds.map(String) : []),members = team.filter(m=>requested.has(m.id)&&!resting.has(m.id)).map(m=>m.id);
     const mentions = params.materialContext?{ids:[],unknown:[],ambiguous:[]}:roomMentions(text, team);
+    // Natural name addressing without `@`: only matches seated participants so prose never blocks send.
+    if (!command && !params.materialContext && !mentions.ids.length) {
+      const seatedMembers = team.filter(m => !resting.has(m.id) && (members.length ? members.includes(m.id) : true));
+      const naturalIds = roomNaturalMentions(text, seatedMembers);
+      if (naturalIds.length) mentions.ids = naturalIds;
+    }
     // Treat unrecognized @tokens (e.g. emails or prose like "我@你") as plain text instead of blocking send.
     const replyTo = params.replyTo ? this.store.get<RoomMessage>('room_messages', String(params.replyTo)) : undefined;
     if (params.replyTo && (!replyTo || replyTo.threadId !== this.store.currentRoomThread().id || replyTo.discussionControl || replyTo.contextOnly)) throw new Error('只能回复当前话题中的可见消息');
