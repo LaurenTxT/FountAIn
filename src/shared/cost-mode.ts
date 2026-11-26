@@ -178,9 +178,6 @@ export function resolveTierModel(
     if (executor === 'claude' || lower.includes('claude') || lower.includes('fable') || lower.includes('sonnet')) {
       return 'opus';
     }
-    if (executor === 'dsh' || executor === 'deepseek' || lower.includes('deepseek')) {
-      return 'deepseek-v4-pro';
-    }
     return resolveLightModel(executor, raw, lower, overrides?.economyModel);
   }
 
