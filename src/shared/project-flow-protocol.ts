@@ -103,7 +103,11 @@ export function validatePlan(raw:unknown,memberIds:string[],notes?:string[],user
   for(const task of tasks)if(task.allowedPaths.includes('.')&&tasks.filter(t=>t.roundKey===task.roundKey).length>1)notes?.push(task.key+' 的修改范围是整个项目，会和本轮其他任务排队执行。');
   if(rounds.some(r=>!tasks.some(t=>t.roundKey===r.key)))return fail('每一轮至少需要一项任务。');
   const acceptanceCriteria=parseCompletionCriteria(p.acceptanceCriteria);rejectUserCriteria(acceptanceCriteria,userName);for(const task of tasks)rejectUserCriteria(task.completionCriteria,userName);
-  for(const round of rounds){if(round.completionCriteria&&round.completionCriteria.length>5)return fail('每轮需要 1–5 条完成标准。');round.completionCriteria??=[...new Set(tasks.filter(t=>t.roundKey===round.key).flatMap(t=>t.completionCriteria))].slice(0,5);rejectUserCriteria(round.completionCriteria,userName);}
+  for(const round of rounds){
+    if(round.completionCriteria&&round.completionCriteria.length>10){notes?.push(round.title+' 的完成标准超过 10 条，已保留前 10 条。');round.completionCriteria=round.completionCriteria.slice(0,10);}
+    round.completionCriteria??=[...new Set(tasks.filter(t=>t.roundKey===round.key).flatMap(t=>t.completionCriteria))].slice(0,8);
+    rejectUserCriteria(round.completionCriteria,userName);
+  }
   return {objective:text(p.objective),scope:text(p.scope),deliverables:texts(p.deliverables),acceptanceCriteria,rounds,tasks};
 }
 function evidence(value:unknown):SubmissionPayload['evidence'] {
@@ -175,7 +179,7 @@ export function validateNextRound(raw:unknown,tasks:Task[],userName=''):NextRoun
     return {taskId,...(a.goal===undefined?{}:{goal:text(a.goal)}),...(a.inputs===undefined?{}:{inputs:texts(a.inputs,true)}),...(completionCriteria?{completionCriteria}:{})};
   });
   if(new Set(taskAdjustments.map(a=>a.taskId)).size!==taskAdjustments.length)return fail('同一任务不能重复调整。');
-  const completionCriteria=p.completionCriteria===undefined?undefined:parseCompletionCriteria(p.completionCriteria);if(completionCriteria){if(completionCriteria.length>5)return fail('每轮应有 1–5 条完成标准。');rejectUserCriteria(completionCriteria,userName);}
+  const completionCriteria=p.completionCriteria===undefined?undefined:parseCompletionCriteria(p.completionCriteria).slice(0,10);if(completionCriteria){rejectUserCriteria(completionCriteria,userName);}
   if(p.mode!=='adjusted'&&(taskAdjustments.length||completionCriteria)||p.mode==='adjusted'&&!taskAdjustments.length&&!completionCriteria)return fail('按原计划或修改方案不能包含轻量修改；按调整开始需要具体调整。');
   return {mode:p.mode as NextRoundRecommendation['mode'],summary:p.mode==='as-planned'?'按原计划':text(p.summary),taskAdjustments,...(completionCriteria?{completionCriteria}:{})};
 }

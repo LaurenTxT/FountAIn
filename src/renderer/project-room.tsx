@@ -912,7 +912,7 @@ export function GiveUp({ unknown, supplement = false, task = false, busy, onConf
   if (reason === null) return <div className="round-actions">{onContinue&&<button type="button" className="button small secondary" disabled={busy} onClick={()=>{setContinuing(true);setReason('');}}>接着做</button>}<button type="button" className="button small danger-outline" disabled={busy} onClick={() => {setContinuing(false);setReason('');}}>{unknown ? '放弃旧尝试' : '放弃这次尝试，重新安排'}</button></div>;
   return <div className="task-giveup" role="group" aria-label="放弃这次尝试">
     <p>{continuing?'先查看原工作记录，确认旧运行已经结束，可选填核对情况。接着做会沿用原会话，作者保留原副本；复核会重新核对同一成果版本。':supplement ? '本次补充是否送达尚未核对。查看工作记录后，可以直接放弃旧尝试；补充要求会保留，点“继续”后重新执行。' : unknown ? '这一次的结果未知。看过工作记录后，可以直接放弃这次旧尝试；核对情况可选填。' : task ? '放弃后由同一位成员开新会话，从本轮起点重新做这项任务；上次副本里的改动不保留，原因会记录下来。要换人，请在任务卡上选“换人…”。流程运行中会立即重新开始；暂停时需点“继续”。' : '放弃这次没通过检查的尝试，原因会记录下来，再按同一成果版本重新安排。流程运行中会继续安排；暂停时需点“继续”。'}</p>
-    <textarea rows={2} aria-label="放弃的原因" placeholder="补充原因（可选）" value={reason} onChange={event => setReason(event.target.value)} />
+    <textarea rows={2} aria-label="补充要求或放弃原因" placeholder="补充要求、修正提示或放弃原因（可选，重新起草方案时会自动带给负责人）" value={reason} onChange={event => setReason(event.target.value)} />
     <div className="round-actions"><button type="button" className="button small primary" disabled={busy} onClick={() => void (continuing?onContinue!:onConfirm)(reason.trim()).then(ok => { if (ok) setReason(null); })}>{continuing?'确定接着做':'确定放弃'}</button><button type="button" className="button small quiet" disabled={busy} onClick={() => setReason(null)}>取消</button></div>
   </div>;
 }

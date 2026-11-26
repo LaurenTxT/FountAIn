@@ -3000,6 +3000,12 @@ export class ProjectFlowController {
             "：" +
             evidence,
         });
+        if (op.kind === "plan" && evidence) {
+          const flow = this.flow(op.flowId);
+          this.update("project_flows", flow, {
+            topic: (flow.topic ? flow.topic + "\n" : "") + "[用户补充要求] " + evidence,
+          });
+        }
         const task = this.store.get<Task>("flow_tasks", op.targetId);
         if (task) {
           if (op.kind === "supplement-delivery" && op.supplementId) {
