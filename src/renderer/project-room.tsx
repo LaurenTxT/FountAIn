@@ -161,8 +161,9 @@ export function ProjectRoom({ snapshot, project, invoke, onOpenSession,onRoundta
     return mutate('projectFlow.round.requestChanges', { roundId: round.id, expectedRevision: round.revision, integrationId: integration.id, opinion: reason.trim() || REJECT_DEFAULT }, '已驳回，负责人会安排修正。');
   }
   /** The plan is drafted from this room's discussion, which the backend brings along; it says so when there is none yet. */
-  async function start(leadMemberId: string, memberIds: string[]) {
-    const ok = await mutate('projectFlow.start', { projectId: project.id, leadMemberId, memberIds, reviewLevel: newReviewLevel,includePreviousRecord }, '已请负责人根据讨论起草方案，你确认后才开工。');
+  async function start(leadMemberId: string, memberIds: string[], topic?: string) {
+    const trimmed = topic?.trim();
+    const ok = await mutate('projectFlow.start', { projectId: project.id, leadMemberId, memberIds, reviewLevel: newReviewLevel, includePreviousRecord, ...(trimmed ? { topic: trimmed } : {}) }, '已请负责人根据讨论起草方案，你确认后才开工。');
     if (ok) { setStarting(false); setPicking(false); setError(''); }
   }
 
@@ -634,8 +635,8 @@ function MemberLine({ id, label, children }: { id: string; label?: ReactNode; ch
 /** Sent as the plan topic when resuming a task workspace task; the backend also hands the planner ROOM_BRIEF and HANDOFF. */
 const RESUME_TOPIC = '接续本房间 ROOM_BRIEF.md 记录的当前阶段与下一棒：已验收的阶段不重做；先核对 HANDOFF.md 最新交接与实际文件，再只为剩余阶段起草方案。门牌中标明由用户本人完成的部分（如学术诚信要求亲手完成的代码与报告正文）只能安排核对、说明或复核，不得代写。'
 
-function LeadPicker({ team, initialLead, ready, busy, onStart, onCancel }: { team: TeamMember[]; initialLead?:string; ready: (member: TeamMember) => boolean; busy: boolean; onStart: (lead: string, members: string[]) => Promise<void>; onCancel: () => void }) {
-  const available = team.filter(ready), [lead, setLead] = useState(initialLead??''), leader = available.find(member => member.id === lead);
+function LeadPicker({ team, initialLead, ready, busy, onStart, onCancel }: { team: TeamMember[]; initialLead?:string; ready: (member: TeamMember) => boolean; busy: boolean; onStart: (lead: string, members: string[], topic?: string) => Promise<void>; onCancel: () => void }) {
+  const available = team.filter(ready), [lead, setLead] = useState(initialLead??''), [note, setNote] = useState(''), leader = available.find(member => member.id === lead);
   return <section className="lead-picker" aria-label="选负责人">
     <strong>谁来当负责人？</strong><small>负责人根据刚才的讨论起草方案、整合每轮成果。参加的成员在聊天栏上方调整；负责人自己做的任务由另一位复核。</small>
     <div className="lead-picker-members">{team.map(member => {
@@ -645,7 +646,8 @@ function LeadPicker({ team, initialLead, ready, busy, onStart, onCancel }: { tea
         <span>{member.name}</span>
       </div>;
     })}</div>
-    <div className="round-actions"><button type="button" className="button primary" disabled={busy || available.length < 2 || !leader} onClick={() => void onStart(lead, available.map(member => member.id))}>{busy ? <LoaderCircle size={14} className="spin" /> : <Send size={14} />}{leader ? `请 ${leader.name} 起草方案` : '先选一位负责人'}</button><button type="button" className="button quiet" disabled={busy} onClick={onCancel}>再聊聊</button></div>
+    <textarea className="lead-picker-note" rows={2} value={note} disabled={busy} aria-label="补充起草细则和要求" placeholder="补充起草细则、要求、分工偏好或截止时间（可选，留空则直接按刚才的讨论起草）…" onChange={event => setNote(event.target.value)} style={{ width: '100%', marginTop: 8, padding: '8px 10px', borderRadius: 8, border: '1px solid var(--line)', background: 'var(--bg-2)', color: 'var(--ink-1)', font: 'inherit', fontSize: 13, resize: 'vertical' }} />
+    <div className="round-actions"><button type="button" className="button primary" disabled={busy || available.length < 2 || !leader} onClick={() => void onStart(lead, available.map(member => member.id), note)}>{busy ? <LoaderCircle size={14} className="spin" /> : <Send size={14} />}{leader ? `请 ${leader.name} 起草方案` : '先选一位负责人'}</button><button type="button" className="button quiet" disabled={busy} onClick={onCancel}>再聊聊</button></div>
   </section>;
 }
 
