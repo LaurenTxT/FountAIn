@@ -541,11 +541,17 @@ export class DshAdapter implements Adapter {
       const env=buildDshEnvironment(ctx.env,home,ctx.session.writeMode,undefined,dshSessionPolicy(ctx.settings.permissions.dsh,ctx.session.writeMode).sandboxMode);
       const stamp = await this.runtimeFingerprint(ctx), reuse = reusable && this.stamp === stamp;
       if (!reuse) {await this.cleanup();const file=await this.command(ctx.settings);observeVersion(await compatibilityStep('version',()=>this.collect(file,['--version'],env,ctx.cwd)));}
-      if (!reuse || Date.now()-this.accountCheckedAt >= 5*60*1000) {
+      if (!reuse || Date.now()-this.accountCheckedAt >= 30*60*1000) {
         // Chat preflight reads the stored login only. An expired grant is rejected by DeepSeek on
         // the first request and removed by DSH itself, so a slow or failed online profile query
-        // must not stop the round or read as a lost login.
-        const account=await this.accountStatus(ctx.settings,ctx.env,'state');
+        // must not stop the round or read as a lost login. Retry once on transient cold-start timeout.
+        let account;
+        try {
+          account = await this.accountStatus(ctx.settings,ctx.env,'state');
+        } catch (err) {
+          if (this.stopped || !/超时/.test((err as Error).message)) throw err;
+          account = await this.accountStatus(ctx.settings,ctx.env,'state');
+        }
         if(account.state==='signed-out')throw new Error('DSH 独立账号已退出登录，请在成员设置里重新登录。');
         if(!account.authenticated)throw new Error('DSH 本地登录记录暂时无法读取，请重新检测连接。');
         observeAccount('account');this.accountCheckedAt=Date.now();

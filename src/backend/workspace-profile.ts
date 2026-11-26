@@ -30,6 +30,16 @@ export function workspaceProfileInstructions(projects:Project[], projectId:strin
       if(found){profile=found;break;}
       project=project.parentId?known.get(project.parentId):undefined;
     }
+    if(!profile){
+      let cursor=known.get(projectId)?.directory;
+      for(let depth=0;depth<2&&cursor;depth++){
+        const parentDir=path.dirname(cursor);
+        if(!parentDir||parentDir===cursor)break;
+        const found=readProfile(parentDir);
+        if(found){profile=found;break;}
+        cursor=parentDir;
+      }
+    }
   }else{
     const common=[...known.values()].filter(item=>!item.parentId).flatMap(item=>{
       const found=readProfile(item.directory);

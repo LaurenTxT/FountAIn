@@ -98,11 +98,32 @@ function library(store: Store, projectId: string) {
   return {root,destination,rooms};
 }
 
+const CJK_STOP = /(?:帮我|一下|需要|当前|任务|资料|找出来|找一下|看看|查一下|所有|全部|放进|放到|里面|这个|那个|以及|或者|还有|并且|把|给|在|的|和|与|请|要|是|了)/gu;
+
+export function extractMaterialTerms(query: string): string[] {
+  const lower = query.toLowerCase();
+  const terms = new Set<string>();
+  for (const token of lower.match(/[a-z][a-z0-9_-]{1,39}|\d{2,}/gu) ?? []) terms.add(token);
+  for (const chunk of lower.match(/[\p{Script=Han}]{2,40}/gu) ?? []) {
+    for (const part of chunk.split(CJK_STOP)) {
+      const clean = part.trim();
+      if (clean.length < 2) continue;
+      if (clean.length <= 12) terms.add(clean);
+      if (clean.length > 2) {
+        for (let i = 0; i <= clean.length - 2 && terms.size < 32; i++) {
+          terms.add(clean.slice(i, i + 2));
+        }
+      }
+    }
+  }
+  return [...terms].slice(0, 32);
+}
+
 export function projectMaterialCatalog(store: Store, projectId: string, query = '', exactSearch = false) {
   const source=library(store,projectId);
   if(!source)return;
   const queue=[{dir:source.root,level:0}], matches:{name:string;score:number}[]=[];
-  const terms=[...new Set(query.toLowerCase().match(/[a-z][a-z0-9_-]{1,39}|\d{2,}|[\p{Script=Han}]{2,20}/gu)??[])].slice(0,20);
+  const terms=extractMaterialTerms(query);
   let visited=0;
   for(let index=0;index<queue.length&&visited<4000;index++){
     const {dir,level}=queue[index];
