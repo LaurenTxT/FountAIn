@@ -225,8 +225,8 @@ export function CardEditor({ snapshot, memberId, invoke, notify, onBack, onCance
           <small>智能省流在茶歇室和日常讨论自动降为低消耗模型，进入项目任务、代码复核和 1v1 工位时自动切回满血主模型。</small>
         </label>
         {(draft.costMode ?? 'normal') === 'economy' && <label className="field">日常省流模型（可选）
-          <input value={draft.economyModel ?? ''} maxLength={120} placeholder="留空自动匹配（如 sonnet / deepseek-flash / gpt-5.4-mini / flash）" onChange={event => set({ economyModel: event.target.value })} />
-          <small>支持填写 Carbon / Fable / Astra / Flash 等自定义轻量模型名；留空时按执行端自动选择低消耗同系模型。</small>
+          <input value={draft.economyModel ?? ''} maxLength={120} placeholder="留空自动匹配（Fable/Opus→Sonnet · Carbon→Neon · Astra→Sol · v4-pro→flash）" onChange={event => set({ economyModel: event.target.value })} />
+          <small>留空时按旗舰→轻量自动映射；也可手动指定任意日常轻量模型名。</small>
         </label>}
         <LifeEditor draft={draft} onChange={set} />
         <MemoryEditor entries={memoryEntries(draft)} onChange={memories => set({ memories })} executor={connecting ? undefined : draft.executor} invoke={invoke} />

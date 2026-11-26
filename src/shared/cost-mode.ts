@@ -5,6 +5,14 @@ export function normalizeCostMode(value: unknown): MemberCostMode {
   return value === 'economy' || value === 'on_demand' ? value : 'normal';
 }
 
+function replacePreservingCase(input: string, from: RegExp, lowerReplacement: string, titleReplacement: string): string {
+  return input.replace(from, (match) =>
+    match[0] === match[0].toUpperCase() && match[0] !== match[0].toLowerCase()
+      ? titleReplacement
+      : lowerReplacement,
+  );
+}
+
 /**
  * Pick a lighter, lower-cost sibling model for casual chat / routine room discussion
  * while keeping full-power models for project tasks, code review, plans, and 1v1 desk work.
@@ -20,11 +28,25 @@ export function resolveEconomyModel(
   const raw = (currentModel ?? '').trim();
   const lower = raw.toLowerCase();
 
-  if (executor === 'claude' || lower.includes('claude')) {
-    if (!raw || lower === 'opus' || lower.includes('opus')) return 'sonnet';
+  // Claude: Fable / Opus -> Sonnet
+  if (executor === 'claude' || lower.includes('claude') || lower.includes('fable') || lower.includes('opus')) {
+    if (!raw || lower === 'opus' || lower === 'fable' || lower.includes('opus') || lower.includes('fable')) return 'sonnet';
     return raw;
   }
 
+  // Gemini: 4 Carbon -> 4 Neon; Pro -> Flash
+  if (lower.includes('carbon')) {
+    return replacePreservingCase(raw, /carbon/gi, 'neon', 'Neon');
+  }
+  if (lower.includes('neon')) return raw;
+
+  // GPT / Codex: 6.2 Astra -> 6.2 Sol; 5.x / o3 -> mini
+  if (lower.includes('astra')) {
+    return replacePreservingCase(raw, /astra/gi, 'sol', 'Sol');
+  }
+  if (/(?:^|[-_\s])sol(?:$|[-_\s])/.test(lower)) return raw;
+
+  // DeepSeek / DSH: v4-pro / reasoner -> deepseek-flash
   if (executor === 'dsh' || executor === 'deepseek' || lower.includes('deepseek')) {
     if (!raw || lower.includes('pro') || lower.includes('reasoner')) return 'deepseek-flash';
     return raw;
@@ -32,7 +54,7 @@ export function resolveEconomyModel(
 
   if (executor === 'codex' || lower.startsWith('gpt-') || /^o[134](?:-|$)/.test(lower)) {
     if (!raw) return 'gpt-5.4-mini';
-    if (lower.includes('mini') || lower.includes('nano')) return raw;
+    if (/(?:^|[-_\s])(?:mini|nano|sol)(?:$|[-_\s])/.test(lower)) return raw;
     if (/^gpt-5\.4(?:[-_ ]pro)?$/.test(lower)) return 'gpt-5.4-mini';
     if (/^gpt-5(?:[-_ ]pro)?$/.test(lower)) return 'gpt-5-mini';
     if (/^o3(?:-pro)?$/.test(lower)) return 'o4-mini';
@@ -41,8 +63,8 @@ export function resolveEconomyModel(
   }
 
   if (lower.includes('gemini') || lower.includes('pro')) {
-    if (/(?:^|[-_\s])(?:flash|lite|mini)(?:$|[-_\s])/.test(lower)) return raw;
-    if (/pro/i.test(raw)) return raw.replace(/pro/gi, 'flash');
+    if (/(?:^|[-_\s])(?:flash|lite|mini|neon)(?:$|[-_\s])/.test(lower)) return raw;
+    if (/pro/i.test(raw)) return replacePreservingCase(raw, /pro/gi, 'flash', 'Flash');
   }
 
   return raw || undefined;

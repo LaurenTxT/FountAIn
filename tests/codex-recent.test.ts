@@ -145,10 +145,15 @@ test('productionPackages resolves runtime dependencies for both linux and win32'
 
 test('costMode downgrades models in casual rooms and keeps full power for project tasks', () => {
   assert.equal(resolveEconomyModel('claude', 'opus'), 'sonnet');
+  assert.equal(resolveEconomyModel('claude', 'fable'), 'sonnet');
+  assert.equal(resolveEconomyModel('claude', 'claude-fable'), 'sonnet');
+  assert.equal(resolveEconomyModel('acp-gemini', 'Gemini 4 Carbon'), 'Gemini 4 Neon');
+  assert.equal(resolveEconomyModel('acp-gemini', 'gemini-4-carbon'), 'gemini-4-neon');
+  assert.equal(resolveEconomyModel('codex', 'gpt-6.2-astra'), 'gpt-6.2-sol');
+  assert.equal(resolveEconomyModel('codex', 'GPT 6.2 Astra'), 'GPT 6.2 Sol');
   assert.equal(resolveEconomyModel('dsh', 'deepseek-v4-pro'), 'deepseek-flash');
-  assert.equal(resolveEconomyModel('codex', 'gpt-5.4-pro'), 'gpt-5.4-mini');
   assert.equal(resolveEconomyModel('acp-gemini', 'gemini-3-pro'), 'gemini-3-flash');
-  assert.equal(resolveEconomyModel('acp-custom', 'carbon-pro', 'fable-lite'), 'fable-lite');
+  assert.equal(resolveEconomyModel('acp-custom', 'carbon-pro', 'custom-lite'), 'custom-lite');
 
   const base = { model: 'opus', effort: 'high' as const, modelSource: 'default' as const, effortSource: 'default' as const, capturedAt: '2026-11-26T00:00:00Z' };
   const casual = applyCostModeToConfig(base, { executor: 'claude', costMode: 'economy' }, true);
