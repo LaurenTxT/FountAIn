@@ -119,6 +119,8 @@ export function normalizeMember(value: unknown, existing?: MemberProfile, newId?
     templateId: PORTRAIT_TEMPLATE_IDS.includes(String(source.templateId) as PortraitTemplateId) ? source.templateId as PortraitTemplateId : existing?.templateId,
     userTitle: bounded(source.userTitle, 40) || undefined, persona: bounded(source.persona, 8000) || undefined, ...memoryFields(source, existing), ...normalizeLife(source, existing?.id ?? builtIn?.id ?? newId ?? ''),
     talkativeness: source.talkativeness === 'quiet' || source.talkativeness === 'chatty' ? source.talkativeness : 'normal',
+    costMode: source.costMode === 'economy' || source.costMode === 'on_demand' ? source.costMode : 'normal',
+    economyModel: bounded(source.economyModel, 120) || undefined,
     motto: bounded(source.motto, 80) || undefined, color: typeof source.color === 'string' && /^#[0-9a-f]{6}$/i.test(source.color) ? source.color : undefined,
     portrait: file(source.portrait), avatar: file(source.avatar),
     portraitScale: typeof source.portraitScale === 'number' && Number.isFinite(source.portraitScale) ? clamp(source.portraitScale, PORTRAIT_SCALE.min, PORTRAIT_SCALE.max, PORTRAIT_SCALE.default) : undefined,

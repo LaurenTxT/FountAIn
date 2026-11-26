@@ -159,12 +159,13 @@ export function requiredDiscussionSpeaker(d: RoomDiscussion): string | undefined
   return d.priority.find(eligible) ?? d.questions.find(q => pendingDiscussionQuestion(q) && eligible(q.to))?.to ?? d.reviewRequired.find(eligible) ??
     (d.phase === 'closing' && d.proposal ? d.members.find(id => eligible(id)&&!d.proposal!.accepted.includes(id)&&!d.proposal!.skipped?.includes(id)) : undefined);
 }
-export function nextDiscussionSpeaker(d: RoomDiscussion, profiles: Pick<MemberProfile,'id'|'talkativeness'>[] = [], random: () => number = Math.random, quotas:Record<string,number>={}): string {
+export function nextDiscussionSpeaker(d: RoomDiscussion, profiles: Pick<MemberProfile,'id'|'talkativeness'|'costMode'>[] = [], random: () => number = Math.random, quotas:Record<string,number>={}): string {
   const directed = requiredDiscussionSpeaker(d);
   if (directed) return directed;
-  if(d.style!=='chat'&&d.meetingRound){const from=d.meetingCursor?d.members.indexOf(d.meetingCursor):-1;return [...d.members.slice(from+1),...d.members.slice(0,from+1)].find(id=>(quotas[id]??1)>0&&!d.stoppedMembers?.includes(id)&&!d.skippedMembers?.[id])??'';}
+  const isOnDemand = (id: string) => profiles.find(p => p.id === id)?.costMode === 'on_demand';
+  if(d.style!=='chat'&&d.meetingRound){const from=d.meetingCursor?d.members.indexOf(d.meetingCursor):-1;return [...d.members.slice(from+1),...d.members.slice(0,from+1)].find(id=>!isOnDemand(id)&&(quotas[id]??1)>0&&!d.stoppedMembers?.includes(id)&&!d.skippedMembers?.[id])??'';}
   const last = [...d.members].sort((a,b) => (d.lastSpoke[b] ?? -1) - (d.lastSpoke[a] ?? -1))[0];
-  const available=d.members.filter(id=>(quotas[id]??1)>0&&!d.stoppedMembers?.includes(id)&&!d.skippedMembers?.[id]);
+  const available=d.members.filter(id=>!isOnDemand(id)&&(quotas[id]??1)>0&&!d.stoppedMembers?.includes(id)&&!d.skippedMembers?.[id]);
   let candidates = available.filter(id => !d.passed?.includes(id));
   if (!candidates.length) candidates = available;
   // A meeting goes round the table: whoever has waited longest, in seating order. Being handed the word only breaks a tie,
@@ -175,8 +176,10 @@ export function nextDiscussionSpeaker(d: RoomDiscussion, profiles: Pick<MemberPr
   }
   if (candidates.length > 1 && d.lastSpoke[last] !== undefined) candidates = candidates.filter(id => id !== last);
   const weighted = candidates.map(id => {
-    const preference = profiles.find(p => p.id === id)?.talkativeness ?? 'normal';
-    const personality = preference === 'quiet' ? 0.6 : preference === 'chatty' ? 1.6 : 1;
+    const prof = profiles.find(p => p.id === id);
+    const preference = prof?.talkativeness ?? 'normal';
+    const costScale = prof?.costMode === 'economy' ? 0.72 : 1;
+    const personality = (preference === 'quiet' ? 0.6 : preference === 'chatty' ? 1.6 : 1) * costScale;
     const age = Math.max(1, d.calls - (d.lastSpoke[id] ?? -1));
     const relevance = d.handoff === id ? 3 : d.relevant?.includes(id) ? 1.8 : 1;
     return { id, weight: personality * (1 + Math.sqrt(age)) * relevance * (quotas[id]??1) };

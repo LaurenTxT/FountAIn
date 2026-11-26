@@ -180,6 +180,7 @@ export interface MemoryEntry {
 }
 /** Shipped character portrait template identifiers. */
 export type PortraitTemplateId = 'claude' | 'codex' | 'dsh' | 'gemini' | 'qwen' | 'kimi' | 'glm' | 'grok' | 'minimax';
+export type MemberCostMode = 'normal' | 'economy' | 'on_demand';
 /** A teammate has a stable identity and independently selectable artwork and executor. */
 export interface MemberProfile {
   id: string; executor: PermissionMember; name: string;
@@ -191,6 +192,10 @@ export interface MemberProfile {
   persona?: string;
   /** Speaking preference in free discussion; omitted cards use normal. */
   talkativeness?: 'quiet' | 'normal' | 'chatty';
+  /** Cost-saving policy: normal (always full model), economy (lighter model in casual rooms, full model on tasks/reviews), on_demand (only when @mentioned/assigned/desk). */
+  costMode?: MemberCostMode;
+  /** Optional explicit model override used in casual rooms when costMode is 'economy'. */
+  economyModel?: string;
   /** Things the user wants this member to keep in mind, as one text: the entries that are on, joined.
    *  Kept for older readers; `memories` is the source of truth once present. */
   memory?: string;

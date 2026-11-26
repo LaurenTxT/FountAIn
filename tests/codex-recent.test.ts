@@ -7,6 +7,7 @@ import { extractMaterialTerms } from '../src/backend/project-materials';
 import { initializeStudyRoom } from '../src/backend/study-room';
 import { workspaceProfileInstructions } from '../src/backend/workspace-profile';
 import { parseDiscussionReply } from '../src/shared/discussion';
+import { applyCostModeToConfig, resolveEconomyModel } from '../src/shared/cost-mode';
 import { productionPackages } from '../scripts/runtime-dependencies.mjs';
 import type { Project } from '../src/shared/types';
 
@@ -140,4 +141,21 @@ test('productionPackages resolves runtime dependencies for both linux and win32'
   assert.ok(linuxPkgs.has('node_modules/7zip-bin'));
   assert.ok(linuxPkgs.has('node_modules/undici'));
   assert.ok(winPkgs.has('node_modules/7zip-bin'));
+});
+
+test('costMode downgrades models in casual rooms and keeps full power for project tasks', () => {
+  assert.equal(resolveEconomyModel('claude', 'opus'), 'sonnet');
+  assert.equal(resolveEconomyModel('dsh', 'deepseek-v4-pro'), 'deepseek-flash');
+  assert.equal(resolveEconomyModel('codex', 'gpt-5.4-pro'), 'gpt-5.4-mini');
+  assert.equal(resolveEconomyModel('acp-gemini', 'gemini-3-pro'), 'gemini-3-flash');
+  assert.equal(resolveEconomyModel('acp-custom', 'carbon-pro', 'fable-lite'), 'fable-lite');
+
+  const base = { model: 'opus', effort: 'high' as const, modelSource: 'default' as const, effortSource: 'default' as const, capturedAt: '2026-11-26T00:00:00Z' };
+  const casual = applyCostModeToConfig(base, { executor: 'claude', costMode: 'economy' }, true);
+  assert.equal(casual.model, 'sonnet');
+  assert.equal(casual.effort, 'low');
+
+  const task = applyCostModeToConfig(base, { executor: 'claude', costMode: 'economy' }, false);
+  assert.equal(task.model, 'opus');
+  assert.equal(task.effort, 'high');
 });

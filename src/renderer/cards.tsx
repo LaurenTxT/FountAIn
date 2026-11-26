@@ -216,6 +216,18 @@ export function CardEditor({ snapshot, memberId, invoke, notify, onBack, onCance
           <select aria-label="发言积极度" value={draft.talkativeness ?? 'normal'} onChange={event => set({ talkativeness: event.target.value as MemberProfile['talkativeness'] })}><option value="quiet">安静</option><option value="normal">适中</option><option value="chatty">话多</option></select>
           <small>影响自由讨论中主动接话的机会。点名和直接提问优先，成员仍可选择沉默。</small>
         </label>
+        <label className="field">省流策略
+          <select aria-label="省流策略" value={draft.costMode ?? 'normal'} onChange={event => set({ costMode: event.target.value as MemberProfile['costMode'] })}>
+            <option value="normal">全勤（始终用主模型）</option>
+            <option value="economy">智能省流（日常切轻量模型，大工程/复核满血）</option>
+            <option value="on_demand">纯按需（仅 @点名、项目派工或工位时唤醒）</option>
+          </select>
+          <small>智能省流在茶歇室和日常讨论自动降为低消耗模型，进入项目任务、代码复核和 1v1 工位时自动切回满血主模型。</small>
+        </label>
+        {(draft.costMode ?? 'normal') === 'economy' && <label className="field">日常省流模型（可选）
+          <input value={draft.economyModel ?? ''} maxLength={120} placeholder="留空自动匹配（如 sonnet / deepseek-flash / gpt-5.4-mini / flash）" onChange={event => set({ economyModel: event.target.value })} />
+          <small>支持填写 Carbon / Fable / Astra / Flash 等自定义轻量模型名；留空时按执行端自动选择低消耗同系模型。</small>
+        </label>}
         <LifeEditor draft={draft} onChange={set} />
         <MemoryEditor entries={memoryEntries(draft)} onChange={memories => set({ memories })} executor={connecting ? undefined : draft.executor} invoke={invoke} />
         <div className="card-field-row">
