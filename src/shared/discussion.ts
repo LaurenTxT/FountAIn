@@ -55,6 +55,7 @@ export interface DiscussionReply {
   emoji?: string;
   questions?: { to: string; text: string }[]; answers?: string[];
   materialSearch?: string; copyMaterials?: string[];
+  proposeKickoff?: { topic?: string; reason?: string };
   /** Internal diagnostics, never copied from model-supplied fields. */
   formatWarnings?: string[]; reviewQuestions?: boolean;
   unverifiedVote?: boolean;
@@ -65,7 +66,7 @@ export const DISCUSSION_LABELS: Record<DiscussionPhase, string> = {
 };
 export function parseDiscussionReply(text: string, turn: string, revision: number): DiscussionReply {
   const value = discussionObject(text);
-  const keys = ['version','turn','revision','action','body','replyTo','next','proposalId','questions','answers','emoji','materialSearch','copyMaterials'];
+  const keys = ['version','turn','revision','action','body','replyTo','next','proposalId','questions','answers','emoji','materialSearch','copyMaterials','proposeKickoff'];
   const vote = value.action === 'accept' || value.action === 'reject';
   let unverifiedVote = false;
   const warnings: string[] = [];
@@ -102,6 +103,23 @@ export function parseDiscussionReply(text: string, turn: string, revision: numbe
       if(Array.isArray(value.copyMaterials) && value.copyMaterials.length<=12 &&
         value.copyMaterials.every((name:unknown)=>typeof name === 'string' && name.trim() && name.length<=500))
         reply.copyMaterials = [...new Set(value.copyMaterials)];
+    }
+  }
+  if (value.proposeKickoff !== undefined) {
+    if (value.action !== 'speak' || value.turn !== turn || value.revision !== revision) {
+      warn('立项提议与当前发言不匹配，未执行。');
+    } else if (typeof value.proposeKickoff === 'string') {
+      const topic = value.proposeKickoff.trim().slice(0, 600);
+      if (topic) reply.proposeKickoff = { topic };
+      else warn('已忽略空的立项提议。');
+    } else if (value.proposeKickoff && typeof value.proposeKickoff === 'object' && !Array.isArray(value.proposeKickoff)) {
+      const raw = value.proposeKickoff as Record<string, unknown>;
+      const topic = typeof raw.topic === 'string' ? raw.topic.trim().slice(0, 600) : '';
+      const reason = typeof raw.reason === 'string' ? raw.reason.trim().slice(0, 300) : '';
+      if (topic || reason) reply.proposeKickoff = { ...(topic ? { topic } : {}), ...(reason ? { reason } : {}) };
+      else warn('已忽略空的立项提议。');
+    } else {
+      warn('已忽略无效的立项提议。');
     }
   }
   if (reply.action === 'react') {

@@ -820,6 +820,9 @@ export class Engine {
           projectMaterialCatalog(this.store,roomId.slice(8),query,exactSearch) : undefined,
         copyMaterials: (files:string[], current:()=>boolean) =>
           copyMeetingMaterials(this.store,roomId.slice(8),files,()=>current()&&this.canGatherMeetingMaterials(roomId.slice(8))),
+        canAutoKickoff: () => this.canAutoKickoffProject(roomId.slice(8)),
+        startFlow: (leadMemberId:string, input:{topic?:string;reason?:string}, current:()=>boolean) =>
+          this.autoKickoffProject(roomId.slice(8),leadMemberId,input,current),
       } : {}),
       available: (member) =>
         this.providers.some((p) => p.id === member.executor && p.available),
@@ -7806,6 +7809,33 @@ export class Engine {
   private canGatherMeetingMaterials(projectId:string) {
     return !this.maintenance&&!this.removingProjects.has(projectId)&&
       !this.store.list<ProjectFlow>("project_flows").some(flow=>flow.projectId===projectId&&!["completed","cancelled"].includes(flow.status));
+  }
+  private readyProjectMembers(projectId:string) {
+    const project=this.store.get<Project>("projects",projectId);
+    if(!project)return [];
+    const allowed=project.memberIds?.length?new Set(project.memberIds):undefined;
+    return this.store.members().filter(m=>(!allowed||allowed.has(m.id))&&this.providers.some(p=>p.id===m.executor&&p.available));
+  }
+  private canAutoKickoffProject(projectId:string) {
+    return this.canGatherMeetingMaterials(projectId)&&this.readyProjectMembers(projectId).length>0;
+  }
+  private async autoKickoffProject(projectId:string,leadMemberId:string,input:{topic?:string;reason?:string},current:()=>boolean) {
+    if(!current()||!this.canAutoKickoffProject(projectId))return {started:false,note:""};
+    const ready=this.readyProjectMembers(projectId);
+    const lead=ready.find(m=>m.id===leadMemberId);
+    if(!lead)return {started:false,note:"自动立项未启动：当前成员暂不可用。"};
+    const memberIds=[...new Set([lead.id,...ready.map(m=>m.id)])];
+    await this.projectFlow.invoke("projectFlow.start",{
+      requestId:"auto-kickoff:"+randomUUID(),
+      projectId,
+      leadMemberId:lead.id,
+      memberIds,
+      topic:input.topic||undefined,
+    });
+    return {
+      started:true,
+      note:"已由 "+lead.name+" 自动立项担任负责人并开始起草方案（方案完成后仍须等你确认才会开工）"+(input.reason?"："+input.reason:"。"),
+    };
   }
   private resolveQqRoomName(roomId: RoomId): string {
     return this.qqRooms().find((r) => r.roomId === roomId)?.name ?? roomId;

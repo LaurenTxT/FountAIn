@@ -6,6 +6,7 @@ import { test } from 'node:test';
 import { extractMaterialTerms } from '../src/backend/project-materials';
 import { initializeStudyRoom } from '../src/backend/study-room';
 import { workspaceProfileInstructions } from '../src/backend/workspace-profile';
+import { parseDiscussionReply } from '../src/shared/discussion';
 import type { Project } from '../src/shared/types';
 
 test('extractMaterialTerms splits natural Chinese sentences into searchable terms', () => {
@@ -69,4 +70,64 @@ test('workspaceProfileInstructions walks up ancestor folders and gates studentId
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }
+});
+
+test('parseDiscussionReply parses proposeKickoff safely and rejects mismatched turns', () => {
+  const okObj = parseDiscussionReply(
+    JSON.stringify({
+      version: 1,
+      turn: 't1',
+      revision: 3,
+      action: 'speak',
+      body: '这个任务较复杂，我来牵头立项起草方案。',
+      proposeKickoff: { topic: '  实现模块 A 与联调  ', reason: '熟悉整体架构' },
+    }),
+    't1',
+    3,
+  );
+  assert.deepEqual(okObj.proposeKickoff, { topic: '实现模块 A 与联调', reason: '熟悉整体架构' });
+
+  const okStr = parseDiscussionReply(
+    JSON.stringify({
+      version: 1,
+      turn: 't2',
+      revision: 1,
+      action: 'speak',
+      body: '我来立项。',
+      proposeKickoff: '重构数据管线',
+    }),
+    't2',
+    1,
+  );
+  assert.deepEqual(okStr.proposeKickoff, { topic: '重构数据管线' });
+
+  const stale = parseDiscussionReply(
+    JSON.stringify({
+      version: 1,
+      turn: 'wrong-turn',
+      revision: 1,
+      action: 'speak',
+      body: '旧轮次',
+      proposeKickoff: { topic: '不应触发' },
+    }),
+    't3',
+    1,
+  );
+  assert.equal(stale.proposeKickoff, undefined);
+  assert.ok(stale.formatWarnings?.some((w) => w.includes('立项提议')));
+
+  const nonSpeak = parseDiscussionReply(
+    JSON.stringify({
+      version: 1,
+      turn: 't4',
+      revision: 1,
+      action: 'ask_user',
+      body: '要先确认吗？',
+      questions: [{ to: 'user', text: '是否开始？' }],
+      proposeKickoff: { topic: '不应在 ask_user 触发' },
+    }),
+    't4',
+    1,
+  );
+  assert.equal(nonSpeak.proposeKickoff, undefined);
 });
