@@ -646,8 +646,8 @@ function LeadPicker({ team, initialLead, ready, busy, onStart, onCancel }: { tea
         <span>{member.name}</span>
       </div>;
     })}</div>
-    <textarea className="lead-picker-note" rows={2} value={note} disabled={busy} aria-label="补充起草细则和要求" placeholder="补充起草细则、要求、分工偏好或截止时间（可选，留空则直接按刚才的讨论起草）…" onChange={event => setNote(event.target.value)} style={{ width: '100%', marginTop: 8, padding: '8px 10px', borderRadius: 8, border: '1px solid var(--line)', background: 'var(--bg-2)', color: 'var(--ink-1)', font: 'inherit', fontSize: 13, resize: 'vertical' }} />
     <div className="round-actions"><button type="button" className="button primary" disabled={busy || available.length < 2 || !leader} onClick={() => void onStart(lead, available.map(member => member.id), note)}>{busy ? <LoaderCircle size={14} className="spin" /> : <Send size={14} />}{leader ? `请 ${leader.name} 起草方案` : '先选一位负责人'}</button><button type="button" className="button quiet" disabled={busy} onClick={onCancel}>再聊聊</button></div>
+    <textarea className="lead-picker-note" rows={2} value={note} disabled={busy} aria-label="补充起草细则和要求" placeholder="补充起草细则、要求、分工偏好或截止时间（可选，留空按刚才的讨论起草）…" onChange={event => setNote(event.target.value)} />
   </section>;
 }
 

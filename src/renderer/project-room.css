@@ -227,6 +227,9 @@ section.lead-picker > strong, section.lead-picker > small { grid-column: 1 / -1;
 section.lead-picker > .lead-picker-members { grid-column: 1; }
 /* Actions sit in the free space to the right of the avatars. */
 section.lead-picker > .round-actions { grid-column: 2; margin: 0; justify-content: flex-end; }
+section.lead-picker > .lead-picker-note { grid-column: 1 / -1; width: 100%; box-sizing: border-box; min-height: 52px; padding: 8px 10px; border: 1px solid var(--line-strong); border-radius: var(--r-md); background: var(--bg); color: var(--ink); font: inherit; font-size: var(--fs-md); line-height: 1.45; resize: vertical; }
+section.lead-picker > .lead-picker-note::placeholder { color: var(--ink-3); }
+section.lead-picker > .lead-picker-note:focus { outline: none; border-color: var(--brand); }
 .lead-option > span { font-size: var(--fs-md); }
 .plan-revise, .round-reject { display: flex; flex-direction: column; gap: 6px; margin-top: 10px; }
 .plan-revise textarea, .round-reject textarea { width: 100%; resize: vertical; padding: 8px 10px; border: 1px solid var(--line-strong); border-radius: var(--r-md); background: var(--bg); color: var(--ink); font: inherit; font-size: var(--fs-md); }
