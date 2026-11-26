@@ -2370,8 +2370,6 @@ export class ProjectFlowController {
       if (studyContinuation !== undefined &&
           studyContinuation !== "manual" && studyContinuation !== "authorized")
         throw new FlowError("INVALID_REQUEST", "请选择有效的推进方式。");
-      if (studyContinuation && !plan.tasks.some((task) => task.memberId === flow.leadMemberId))
-        throw new FlowError("INVALID_REQUEST", "Leader 必须认领一项可验收的任务，请先修改方案。");
       if (
         plan.status !== "awaiting_confirmation" ||
         flow.activePlanId !== plan.id ||
