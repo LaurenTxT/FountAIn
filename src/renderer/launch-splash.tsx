@@ -1,4 +1,15 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type CSSProperties } from 'react';
+
+const BRAND_CHARS = [
+  { ch: 'F', ai: false },
+  { ch: 'o', ai: false },
+  { ch: 'u', ai: false },
+  { ch: 'n', ai: false },
+  { ch: 't', ai: false },
+  { ch: 'A', ai: true },
+  { ch: 'I', ai: true },
+  { ch: 'n', ai: false },
+] as const;
 
 const DISPERSE_START_S = 2.85;
 const DISPERSE_DUR_S = 1.22;
@@ -400,7 +411,18 @@ export function LaunchSplash({ ready }: { ready: boolean }) {
       <div className="launch-splash-glow" aria-hidden="true" />
       <canvas ref={canvasRef} className="launch-canvas-full" aria-hidden="true" />
       <div className="launch-splash-core launch-splash-text">
-        <h1 className="launch-brand">FountAIn</h1>
+        <h1 className="launch-brand" aria-label="FountAIn">
+          {BRAND_CHARS.map((item, idx) => (
+            <span
+              key={idx}
+              className={`launch-char${item.ai ? ' is-ai' : ''}`}
+              style={{ '--i': idx, '--spread': idx - 3.5 } as CSSProperties}
+            >
+              <span className="launch-char-glyph">{item.ch}</span>
+            </span>
+          ))}
+        </h1>
+        <div className="launch-brand-underline" aria-hidden="true" />
       </div>
     </div>
   );
