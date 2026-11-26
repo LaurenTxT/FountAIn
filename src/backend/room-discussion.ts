@@ -334,6 +334,98 @@ export class RoomDiscussionController {
     this.kick(next);
     return {messageId:message.id,remaining:pendingOwnerQuestions(next).length};
   }
+  /** Dispatch a strict 1-to-1 follow-up turn to a specific seated member (used by mid-turn steer fallback & queue flush). */
+  directFollowUp(memberId: string, text: string, options: { attachments?: Attachment[]; replyTo?: string; kick?: boolean; pendingFollowUps?: RoomState['pendingFollowUps'] } = {}) {
+    const clean = text.trim() || (options.attachments?.length ? '请看附件。' : '');
+    if (!clean) throw new Error('请输入要发送的内容');
+    const team = this.store.members();
+    const member = team.find(m => m.id === memberId);
+    if (!member) throw new Error('目标成员不存在。');
+    const resting = new Set(this.store.roomState().restingMemberIds);
+    if (resting.has(memberId)) throw new Error(`${member.name} 正在休息，请先请 TA 回来。`);
+    let d = this.get();
+    if (!d || d.phase === 'idle') {
+      const allowance = discussionAllowance('work', 1, this.host.callLimits?.());
+      d = {
+        id: randomUUID(), members: [memberId], phase: 'talking', revision: 0, style: 'work',
+        seen: {}, lastSpoke: {}, priority: [], calls: 0, speechCalls: 0, budgetKind: 'speech',
+        limit: allowance, allowance, minutes: 0, deadline: 0, handRaise: false, hostPick: true,
+        handCalls: 0, questions: [], reviewRequired: [], noProgress: 0, latestUserId: '',
+      };
+    }
+    const members = d.members.includes(memberId) ? d.members : [...d.members, memberId];
+    const revision = d.revision + 1;
+    const message: RoomMessage = {
+      ...this.message(d, 'user', clean),
+      discussionRevision: revision,
+      localOwnerInput: true,
+      ...(options.replyTo ? { inReplyTo: options.replyTo } : {}),
+      ...(options.attachments?.length ? { attachments: options.attachments } : {}),
+    };
+    const next: RoomDiscussion = {
+      ...this.leaveHostWait(d),
+      members,
+      revision,
+      phase: 'talking',
+      reason: undefined,
+      workWaiting: false,
+      proposal: undefined,
+      sinceProposal: 0,
+      passed: [],
+      noProgress: 0,
+      latestUserId: message.id,
+      stoppedMembers: (d.stoppedMembers ?? []).filter(id => id !== memberId),
+      priority: [memberId, ...d.priority.filter(id => id !== memberId)],
+      relevant: [memberId],
+      ...(d.style !== 'chat'
+        ? {
+            meetingRound: {
+              messageId: message.id,
+              pending: [memberId],
+              mentionedOnly: true,
+              waitAfterRound: true,
+              supplemented: [],
+            },
+            meetingCursor: undefined,
+          }
+        : {}),
+    };
+    const patch: Partial<RoomState> = options.pendingFollowUps !== undefined
+      ? { pendingFollowUps: options.pendingFollowUps.length ? options.pendingFollowUps : undefined }
+      : {};
+    this.save(next, message, patch);
+    if (options.kick !== false) this.kick(next);
+    return { messageId: message.id, memberId };
+  }
+  /** Record a visible user message when live mid-turn steer succeeded without stopping the run. */
+  recordSteeredMessage(text: string, options: { replyTo?: string } = {}) {
+    const d = this.get();
+    if (!d) return undefined;
+    const message: RoomMessage = {
+      ...this.message(d, 'user', text),
+      discussionRevision: d.revision,
+      localOwnerInput: true,
+      ...(options.replyTo ? { inReplyTo: options.replyTo } : {}),
+    };
+    this.store.put('room_messages', message.id, message);
+    this.host.changed();
+    return message.id;
+  }
+  /** Consume the next queued 1-to-1 follow-up for the member who just finished speaking. */
+  private consumePendingFollowUp(author: string, lastMessageId?: string): boolean {
+    const queue = this.store.roomState().pendingFollowUps ?? [];
+    const idx = queue.findIndex(item => item.memberId === author);
+    if (idx < 0) return false;
+    const item = queue[idx];
+    const remaining = [...queue.slice(0, idx), ...queue.slice(idx + 1)];
+    this.directFollowUp(item.memberId, item.text, {
+      attachments: item.attachments,
+      replyTo: item.replyTo ?? lastMessageId,
+      kick: false,
+      pendingFollowUps: remaining,
+    });
+    return true;
+  }
   private waitingForOwner(d:RoomDiscussion) {
     return pendingOwnerQuestions(d).some(question=>!d.interruption?.deferredQuestionIds?.includes(question.id));
   }
@@ -948,6 +1040,7 @@ ${JSON.stringify(payload)}`;
         }
         if (d.noProgress >= Math.max(6, d.members.length * 3) && active(d)) { d.phase = 'paused'; d.proposal = undefined; d.reason = '连续多次没有新增内容，已暂停。可以补充方向后继续。'; }
         this.save(d, message, waitingForAnswer ? {active:false,speaking:undefined} : d.style === 'chat' && substantive && active(d) ? { speaking: undefined } : {});
+        if (this.consumePendingFollowUp(author, message.id)) continue;
         if (d.style === 'chat' && substantive && active(d)) await this.waitChatPace(id, d.revision);
       } catch (error) {
         // Keep native output in the run record; never leak a malformed envelope into room prose.

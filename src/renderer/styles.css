@@ -341,6 +341,14 @@ p, li, dd, small { text-wrap: pretty; }
 
 .stop-button { background: var(--bad-soft); color: var(--bad); border: 1px solid color-mix(in srgb, var(--bad) 30%, transparent); }
 .stop-button:hover:not(:disabled) { background: var(--bad); color: #fff; }
+.room-midturn-queue { display: flex; flex-direction: column; gap: 6px; margin-bottom: 8px; padding: 8px 10px; border-radius: var(--r-md); background: color-mix(in srgb, var(--focus) 8%, var(--surface)); border: 1px solid color-mix(in srgb, var(--focus) 26%, var(--line)); }
+.room-midturn-item { display: flex; align-items: center; gap: 8px; min-width: 0; font-size: var(--fs-md); }
+.room-midturn-badge { flex: none; padding: 2px 8px; border-radius: 999px; font-size: var(--fs-sm); font-weight: 600; background: color-mix(in srgb, var(--focus) 16%, transparent); color: var(--focus); }
+.room-midturn-text { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink); }
+.room-midturn-btn { flex: none; height: 26px; padding: 0 9px; font-size: var(--fs-sm); }
+.room-midturn-cancel { flex: none; height: 26px; width: 26px; padding: 0; font-size: 16px; line-height: 1; }
+.room-midturn-immediate { flex: none; white-space: nowrap; border-color: color-mix(in srgb, var(--focus) 38%, var(--line)); color: var(--focus); }
+.room-midturn-immediate:hover:not(:disabled) { background: color-mix(in srgb, var(--focus) 12%, transparent); }
 
 .timeline { flex: 1; overflow-y: auto; scroll-behavior: auto; }
 

@@ -562,7 +562,10 @@ export class Engine {
     this.automation = new AutomationScheduler(
       this.store,
       {
-        changed: () => this.broadcast(),
+        changed: () => {
+        this.broadcast();
+        queueMicrotask(() => this.flushPersonalPendingFollowUps());
+      },
         run: (job, item) =>
           this.rooms.run("global", () => this.timedAction(job, item)),
       },
@@ -658,7 +661,10 @@ export class Engine {
       this.projectFlow.joint,
       this.projectFlow.artifacts,
       {
-        changed: () => this.broadcast(),
+        changed: () => {
+        this.broadcast();
+        queueMicrotask(() => this.flushPersonalPendingFollowUps());
+      },
         discuss: async (topic, material) =>
           this.rooms.run(topic.roomId, async () => {
             await this.discussion.input({
@@ -782,7 +788,10 @@ export class Engine {
         });
         return { reset: true };
       },
-      changed: () => this.broadcast(),
+      changed: () => {
+        this.broadcast();
+        queueMicrotask(() => this.flushPersonalPendingFollowUps());
+      },
       track: (task) => {
         this.flowTasks.add(task as Promise<void>);
         void task.finally(() => this.flowTasks.delete(task as Promise<void>));
@@ -2778,7 +2787,7 @@ export class Engine {
         this.memberWorkspaces.ensureReport(parts[1], parts[2]);
       }
       this.store.validateRoomId(id);
-      if (method === "room.send")
+      if (method === "room.send" || method === "room.midTurn")
         params = {
           ...params,
           attachments: resolveAttachments(
@@ -2786,6 +2795,12 @@ export class Engine {
             params.attachments,
           ).map(withoutPath),
         };
+      if (method === "room.midTurn")
+        return this.personalRoomMidTurn(id, params);
+      if (method === "room.midTurn.promote")
+        return this.personalRoomMidTurnPromote(id, params);
+      if (method === "room.midTurn.cancel")
+        return this.personalRoomMidTurnCancel(id, params);
       if (method === "room.react")
         return this.rooms.run(id, () =>
           this.roomReact(
@@ -2985,6 +3000,12 @@ export class Engine {
         return this.store.roomView(this.roomId);
       case "room.send":
         return this.roomSend(params);
+      case "room.midTurn":
+        return this.roomMidTurn(params);
+      case "room.midTurn.promote":
+        return this.roomMidTurnPromote(params);
+      case "room.midTurn.cancel":
+        return this.roomMidTurnCancel(params);
       case "room.generateImage":
         return this.roomGenerateImage(params);
       case "room.stop":
@@ -5169,6 +5190,187 @@ export class Engine {
         (attachments.length ? "请看附件。" : ""),
       attachments,
     });
+  }
+  /** Strict 1-to-1 mid-turn steer or queue targeting ONLY the currently outputting member. */
+  private async roomMidTurn(params: any) {
+    if (this.roomChanging) throw new Error("聊天室正在整理话题，请稍后发送");
+    if (this.roomStore.roomState().generatingImage)
+      throw new Error("图片正在生成，请先等待完成或停止。");
+    const mode = params.mode === "immediate" ? "immediate" : "queue";
+    const attachments = resolveAttachments(
+      this.store.dataDirectory,
+      params.attachments,
+    ).map(withoutPath);
+    const text =
+      String(params.text ?? "").trim() ||
+      (attachments.length ? "请看附件。" : "");
+    if (!text) throw new Error("请输入要发送的内容");
+    const replyTo = typeof params.replyTo === "string" ? params.replyTo : undefined;
+    const state = this.roomStore.roomState();
+    const activeSpeaker = state.active && state.speaking ? state.speaking : undefined;
+    const requestedTarget = typeof params.memberId === "string" && params.memberId ? params.memberId : undefined;
+    const targetId = activeSpeaker ?? requestedTarget;
+    if (!targetId) throw new Error("当前没有正在输出的成员。");
+
+    // If the member already finished just before this request arrived, send directly 1-to-1.
+    if (!activeSpeaker) {
+      const result = this.discussion.directFollowUp(targetId, text, { attachments, replyTo });
+      return { delivery: "sent_directly", ...result };
+    }
+    if (requestedTarget && requestedTarget !== activeSpeaker) {
+      throw new Error("中途发送仅支持发给当前正在输出的成员。");
+    }
+
+    if (mode === "queue") {
+      const item = {
+        id: randomUUID(),
+        memberId: activeSpeaker,
+        text,
+        ...(attachments.length ? { attachments } : {}),
+        ...(replyTo ? { replyTo } : {}),
+        createdAt: now(),
+      };
+      const existing = state.pendingFollowUps ?? [];
+      this.setRoomState({ pendingFollowUps: [...existing, item] });
+      return { delivery: "queued", id: item.id, memberId: activeSpeaker };
+    }
+
+    // mode === 'immediate': try live mid-turn steer first, else interrupt & send 1-to-1 immediately.
+    const sessions = new Set(this.roomSessions().map((s) => s.id));
+    const running = [...this.active.entries()].find(
+      ([, entry]) =>
+        sessions.has(entry.ctx.session.id) &&
+        (entry.ctx.session.memberId ?? entry.ctx.session.provider) === activeSpeaker,
+    );
+    if (running && !running[1].stopping && running[1].adapter.steer && !attachments.length) {
+      const steerPrompt = `【用户中途补充/插话】\n${text}\n请优先回答该问题，或将其与当前正在处理的内容一并处理。`;
+      const delivery = await this.steerActive(running[0], steerPrompt, randomUUID());
+      if (delivery === "current") {
+        this.discussion.recordSteeredMessage(text, { replyTo });
+        return { delivery: "steered", memberId: activeSpeaker };
+      }
+    }
+
+    // Fallback: cleanly interrupt the active turn and immediately send a 1-to-1 follow-up to the same member.
+    const runningPromise = this.roomRunning;
+    await this.roomStop(true);
+    await runningPromise;
+    const result = this.discussion.directFollowUp(activeSpeaker, text, { attachments, replyTo });
+    return { delivery: "interrupted_and_sent", ...result };
+  }
+  private async roomMidTurnPromote(params: any) {
+    const id = String(params?.id ?? "");
+    const state = this.roomStore.roomState();
+    const queue = state.pendingFollowUps ?? [];
+    const item = queue.find((x) => x.id === id);
+    if (!item) throw new Error("这条排队消息已发送或已取消。");
+    const remaining = queue.filter((x) => x.id !== id);
+    this.setRoomState({ pendingFollowUps: remaining.length ? remaining : undefined });
+    return this.roomMidTurn({
+      mode: "immediate",
+      memberId: item.memberId,
+      text: item.text,
+      attachments: item.attachments,
+      replyTo: item.replyTo,
+    });
+  }
+  private roomMidTurnCancel(params: any) {
+    const id = String(params?.id ?? "");
+    const state = this.roomStore.roomState();
+    const queue = state.pendingFollowUps ?? [];
+    const remaining = queue.filter((x) => x.id !== id);
+    this.setRoomState({ pendingFollowUps: remaining.length ? remaining : undefined });
+    return { cancelled: queue.length !== remaining.length };
+  }
+  private async personalRoomMidTurn(roomId: RoomId, params: any) {
+    const mode = params.mode === "immediate" ? "immediate" : "queue";
+    const attachments = Array.isArray(params.attachments) ? params.attachments as Attachment[] : [];
+    const text = String(params.text ?? "").trim() || (attachments.length ? "请看附件。" : "");
+    if (!text) throw new Error("请输入要发送的内容");
+    const replyTo = typeof params.replyTo === "string" ? params.replyTo : undefined;
+    const view = await this.memberWorkspaces.get(roomId);
+    const memberId = roomId.startsWith("desk:") ? roomId.slice(5) : roomId.split(":")[2];
+    if (!view.state.active) {
+      return this.memberWorkspaces.send(roomId, { text, attachments, ...(replyTo ? { replyTo } : {}) });
+    }
+    if (mode === "queue") {
+      const item = {
+        id: randomUUID(),
+        memberId,
+        text,
+        ...(attachments.length ? { attachments } : {}),
+        ...(replyTo ? { replyTo } : {}),
+        createdAt: now(),
+      };
+      const existing = this.store.roomState(roomId).pendingFollowUps ?? [];
+      this.store.put("room_states", roomId, { ...this.store.roomState(roomId), pendingFollowUps: [...existing, item] });
+      this.broadcast();
+      return { delivery: "queued", id: item.id, memberId };
+    }
+    // Immediate: try live mid-turn steer on the personal room's active run, else stop & send immediately.
+    const running = [...this.active.entries()].find(
+      ([, entry]) =>
+        (entry.ctx.session.roomId === roomId || (entry.ctx.session.memberId ?? entry.ctx.session.provider) === memberId) &&
+        !entry.stopping,
+    );
+    if (running && running[1].adapter.steer && !attachments.length) {
+      const steerPrompt = `【用户中途补充/插话】\n${text}\n请优先回答该问题，或将其与当前正在处理的内容一并处理。`;
+      const delivery = await this.steerActive(running[0], steerPrompt, randomUUID());
+      if (delivery === "current") {
+        const thread = view.threads.find((t) => t.id === view.threadId);
+        if (thread) {
+          this.store.put("room_messages", randomUUID(), {
+            id: randomUUID(), roomId, threadId: thread.id, author: "user", text, at: now(),
+            ...(replyTo ? { replyTo } : {}),
+          });
+        }
+        this.broadcast();
+        return { delivery: "steered", memberId };
+      }
+    }
+    await this.memberWorkspaces.invoke("room.stop", {}, roomId);
+    return this.memberWorkspaces.send(roomId, { text, attachments, ...(replyTo ? { replyTo } : {}) });
+  }
+  private async personalRoomMidTurnPromote(roomId: RoomId, params: any) {
+    const id = String(params?.id ?? "");
+    const state = this.store.roomState(roomId);
+    const queue = state.pendingFollowUps ?? [];
+    const item = queue.find((x) => x.id === id);
+    if (!item) throw new Error("这条排队消息已发送或已取消。");
+    const remaining = queue.filter((x) => x.id !== id);
+    this.store.put("room_states", roomId, { ...state, pendingFollowUps: remaining.length ? remaining : undefined });
+    this.broadcast();
+    return this.personalRoomMidTurn(roomId, {
+      mode: "immediate", text: item.text, attachments: item.attachments, replyTo: item.replyTo,
+    });
+  }
+  private personalRoomMidTurnCancel(roomId: RoomId, params: any) {
+    const id = String(params?.id ?? "");
+    const state = this.store.roomState(roomId);
+    const queue = state.pendingFollowUps ?? [];
+    const remaining = queue.filter((x) => x.id !== id);
+    this.store.put("room_states", roomId, { ...state, pendingFollowUps: remaining.length ? remaining : undefined });
+    this.broadcast();
+    return { cancelled: queue.length !== remaining.length };
+  }
+  private personalQueueFlushing = new Set<string>();
+  private async flushPersonalPendingFollowUps() {
+    if (!this.alive || this.closed) return;
+    for (const room of this.store.list<{ id: RoomId }>("personal_rooms")) {
+      const state = this.store.roomState(room.id);
+      const queue = state.pendingFollowUps;
+      if (!queue?.length || this.personalQueueFlushing.has(room.id)) continue;
+      const view = await this.memberWorkspaces.get(room.id);
+      if (view.state.active) continue;
+      const [first, ...rest] = queue;
+      this.personalQueueFlushing.add(room.id);
+      this.store.put("room_states", room.id, { ...state, pendingFollowUps: rest.length ? rest : undefined });
+      this.broadcast();
+      void this.memberWorkspaces
+        .send(room.id, { text: first.text, attachments: first.attachments ?? [], ...(first.replyTo ? { replyTo: first.replyTo } : {}) })
+        .catch(() => {})
+        .finally(() => { this.personalQueueFlushing.delete(room.id); });
+    }
   }
   /** A manual, single ChatGPT image request; ordinary discussion and automatic speech cannot start it. */
   private roomGenerateImage(params: any) {

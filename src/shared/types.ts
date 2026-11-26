@@ -293,13 +293,23 @@ export interface RoomThread {
   count?: number;
 }
 export interface RoomHistory { threadId: string; messages: RoomMessage[]; hasMore: boolean; before?: string; readToken?: string }
+export interface PendingFollowUp {
+  id: string;
+  memberId: string;
+  text: string;
+  attachments?: Attachment[];
+  replyTo?: string;
+  createdAt: string;
+}
 export interface RoomState { restingMemberIds?: string[]; active: boolean; mode: 'chat' | 'meeting' | 'discuss'; discussion?: import('./discussion').RoomDiscussion; topic?: string; speaking?: string; round?: number; rounds?: number;
   roomId?: RoomId; revision?: number;
   generatingImage?: boolean;
   /** The member condensing a topic right now. */
   compressing?: string;
   /** True when the current compression was triggered automatically by the context keeper. */
-  compressingAuto?: boolean }
+  compressingAuto?: boolean;
+  /** Queued 1-to-1 follow-up messages waiting for the currently outputting member to finish. */
+  pendingFollowUps?: PendingFollowUp[] }
 export interface Session {
   executorIdentity?: import('./compatibility').ExecutorIdentity;
   id: string; projectId: string; provider: ProviderId; title: string; nativeId?: string; nativeHome?: 'shared' | 'fountain';
