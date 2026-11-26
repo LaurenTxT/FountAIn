@@ -1,4 +1,4 @@
-import type { MemberCostMode, MemberProfile, Session } from './types';
+import type { MemberCostMode, MemberProfile, ModelOption, Session } from './types';
 import type { RequestedRunConfig } from './executor-config';
 
 export type CostTier = 'casual' | 'meeting' | 'engineering' | 'review' | 'keyword_bump';
@@ -149,10 +149,38 @@ export function resolveEconomyModel(
   return resolveTierModel(executor, 'casual', currentModel, { economyModel: customEconomyModel });
 }
 
+function pickSupportedEffort(
+  desired: RequestedRunConfig['effort'],
+  model: string | undefined,
+  modelOptions?: ModelOption[],
+): RequestedRunConfig['effort'] {
+  const lower = (model ?? '').toLowerCase();
+  // Models that bake effort into the ID or do not take an effort flag at all.
+  if (lower === 'deepseek-v4-pro' || /-(?:low|medium|high|xhigh)$/.test(lower)) {
+    return undefined;
+  }
+  const opt = model && modelOptions?.find((item) => item.id === model || item.aliases?.includes(model));
+  if (opt) {
+    if (opt.effortSource === 'unsupported' || (opt.effortSource === 'reported' && !opt.efforts?.length)) {
+      return undefined;
+    }
+    if (opt.efforts?.length) {
+      if (desired && opt.efforts.includes(desired)) return desired;
+      if (desired === 'medium' && opt.efforts.includes('high')) return 'high';
+      if (opt.efforts.includes('low')) return 'low';
+      return opt.efforts[0] as RequestedRunConfig['effort'];
+    }
+  }
+  // Fallback for DeepSeek Flash when provider options haven't been loaded yet (supports off/low/high/max, no medium).
+  if (lower === 'deepseek-flash' && desired === 'medium') return 'high';
+  return desired;
+}
+
 export function applyCostModeToConfig(
   config: RequestedRunConfig,
   member: Pick<MemberProfile, 'executor' | 'costMode' | 'economyModel' | 'engineeringModel'>,
   routing: boolean | CostRoutingContext,
+  modelOptions?: ModelOption[],
 ): RequestedRunConfig {
   if (member.costMode !== 'economy') return config;
   const ctx: CostRoutingContext = typeof routing === 'boolean'
@@ -165,12 +193,14 @@ export function applyCostModeToConfig(
     escalated: ctx.escalated,
   }) ?? config.model;
 
-  // Default to 'low' everywhere; automatically step up to 'medium' only when escalating a retry/correction.
-  const nextEffort = ctx.escalated
+  // Default to 'low' everywhere; automatically step up to 'medium' only when escalating a retry/correction,
+  // and always clamp/strip effort to what the target model actually supports.
+  const desiredEffort: RequestedRunConfig['effort'] = ctx.escalated
     ? 'medium'
     : config.effort === 'none' || config.effort === 'minimal'
       ? config.effort
       : 'low';
+  const nextEffort = pickSupportedEffort(desiredEffort, nextModel, modelOptions);
 
   if (nextModel === config.model && nextEffort === config.effort) return config;
   return {

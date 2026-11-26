@@ -6460,7 +6460,8 @@ export class Engine {
           "flow_joint_reviews",
           session.flowId,
         )?.memberConfigs?.[member.id]);
-    if (frozen) return applyCostModeToConfig({ ...frozen, capturedAt: now() }, member, routing);
+    const modelOptions = this.providers.find((p) => p.id === member.executor)?.modelOptions;
+    if (frozen) return applyCostModeToConfig({ ...frozen, capturedAt: now() }, member, routing, modelOptions);
     const rebound=this.store.members().find(item=>item.id===member.id)?.executor!==session.provider;
     const baseConfig = requestedConfig(
       rebound?{...project,memberConfigs:undefined}:project,
@@ -6469,7 +6470,7 @@ export class Engine {
       session.flowId ? undefined : session,
       this.store.executors().find((item) => item.id === member.executor),
     );
-    return applyCostModeToConfig(baseConfig, member, routing);
+    return applyCostModeToConfig(baseConfig, member, routing, modelOptions);
   }
   createSession(
     projectId: string,

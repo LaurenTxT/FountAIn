@@ -193,6 +193,7 @@ test('costMode downgrades models in casual rooms and keeps full power for projec
   assert.equal(meetingClaude.model, 'opus');
   const meetingDsh = applyCostModeToConfig({ ...base, model: 'deepseek-flash' }, { executor: 'dsh', costMode: 'economy' }, classifyCostTier({ isCasualRoom: true, isMeeting: true, promptText: '开会讨论' }));
   assert.equal(meetingDsh.model, 'deepseek-v4-pro');
+  assert.equal(meetingDsh.effort, undefined);
   const meetingCodex = applyCostModeToConfig({ ...base, model: 'gpt-6.2-astra' }, { executor: 'codex', costMode: 'economy' }, classifyCostTier({ isCasualRoom: true, isMeeting: true, promptText: '开会讨论' }));
   assert.equal(meetingCodex.model, 'gpt-6.2-sol');
   const meetingGemini = applyCostModeToConfig({ ...base, model: 'gemini-4-carbon' }, { executor: 'acp-5d1dde7ed341', costMode: 'economy' }, classifyCostTier({ isCasualRoom: true, isMeeting: true, promptText: '开会讨论' }));
