@@ -211,7 +211,7 @@ export default function App() {
   const loungeId = snapshot.projects.find(project => project.kind === 'lounge')?.id;
   const workProjects = useMemo(() => snapshot.projects.filter(project => !project.kind), [snapshot.projects]);
   useEffect(() => {
-    if (!workProjects.some(project => project.id === projectId)) setProjectId(workProjects[0]?.id ?? '');
+    if (projectId && !workProjects.some(project => project.id === projectId)) setProjectId('');
   }, [workProjects, projectId]);
   useEffect(() => {
     const choices = snapshot.sessions.filter(session => session.projectId === projectId);
