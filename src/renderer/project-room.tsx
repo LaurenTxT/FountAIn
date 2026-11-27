@@ -41,6 +41,7 @@ import { ReportSwitcher, type ReportEntry } from './report-switcher';
 import type {RoundtableSource} from '../shared/roundtable';
 import {useRoundtableNavigation} from './roundtable-navigation';
 import { SddModal } from './sdd-modal';
+import type { SddState } from '../shared/sdd';
 import {JOINT_READS} from '../shared/joint-review';
 import type { ConfigSelection } from '../shared/executor-config';
 
@@ -86,15 +87,23 @@ export function ProjectRoom({ snapshot, project, invoke, onOpenSession,onRoundta
   const [boardOpen,setBoardOpen]=useState(()=>{try{return localStorage.getItem('fountain.projectBoard')!=='closed';}catch{return true;}});
   const toggleBoard=(open:boolean)=>{setBoardOpen(open);try{localStorage.setItem('fountain.projectBoard',open?'open':'closed');}catch{}};
   const [recordOpen,setRecordOpen]=useState(false),[includePreviousRecord,setIncludePreviousRecord]=useState(true),[addition,setAddition]=useState<{memberId:string;goal:string;task?:Task;proposal?:TaskAddition}|null>(null);
-  const [boardView,setBoardView]=useState<'work'|'hud'|'progress'>('work');
+  const [boardView,setBoardView]=useState<'work'|'progress'>('work');
   useEffect(()=>setBoardView('work'),[project.id]);
+  const [sddOpen, setSddOpen] = useState(false);
+  const [sddSummary, setSddSummary] = useState<SddState | null>(null);
+  useEffect(() => {
+    let alive = true;
+    void invoke<SddState>('sdd.get', { projectId: project.id })
+      .then((res) => { if (alive) setSddSummary(res); })
+      .catch(() => { if (alive) setSddSummary(null); });
+    return () => { alive = false; };
+  }, [project.id, sddOpen, snapshot.runs.length, invoke]);
   const [config,setConfig]=useState<{memberId:string;value:ConfigSelection;revision:number}|null>(null),[configBusy,setConfigBusy]=useState(false),[configError,setConfigError]=useState('');
   useEffect(()=>{setConfig(null);setConfigError('');},[project.id]);
   useEffect(()=>setLogTarget(null),[project.id]);
   const roomId = `project:${project.id}` as RoomId;
   const [data, setData] = useState<ProjectFlowSnapshot | null>(null), [error, setError] = useState('');
   const [studyDocs,setStudyDocs]=useState<StudyRoomDocuments|null>(null);
-  const [sddOpen, setSddOpen] = useState(false);
   const [missingStudy,setMissingStudy]=useState<string>();
   async function initializeRoom(){
     setBusy(true);
@@ -307,30 +316,57 @@ export function ProjectRoom({ snapshot, project, invoke, onOpenSession,onRoundta
     :live&&openDecisions.length?{label:'处理当前决定',run:()=>revealStep('[data-flow-next="decision"]')}
     :roundToAccept?{label:'查看成品并验收',run:openAcceptance}
     :live&&flow!.dispatchMode!=='running'&&allowed(data!.allowedActions,'projectFlow.resume')?{label:flow!.waitingForFirstRoundStart?'启动第一轮':'继续这段工作',run:()=>void mutate('projectFlow.resume',{flowId:flow!.id,expectedRevision:flow!.revision},'已继续派发。')}:undefined;
-  const meetingHud = <section className="project-meeting-hud" role="tabpanel" aria-label="会议状态">
-    <MeetingHud
-      members={people} leadId={live ? flow?.leadMemberId : project.meetingLeaderId}
-      round={live ? currentRound : undefined} tasks={live ? tasks : []}
-      pendingPlan={live && plan?.status === 'awaiting_confirmation' ? plan : undefined}
-      onPlan={() => revealStep('[data-flow-next="plan"]')}
-      speaking={snapshot.rooms?.find(room => room.roomId === roomId)?.state.speaking}
-      ready={ready} onTask={openHudTask} onRound={round => setLogTarget({ kind: 'round', id: round.id })}
-      onReport={onOpenReport} />
-    <div className="flow-hud" aria-label="会议状态">
-      {live && flow!.status === 'planning' && !planOp && flow!.dispatchMode === 'running' && <span>等 Leader · {team.get(flow!.leadMemberId)?.name ?? '负责人'} 起草方案</span>}
-      {live && plan?.status === 'awaiting_confirmation' && <button type="button" className="link-button" onClick={() => revealStep('[data-flow-next="plan"]')}>等你审批 · 第 {plan.version} 版方案</button>}
-      {live && (blocked.length > 0 || flow!.blockedReasons.length > 0 || stuckTasks.length > 0) && <button type="button" className="link-button" onClick={() => revealStep('[data-flow-next="blocked"]')}>流程阻塞 · 查看原因</button>}
-      {live && openDecisions.length > 0 && <button type="button" className="link-button" onClick={() => revealStep('[data-flow-next="decision"]')}>等你决定 · {openDecisions.length} 项</button>}
-      {roundToAccept && <button type="button" className="link-button" onClick={openAcceptance}>等你验收 · 查看成品</button>}
-      {live && tasks.some(task => task.status === 'queued') && <span>排队中 · {tasks.filter(task => task.status === 'queued').length} 项</span>}
-      {(snapshot.attention?.items ?? []).filter(item =>
-        (item.roomId === roomId || item.projectId === project.id) && ['unknown', 'approval', 'login'].includes(item.kind)
-      ).map(item => <button key={item.id} type="button" className="link-button" title={item.detail} onClick={() => {
+  const speakingId = snapshot.rooms?.find(room => room.roomId === roomId)?.state.speaking;
+  const attentionAlerts = (snapshot.attention?.items ?? []).filter(item =>
+    (item.roomId === roomId || item.projectId === project.id) && ['unknown', 'approval', 'login'].includes(item.kind),
+  );
+  const sideAlerts: { key: string; label: string; tone: 'warn' | 'bad'; onClick: () => void }[] = [
+    ...(live && plan?.status === 'awaiting_confirmation' ? [{ key: 'plan', label: `待审批 · 第 ${plan.version} 版方案`, tone: 'warn' as const, onClick: () => revealStep('[data-flow-next="plan"]') }] : []),
+    ...(live && (blocked.length > 0 || flow!.blockedReasons.length > 0 || stuckTasks.length > 0) ? [{ key: 'blocked', label: '流程阻塞 · 点击查看', tone: 'bad' as const, onClick: () => revealStep('[data-flow-next="blocked"]') }] : []),
+    ...(live && openDecisions.length > 0 ? [{ key: 'decision', label: `待你决定 · ${openDecisions.length} 项`, tone: 'warn' as const, onClick: () => revealStep('[data-flow-next="decision"]') }] : []),
+    ...(roundToAccept ? [{ key: 'accept', label: '待你验收 · 查看成品', tone: 'warn' as const, onClick: openAcceptance }] : []),
+    ...attentionAlerts.map(item => ({
+      key: `att-${item.id}`,
+      label: `${item.kind === 'approval' ? '待授权' : item.kind === 'login' ? '待恢复连接' : '待核对'} · ${(item.memberId && team.get(item.memberId)?.name) || item.title}`,
+      tone: 'warn' as const,
+      onClick: () => {
         if (item.roomId === roomId && item.messageId) setRoomFocus({ threadId: item.threadId, messageId: item.messageId, nonce: Date.now() });
         else onOpenAttention(item);
-      }}>{item.kind === 'approval' ? '等工具授权' : item.kind === 'login' ? '连接待恢复' : '结果待核对'} · {(item.memberId && team.get(item.memberId)?.name) || item.title}</button>)}
-    </div>
-  </section>;
+      },
+    })),
+  ];
+  const sddStageLabel: Record<string, string> = {
+    idle: '未启动', spec_drafting: '起草 Spec…', spec_review: 'Spec 待审',
+    blind_proposing: '双盲提案中…', synthesizing: '合成对照表中…', plan_review: '对照表待拍板', tasks_ready: '已转任务',
+  };
+  const sideHeaderSummary = <div className="side-summary-stack">
+    {sideAlerts.length > 0 && <div className="side-alerts" role="status">{sideAlerts.map(a => <button key={a.key} type="button" className={`side-alert-pill tone-${a.tone}`} onClick={a.onClick}><span className="t3-dot t3-dot-needs" aria-hidden="true" /><span>{a.label}</span></button>)}</div>}
+    {people.length > 0 && <div className="side-team-pulse" aria-label="成员实时状态">
+      {people.map(member => {
+        const isSpeaking = speakingId === member.id;
+        const activeTask = live ? tasks.find(t => t.memberId === member.id && ['running', 'correcting', 'reviewing'].includes(t.status)) : undefined;
+        const isLead = (live ? flow?.leadMemberId : project.meetingLeaderId) === member.id;
+        const stateText = isSpeaking ? '发言中' : activeTask ? TASK_STATUS[activeTask.status] : ready(member) ? '待命' : '离线';
+        return <button key={member.id} type="button" className={`side-pulse-chip member-${member.id} ${isSpeaking || activeTask ? 'is-working' : ''}`} title={`${member.name}${isLead ? '（Leader）' : ''} · ${stateText}${onOpenReport ? '（点开汇报）' : ''}`} onClick={() => onOpenReport?.(member.id)}>
+          <Avatar member={member} size={20} ring={false} mood={isSpeaking || activeTask ? 'working' : undefined} />
+          <span className="side-pulse-name">{member.name}</span>
+          <span className={`t3-dot ${isSpeaking || activeTask ? 't3-dot-working' : ready(member) ? 't3-dot-idle' : 't3-dot-off'}`} aria-hidden="true" />
+        </button>;
+      })}
+    </div>}
+    <button type="button" className="side-sdd-card" onClick={() => setSddOpen(true)}>
+      <div className="side-sdd-top">
+        <span className="side-sdd-title"><GitCompareArrows size={13} />SDD · 双盲规范</span>
+        <span className={`side-sdd-stage stage-${sddSummary?.stage ?? 'idle'}`}>{sddStageLabel[sddSummary?.stage ?? 'idle'] ?? '未启动'}</span>
+      </div>
+      <div className="side-sdd-pills">
+        <span className={sddSummary?.constitutionText ? 'on' : ''}>宪法{sddSummary?.constitutionText ? ' ✓' : ''}</span>
+        <span className={sddSummary?.specText ? 'on' : ''}>Spec{sddSummary?.specCriteria?.length ? ` (${sddSummary.specCriteria.length})` : ''}</span>
+        <span className={sddSummary?.planText ? 'on' : ''}>双盲 Plan</span>
+        <span className={sddSummary?.tasksText ? 'on' : ''}>Tasks</span>
+      </div>
+    </button>
+  </div>;
   const dock = !data ? null : <FlowDock view={dockView} setView={setDockView} open={dockOpen} onToggle={setDockOpen} waiting={waiting} standing={standing}
     bodyRef={nextStepBody} action={fresh && !picking ? <button type="button" className="button small primary" disabled={busy || people.filter(ready).length < 2} title={people.filter(ready).length < 2 ? '至少需要两位已准备好的成员参加' : ''} onClick={() => { setPicking(true); setDockOpen(true); }}><Hand size={13} />选负责人，起草方案</button> : nextStep?<span className="flow-next-step" role="group" aria-label="项目下一步"><small>下一步</small><button type="button" className="button small primary" disabled={busy} onClick={nextStep.run}>{nextStep.label}</button></span>:undefined}>{items}</FlowDock>;
 
@@ -394,11 +430,11 @@ export function ProjectRoom({ snapshot, project, invoke, onOpenSession,onRoundta
       {activeDocument?<ProjectDocument selection={activeDocument} invoke={invoke} onClose={()=>setDocument(undefined)}/>:!boardOpen?<aside className="project-side-rail" aria-label="看板已收起"><button type="button" className="icon-button" aria-label="展开看板" title="展开看板" onClick={()=>toggleBoard(true)}><PanelRightOpen size={16}/></button><button type="button" className="project-side-rail-label" onClick={()=>toggleBoard(true)}>看板</button>{data.overview.needsUser>0&&<span className="project-side-rail-count" title={`${data.overview.needsUser} 项待你决定`}>{data.overview.needsUser}</span>}</aside>:
       <div className="project-side">
         <div className="project-side-bar">
-          <div className="segmented" role="tablist" aria-label="项目看板视图">{([['work','本段工作'],['hud','会议状态'],['progress','项目进度']] as const).map(([id,text])=><button key={id} type="button" role="tab" aria-selected={boardView===id} className={boardView===id?'selected':''} onClick={()=>setBoardView(id)}>{text}</button>)}</div>
+          <div className="segmented" role="tablist" aria-label="项目工作台视图">{([['work','当前工作'],['progress','历史记录']] as const).map(([id,text])=><button key={id} type="button" role="tab" aria-selected={boardView===id} className={boardView===id?'selected':''} onClick={()=>setBoardView(id)}>{text}</button>)}</div>
           <span className="project-side-tools">{flow&&<button type="button" className="icon-button" aria-label="查看项目记录" title="查看本段工作的项目记录" onClick={()=>setRecordOpen(true)}><ScrollText size={15}/></button>}<button type="button" className="icon-button" aria-label="收起看板" title="收起看板，让聊天更宽" onClick={()=>toggleBoard(false)}><PanelRightClose size={15}/></button></span>
         </div>
-      {boardView==='hud'?meetingHud:boardView==='progress'?<ProjectProgressView project={project} snapshot={snapshot} invoke={invoke}/>:<Board focusedTask={focusedTask} invoke={invoke} rounds={rounds} tasks={tasks} data={data} snapshot={snapshot} busy={busy} blocked={blocked} resultUnknown={resultUnknown} onGiveUp={giveUp} onContinue={(op,evidence)=>resolveAttempt(op,'continue',evidence)} members={team.members.filter(member => flow?.memberIds.includes(member.id))} onLog={setLogTarget}
-        onReassign={(task, memberId) => mutate('projectFlow.task.reassign', { taskId: task.id, expectedRevision: task.revision, memberId }, '已换人，新成员会从头接手这项任务。')} />}
+      {boardView==='progress'?<ProjectProgressView project={project} snapshot={snapshot} invoke={invoke}/>:<div className="side-workspace">{sideHeaderSummary}<Board focusedTask={focusedTask} invoke={invoke} rounds={rounds} tasks={tasks} data={data} snapshot={snapshot} busy={busy} blocked={blocked} resultUnknown={resultUnknown} onGiveUp={giveUp} onContinue={(op,evidence)=>resolveAttempt(op,'continue',evidence)} members={team.members.filter(member => flow?.memberIds.includes(member.id))} onLog={setLogTarget} onOpenSdd={() => setSddOpen(true)}
+        onReassign={(task, memberId) => mutate('projectFlow.task.reassign', { taskId: task.id, expectedRevision: task.revision, memberId }, '已换人，新成员会从头接手这项任务。')} /></div>}
       </div>}
     </div>}
     {logTarget&&<WorkLog key={project.id+logTarget.kind+logTarget.id} project={project} target={logTarget} invoke={invoke} onClose={()=>setLogTarget(null)}/>}
@@ -795,7 +831,7 @@ function DecisionCard({ decision, tasks, rounds, busy, leadName, onAskLead, onAn
 
 type BoardProps = { invoke:Invoke; rounds: Round[]; tasks: Task[]; data: ProjectFlowSnapshot; snapshot: Snapshot; members: TeamMember[]; busy: boolean; blocked: FlowOperation[]; resultUnknown: (op: FlowOperation) => boolean; onGiveUp: (op: FlowOperation, evidence: string) => Promise<boolean>; onContinue:(op:FlowOperation,evidence:string)=>Promise<boolean>;onLog: (target:LogTarget) => void; onReassign: (task: Task, memberId: string) => Promise<boolean> };
 /** The board: one round at a time, its tasks in columns by where they stand; a card opens its details in place. */
-function Board(props: BoardProps & { focusedTask?: { task: Task; nonce: number } }) {
+function Board(props: BoardProps & { focusedTask?: { task: Task; nonce: number }; onOpenSdd?: () => void }) {
   const { rounds, tasks } = props;
   const current = rounds.find(round => round.status !== 'accepted') ?? rounds.at(-1);
   const [roundId, setRoundId] = useState<string>(), [taskId, setTaskId] = useState<string>();
@@ -806,28 +842,31 @@ function Board(props: BoardProps & { focusedTask?: { task: Task; nonce: number }
     setRoundId(props.focusedTask.task.roundId);
     setTaskId(props.focusedTask.task.id);
   }, [props.focusedTask]);
-  if (!rounds.length) return <aside className="board" aria-label="看板"><div className="board-head"><strong>看板</strong></div><p className="board-empty">方案确认后，每项任务会出现在这里，按待开始、进行中、待复核、已完成排列。</p></aside>;
+  if (!rounds.length) return <aside className="board board-compact-empty" aria-label="任务清单">
+    <p className="board-empty">尚未拆解任务。点上方 <strong>SDD · 双盲规范</strong> 即可起草 Spec、双盲出方案并自动生成任务清单。</p>
+  </aside>;
   const inRound = tasks.filter(item => item.roundId === shown?.id);
+  const doneInRound = inRound.filter(item => ['review_passed', 'review_skipped', 'integrated', 'accepted'].includes(item.status)).length;
+  const pct = inRound.length ? Math.round((doneInRound / inRound.length) * 100) : 0;
   const level=shown&&props.data.flow?(shown.effectiveReviewLevel??roundReviewLevel(props.data.flow,shown)):'high';
   const lanes=LANES.filter(lane=>lane.id!=='review'||level==='high'||inRound.some(item=>item.status==='awaiting_review'));
   const roundWorking = Boolean(shown && props.data.flow && props.data.flow.dispatchMode === 'running' && ['integrating', 'checking'].includes(shown.status));
   const roundLeadMember = roundWorking && shown && props.data.flow ? props.members.find(m => m.id === roundLead(props.data.flow!, shown)) : undefined;
-  return <aside className="board" aria-label="看板">
-    <div className="board-head"><strong>看板</strong>
-      <div className="board-rounds" role="tablist" aria-label="轮次">{rounds.map(round => <button key={round.id} type="button" role="tab" aria-selected={round.id === shown?.id} className={`${round.id === shown?.id ? 'selected' : ''} status-${round.status}`} title={`${round.title} · ${ROUND_STATUS[round.status]}`} onClick={() => { setRoundId(round.id); setTaskId(undefined); }}>第 {round.index + 1} 轮{round.status === 'accepted' && <Check size={11} />}</button>)}</div></div>
-    {shown && <p className="board-round-goal"><strong>{shown.title}</strong> · {shown.nextConfirmation&&shown.nextConfirmation.status!=='confirmed'?'等待下一轮确认':ROUND_STATUS[shown.status]}</p>}
-    {shown&&<button className="link-button" onClick={()=>props.onLog({kind:'round',id:shown.id})}>看本轮工作日志</button>}
+  return <aside className="board" aria-label="任务清单">
+    <div className="board-head"><strong>任务进度 {doneInRound}/{inRound.length}</strong>
+      <div className="board-rounds" role="tablist" aria-label="轮次">{rounds.map(round => <button key={round.id} type="button" role="tab" aria-selected={round.id === shown?.id} className={`${round.id === shown?.id ? 'selected' : ''} status-${round.status}`} title={`${round.title} · ${ROUND_STATUS[round.status]}`} onClick={() => { setRoundId(round.id); setTaskId(undefined); }}>R{round.index + 1}{round.status === 'accepted' && <Check size={11} />}</button>)}</div></div>
+    <div className="board-progress-track" aria-hidden="true"><div className="board-progress-fill" style={{ width: `${pct}%` }} /></div>
+    {shown && <div className="board-round-meta"><p className="board-round-goal"><strong>{shown.title}</strong> · {shown.nextConfirmation&&shown.nextConfirmation.status!=='confirmed'?'等待下一轮确认':ROUND_STATUS[shown.status]}</p><button className="link-button" onClick={()=>props.onLog({kind:'round',id:shown.id})}>日志</button></div>}
     {task ? <TaskDetail {...props} task={task} onBack={() => setTaskId(undefined)} />
       : <div className="board-lanes">{lanes.map(lane => {
         const items = inRound.filter(item => lane.statuses.includes(item.status));
         const showRoundCard = lane.id === 'active' && roundWorking && Boolean(shown);
         const count = items.length + (showRoundCard ? 1 : 0);
-        if (lane.id === 'stuck' && !count) return null;
+        if (!count) return null;
         return <section key={lane.id} className={`board-lane lane-${lane.id}`} aria-label={lane.label}><h4>{lane.label}<span>{count}</span></h4>
           {showRoundCard && shown && <button type="button" className={`task-tile status-running${roundLeadMember ? ` member-${roundLeadMember.id}` : ''}`} onClick={() => props.onLog({ kind: 'round', id: shown.id })}>
-            <span className="task-tile-top">{roundLeadMember && <Avatar member={roundLeadMember} size={22} ring={false} mood="working" />}<strong>本轮整体检查与整理汇报</strong></span>
-            <small><span className="pulse" />{ROUND_STATUS[shown.status]}</small>
-            <small>负责人：{roundLeadMember?.name ?? '负责人'}</small>
+            <span className="task-tile-top">{roundLeadMember && <Avatar member={roundLeadMember} size={20} ring={false} mood="working" />}<strong>本轮整体检查与整理汇报</strong></span>
+            <small><span className="t3-dot t3-dot-working" />{ROUND_STATUS[shown.status]}</small>
           </button>}
           {items.map(item => <TaskTile key={item.id} task={item} data={props.data} onOpen={() => setTaskId(item.id)} />)}</section>;
       })}</div>}

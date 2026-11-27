@@ -42,4 +42,52 @@
 .progress-detail-record .markdown { font-size: var(--fs-sm); max-width: 100%; }
 .project-record-setting { display: inline-flex; align-items: center; gap: 6px; margin-right: auto; font-size: var(--fs-sm); color: var(--ink-2); }
 
+.progress-tabs-3 { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); width: 100%; }
+.progress-tabs-3 button { justify-content: center; padding: 4px 6px; font-size: var(--fs-sm); white-space: nowrap; }
+.progress-kpi-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
+.progress-kpi { display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 8px 6px; border-radius: var(--r-md); background: var(--surface-2); border: 1px solid var(--line); }
+.progress-kpi strong { font-size: 16px; font-weight: 700; color: var(--ink); line-height: 1.2; }
+.progress-kpi span { font-size: var(--fs-xs); color: var(--ink-3); }
+
+/* ───────────── Right Side Workspace (T3 / Orca / Linear style) ───────────── */
+.side-workspace { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 8px; overflow: hidden; }
+.side-workspace > .board { flex: 1; min-height: 0; }
+.side-summary-stack { display: flex; flex-direction: column; gap: 7px; flex: none; }
+.side-alerts { display: flex; flex-direction: column; gap: 5px; }
+.side-alert-pill { display: flex; align-items: center; gap: 8px; width: 100%; padding: 7px 10px; border-radius: var(--r-md); border: 1px solid color-mix(in srgb, var(--warn) 42%, var(--line)); background: var(--warn-soft); color: var(--ink); font-size: var(--fs-sm); font-weight: 600; text-align: left; transition: transform .12s var(--ease), background .15s; }
+.side-alert-pill.tone-bad { border-color: color-mix(in srgb, var(--bad) 45%, var(--line)); background: var(--bad-soft); }
+.side-alert-pill:hover { transform: translateY(-1px); }
+.side-team-pulse { display: flex; flex-wrap: wrap; gap: 5px; padding: 6px 8px; border-radius: var(--r-md); background: color-mix(in srgb, var(--surface) 78%, transparent); border: 1px solid var(--line); }
+.side-pulse-chip { display: inline-flex; align-items: center; gap: 5px; padding: 3px 8px 3px 4px; border-radius: 999px; border: 1px solid transparent; background: var(--surface-2); color: var(--ink-2); font-size: var(--fs-xs); font-weight: 600; transition: border-color .15s, color .15s; }
+.side-pulse-chip:hover { border-color: var(--m-line, var(--line-strong)); color: var(--ink); }
+.side-pulse-chip.is-working { border-color: color-mix(in srgb, var(--m, var(--focus)) 45%, var(--line)); color: var(--ink); }
+.side-pulse-name { max-width: 68px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.side-sdd-card { display: flex; flex-direction: column; gap: 6px; width: 100%; padding: 9px 11px; border-radius: var(--r-md); border: 1px solid color-mix(in srgb, var(--focus) 28%, var(--line)); background: linear-gradient(135deg, color-mix(in srgb, var(--focus) 8%, var(--surface)), var(--surface)); text-align: left; transition: border-color .15s, transform .12s var(--ease); }
+.side-sdd-card:hover { border-color: var(--focus); transform: translateY(-1px); }
+.side-sdd-top { display: flex; align-items: center; justify-content: space-between; gap: 6px; }
+.side-sdd-title { display: inline-flex; align-items: center; gap: 5px; font-size: var(--fs-sm); font-weight: 700; color: var(--ink); }
+.side-sdd-stage { padding: 1px 7px; border-radius: 999px; font-size: 11px; font-weight: 600; background: var(--sunken); color: var(--ink-3); }
+.side-sdd-stage.stage-spec_review, .side-sdd-stage.stage-plan_review { background: var(--warn-soft); color: var(--warn); }
+.side-sdd-stage.stage-tasks_ready { background: color-mix(in srgb, var(--ok) 15%, transparent); color: var(--ok); }
+.side-sdd-pills { display: flex; flex-wrap: wrap; gap: 4px; }
+.side-sdd-pills span { padding: 1px 7px; border-radius: 999px; font-size: 11px; color: var(--ink-3); background: var(--surface-2); border: 1px solid var(--line); }
+.side-sdd-pills span.on { color: var(--ink); border-color: color-mix(in srgb, var(--focus) 36%, var(--line)); background: color-mix(in srgb, var(--focus) 10%, var(--surface-2)); }
+.board-progress-track { height: 4px; margin: 0 12px 6px; border-radius: 999px; background: var(--sunken); overflow: hidden; }
+.board-progress-fill { height: 100%; border-radius: 999px; background: linear-gradient(90deg, var(--focus), var(--ok)); transition: width .35s var(--ease); }
+.board-round-meta { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 0 12px 4px; }
+.board-round-meta .board-round-goal { margin: 0; padding: 0; }
+.board-compact-empty { justify-content: center; padding: 14px; }
+
+/* ───────────── T3 Code Non-Layout-Shifting Status Micro-Animations ───────────── */
+.t3-dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; flex: none; }
+.t3-dot-idle { background: var(--ok); opacity: .75; }
+.t3-dot-off { background: var(--ink-3); opacity: .35; }
+.t3-dot-working { width: 9px; height: 9px; border: 1.5px solid var(--m, var(--focus)); border-top-color: transparent; background: transparent; animation: t3-spin .85s linear infinite; }
+.t3-dot-needs { background: var(--warn); animation: t3-breathe 1.6s ease-in-out infinite; }
+@keyframes t3-spin { to { transform: rotate(360deg); } }
+@keyframes t3-breathe { 0%, 100% { opacity: 1; } 50% { opacity: .35; } }
+@media (prefers-reduced-motion: reduce) {
+  .t3-dot-working, .t3-dot-needs { animation: none; }
+}
+
 @media (max-width: 860px) { .project-side { min-height: 460px; } }

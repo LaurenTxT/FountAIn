@@ -25,17 +25,14 @@ export function ProjectProgressView({project,snapshot,invoke}:{project:Project;s
   // Once the user is paging history, keep that collection until an explicit refresh.
   useEffect(()=>{if(page&&!page.cursor&&page.items.length<10)void load();},[stamp]);
   const counts=page?.counts;
-  return <aside className="project-progress" aria-label="项目进度">
-    <header className="progress-head"><h2 title={page?.scope}>项目进度</h2><button type="button" className="icon-button" aria-label="刷新保存记录" title="重新读取保存的记录" disabled={busy} onClick={()=>void load()}><RefreshCw size={14} className={busy?'spin':''}/></button></header>
-    {hasChildren&&<label className="progress-children"><input type="checkbox" checked={includeChildren} onChange={e=>setIncludeChildren(e.target.checked)}/>包含全部子项目</label>}
-    {error&&<p className="round-results-error" role="alert">{error}</p>}{!page&&<p className="task-meta">正在读取项目历史…</p>}
-    {page&&counts&&<section className="progress-counts" aria-label="全项目统计">
-      <p className="progress-total">共 {counts.flows.total} 段工作：{counts.flows.active} 段进行中，{counts.flows.completed} 段已完成，{counts.flows.cancelled} 段已取消。</p>
-      <dl>
-        <dt>当前方案</dt><dd>轮次已验收 {counts.latestPlans.acceptedRounds}/{counts.latestPlans.rounds} · 任务已验收 {counts.latestPlans.acceptedTasks}/{counts.latestPlans.tasks}{counts.latestPlans.cancelledTasks?` · 取消 ${counts.latestPlans.cancelledTasks}`:''}</dd>
-        <dt>历史累计</dt><dd>{counts.allSaved.plans} 个方案 · {counts.allSaved.rounds} 轮 · {counts.allSaved.tasks} 条任务 · {counts.allSaved.results} 个成果版本 · {counts.allSaved.acceptances} 条验收与驳回</dd>
-      </dl>
-      <small>{page.countScope}</small>
+  return <aside className="project-progress" aria-label="历史记录">
+    <header className="progress-head"><h2 title={page?.scope}>历史记录</h2><button type="button" className="icon-button" aria-label="刷新保存记录" title="重新读取保存的记录" disabled={busy} onClick={()=>void load()}><RefreshCw size={14} className={busy?'spin':''}/></button></header>
+    {hasChildren&&<label className="progress-children"><input type="checkbox" checked={includeChildren} onChange={e=>setIncludeChildren(e.target.checked)}/>包含子项目</label>}
+    {error&&<p className="round-results-error" role="alert">{error}</p>}{!page&&<p className="task-meta">正在读取历史…</p>}
+    {page&&counts&&<section className="progress-kpi-grid" aria-label="项目统计">
+      <div className="progress-kpi"><strong>{counts.flows.active}</strong><span>进行中</span></div>
+      <div className="progress-kpi"><strong>{counts.flows.completed}</strong><span>已完成</span></div>
+      <div className="progress-kpi"><strong>{counts.latestPlans.acceptedRounds}/{counts.latestPlans.rounds}</strong><span>已验收轮次</span></div>
     </section>}
     {page?.items.map(flow=>{const open=expanded===flow.id;return <article className={`progress-flow status-${flow.status} ${open?'open':''}`} key={flow.id}>
       <button type="button" className="progress-flow-title" aria-expanded={open} onClick={()=>setExpanded(open?undefined:flow.id)}>{open?<ChevronDown size={14}/>:<ChevronRight size={14}/>}<strong>{flow.objective}</strong><span className="progress-status">{label(flow.status)}</span></button>
@@ -54,7 +51,7 @@ function ProgressDetails({project,flow,invoke}:{project:Project;flow:FlowTimelin
   useEffect(()=>{setPage(undefined);void load();return()=>{ticket.current++;};},[project.id,flow.id,section]);
   async function exportRound(id:string){try{const result=await invoke<{title:string;markdown:string}>('projectFlow.round.report.export',{projectId:project.id,roundId:id});await invoke('file.save',{name:result.title+'.md',content:result.markdown});}catch(e){setError((e as Error).message);}}
   return <div className="progress-details">
-    <div className="segmented progress-tabs" role="tablist" aria-label="历史记录类别">{(Object.keys(sectionLabels) as ProgressSection[]).map(s=><button type="button" role="tab" key={s} aria-selected={s===section} className={s===section?'selected':''} onClick={()=>{setPage(undefined);setSection(s);}}>{sectionLabels[s]}</button>)}</div>
+    <div className="segmented progress-tabs-3" role="tablist" aria-label="历史记录类别">{(['rounds', 'tasks', 'acceptances'] as ProgressSection[]).map(s=><button type="button" role="tab" key={s} aria-selected={s===section} className={s===section?'selected':''} onClick={()=>{setPage(undefined);setSection(s);}}>{s==='rounds'?'各轮汇报':s==='tasks'?'任务与方案':'验收记录'}</button>)}</div>
     <button type="button" className="link-button progress-record-link" onClick={()=>setRecord(true)}>查看本段项目记录</button>
     {error&&<p className="round-results-error" role="alert">{error}</p>}{page&&<p className="progress-scope">{page.scope}</p>}
     {(page?.section===section?page.items:[])?.map(item=><section key={item.id} className="progress-detail-record">
