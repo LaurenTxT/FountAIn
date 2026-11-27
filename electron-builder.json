@@ -34,11 +34,14 @@
     "target": ["AppImage", "deb"],
     "icon": "build/fountain.png",
     "category": "Development",
+    "maintainer": "Louisxx <louisxx@users.noreply.github.com>",
     "artifactName": "FountAIn-${version}-${arch}.${ext}",
     "desktop": {
-      "Name": "FountAIn",
-      "Comment": "FountAIn — 本地多模型 AI 协作工作台",
-      "StartupWMClass": "fountain"
+      "entry": {
+        "Name": "FountAIn",
+        "Comment": "FountAIn — 本地多模型 AI 协作工作台",
+        "StartupWMClass": "fountain"
+      }
     }
   }
 }
