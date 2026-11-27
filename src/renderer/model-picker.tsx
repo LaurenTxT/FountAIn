@@ -26,6 +26,7 @@ export function ModelPicker({ provider, info, settings, setSettings, invoke }: {
       </select>}
       {(custom || !options.length) && <input aria-label="模型" disabled={!configuration.modelConfigurable} value={model} onChange={event => setModel(event.target.value)} placeholder={options.length ? '填写模型名称' : (info?.model ?? '留空使用成员默认')} spellCheck={false} />}
       {active?.description ? <small>{active.description}</small> : !options.length && <small>检查连接后会列出这位成员可用的模型。</small>}
+      <small>提示：若成员在「管理人物卡」开启了「智能省流」，系统会按闲聊 / 开会 / 复核自动选模型，此处模型仅「全勤」或兜底时生效；下方思考程度全局生效。</small>
     </label>
     <label className="field compact">思考程度
       <select aria-label="思考程度" disabled={configuration.checking} value={effort} onChange={event => setEffort(event.target.value)}>

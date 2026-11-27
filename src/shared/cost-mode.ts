@@ -210,7 +210,7 @@ function resolveLightModel(executor: string, raw: string, lower: string, customE
  * - casual:       Claude Sonnet | Gemini 4 Neon   | GPT-6.2-Sol   | DeepSeek-Flash
  * - keyword_bump: Claude Opus   | Gemini 4 Neon   | GPT-6.2-Sol   | DeepSeek-Flash
  * - engineering:  Claude Opus   | Gemini 4 Neon   | GPT-6.2-Sol   | DeepSeek-Flash
- * - review:       Claude Fable  | Gemini 4 Carbon | GPT-6.2-Astra | DeepSeek-V4-Pro
+ * - review:       Claude Fable  | Gemini 4 Carbon | GPT-6.2-Sol   | DeepSeek-V4-Pro
  * - escalated:    Claude Opus   | Gemini 4 Carbon (Medium) | GPT-6.2-Astra | DeepSeek-V4-Pro
  */
 export function resolveTierModel(
@@ -253,7 +253,10 @@ export function resolveTierModel(
   if (executor === 'claude' || lower.includes('claude') || lower.includes('fable') || lower.includes('sonnet') || lower.includes('opus')) {
     return overrides?.escalated ? 'opus' : 'fable';
   }
-  if (executor === 'codex') return raw && lower.includes('astra') ? raw : 'gpt-6.2-astra';
+  if (executor === 'codex') {
+    if (overrides?.escalated) return raw && lower.includes('astra') ? raw : 'gpt-6.2-astra';
+    return 'gpt-6.2-sol';
+  }
   if (executor === 'dsh' || executor === 'deepseek') return 'deepseek-v4-pro';
   if (lower.includes('neon')) {
     const upgraded = replacePreservingCase(raw, /neon/gi, 'carbon', 'Carbon');

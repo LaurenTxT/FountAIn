@@ -44,21 +44,29 @@ export type RoomFocus = { threadId?: string; messageId?: string; nonce: number }
 const mergeMessages = (...groups: RoomMessage[][]) => [...new Map(groups.flat().map(message => [message.id, message])).values()];
 
 const QUESTION_STOP = /[？?。！!]+$/u;
-/** Extract 1-click quick-choice suggestions from common A/B or yes/no member questions. */
-function extractQuestionChoices(raw: string): string[] {
+const REC_TAG = /[（(]\s*(?:推荐|建议|优先)\s*[）)]|^(?:推荐|建议)[：:]\s*/u;
+/** Extract 1-click quick-choice suggestions (with optional recommended flag) from common A/B or yes/no member questions. */
+function extractQuestionChoices(raw: string): { text: string; recommended?: boolean }[] {
   const clean = raw.replace(/\s+/g, ' ').trim();
   if (!clean) return [];
   const colonIdx = Math.max(clean.lastIndexOf('：'), clean.lastIndexOf(':'));
   const body = colonIdx >= 0 && clean.length - colonIdx > 6 ? clean.slice(colonIdx + 1).trim() : clean;
   const trimmed = body.replace(QUESTION_STOP, '').trim();
-  const orMatch = trimmed.match(/^(?:你是想|你希望|请问|请问是|是)?(.{2,60}?)[，,、\s]*还是\s*(.{2,60})$/u);
+  const normalize = (s: string) => {
+    const recommended = REC_TAG.test(s);
+    const text = s.replace(REC_TAG, '').replace(/^(?:先|直接)?是/u, '').trim();
+    return { text, ...(recommended ? { recommended: true } : {}) };
+  };
+  const orMatch = trimmed.match(/^(?:你是想|你希望|请问|请问是|是)?(.{2,65}?)[，,、\s]*还是\s*(.{2,65})$/u);
   if (orMatch) {
-    const a = orMatch[1].replace(/^(?:先|直接)?是/u, '').trim();
-    const b = orMatch[2].replace(/^(?:先|直接)?是/u, '').trim();
-    if (a && b && a !== b) return [a, b];
+    const a = normalize(orMatch[1]);
+    const b = normalize(orMatch[2]);
+    if (a.text && b.text && a.text !== b.text) {
+      return b.recommended && !a.recommended ? [b, a] : [a, b];
+    }
   }
   if (/(?:是否|确认.{0,30}吗|可以吗|行吗|好吗|同意.{0,12}吗|要不要|需要.{0,16}吗)/u.test(clean)) {
-    return ['可以，按这个来', '先等等，我补充一下'];
+    return [{ text: '可以，按这个来', recommended: true }, { text: '先等等，我补充一下' }];
   }
   return [];
 }
@@ -1033,8 +1041,8 @@ export function RoomView({ snapshot, invoke: rawInvoke, onOpenSession, onDocumen
               <span className="oq-choices-label">快捷选择（点击填入，可再补充）</span>
               <div className="oq-choices-list">
                 {quickChoices.map(choice => {
-                  const chosen = questionDialog.text.trim() === choice;
-                  return <button type="button" key={choice} className={`oq-choice ${chosen ? 'selected' : ''}`} disabled={questionBusy} onClick={() => { setQuestionDialog({ ...questionDialog, text: choice }); requestAnimationFrame(() => { const el = questionTextarea.current; if (el) { el.focus(); el.setSelectionRange(choice.length, choice.length); } }); }}>{choice}</button>;
+                  const chosen = questionDialog.text.trim() === choice.text;
+                  return <button type="button" key={choice.text} className={`oq-choice ${chosen ? 'selected' : ''} ${choice.recommended ? 'recommended' : ''}`} disabled={questionBusy} onClick={() => { setQuestionDialog({ ...questionDialog, text: choice.text }); requestAnimationFrame(() => { const el = questionTextarea.current; if (el) { el.focus(); el.setSelectionRange(choice.text.length, choice.text.length); } }); }}>{choice.recommended && <span className="oq-rec-tag">推荐</span>}{choice.text}</button>;
                 })}
               </div>
             </div>}

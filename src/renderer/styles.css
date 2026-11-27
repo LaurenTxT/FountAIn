@@ -375,6 +375,7 @@ p, li, dd, small { text-wrap: pretty; }
 .oq-choice { padding: 7px 13px; border-radius: 999px; border: 1px solid color-mix(in srgb, var(--m, var(--focus)) 32%, var(--line)); background: var(--surface-2); color: var(--ink); font-size: var(--fs-md); font-weight: 500; text-align: left; line-height: 1.35; transition: background .15s, border-color .15s, transform .12s, box-shadow .15s; }
 .oq-choice:hover:not(:disabled) { background: color-mix(in srgb, var(--m, var(--focus)) 14%, var(--surface-2)); border-color: var(--m, var(--focus)); transform: translateY(-1px); }
 .oq-choice.selected { background: color-mix(in srgb, var(--m, var(--focus)) 20%, var(--surface-2)); border-color: var(--m, var(--focus)); box-shadow: 0 0 0 1px color-mix(in srgb, var(--m, var(--focus)) 35%, transparent); font-weight: 600; }
+.oq-rec-tag { display: inline-block; margin-right: 6px; padding: 1px 6px; border-radius: 999px; font-size: 11px; font-weight: 700; background: color-mix(in srgb, var(--m, var(--focus)) 22%, transparent); color: var(--m-ink, var(--focus)); vertical-align: 1px; }
 .oq-field > span { font-weight: 600; color: var(--ink-2); }
 .oq-textarea { min-height: 92px; padding: 11px 13px; border-radius: var(--r-md); line-height: 1.6; resize: vertical; transition: border-color .15s, box-shadow .15s; }
 .oq-textarea:focus { border-color: var(--m, var(--focus)); box-shadow: 0 0 0 3px color-mix(in srgb, var(--m, var(--focus)) 18%, transparent); }
