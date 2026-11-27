@@ -7,6 +7,7 @@ import { EngineBackups } from "./engine-backups";
 import { LegacyCollaborations } from "./engine-collaborations";
 import { ComposerDrafts } from "./composer-drafts";
 import { ensurePortableNode } from "./portable-node";
+import { portableNode } from "./portable-node-path";
 import {
   newCompatibility,
   withCompatibility,
@@ -115,6 +116,7 @@ import { Store } from "./store";
 import { RoomDiscussionController } from "./room-discussion";
 import { SddController } from "./sdd-flow";
 import { WorkspaceToolsController } from "./workspace-tools";
+import { TerminalManager } from "./terminal-manager";
 import { QqBridgeController, type QqInboundMessage, type QqReplyTarget } from "./qq-bridge";
 import { RoomContexts } from "./room-contexts";
 import type { RoomId } from "../shared/types";
@@ -391,6 +393,7 @@ export class Engine {
   private qqBridge!: QqBridgeController;
   private sdd!: SddController;
   private workspaceTools!: WorkspaceToolsController;
+  private terminals!: TerminalManager;
   private projectRelayFocus = new Map<string, ProjectRelayTarget>();
   private crossRoomWaiters = new Map<
     RoomId,
@@ -855,6 +858,16 @@ export class Engine {
       applySessionWorkspace: async (sessionId) => {
         return this.invoke("workspace.apply", { sessionId });
       },
+    });
+    this.terminals = new TerminalManager(this.store, {
+      recentRoomMessages: (roomId, limit) => {
+        try {
+          return this.rooms.get(roomId).store.roomMessages(limit);
+        } catch {
+          return [];
+        }
+      },
+      resolveNodeExecutable: () => portableNode(this.store.dataDirectory) ?? "node",
     });
     if (!timing?.maintenanceOnly) {
       this.qqBridge.reconfigure(this.settings.qqBridge);
@@ -2854,7 +2867,8 @@ export class Engine {
       method.startsWith("project.file.") ||
       method.startsWith("project.scripts.") ||
       method.startsWith("project.checkpoints.") ||
-      method.startsWith("project.fanout.")
+      method.startsWith("project.fanout.") ||
+      method.startsWith("project.terminal.")
     ) {
       const readMethods = new Set([
         "project.git.status",
@@ -2864,6 +2878,8 @@ export class Engine {
         "project.checkpoints.list",
         "project.checkpoints.diff",
         "project.fanout.get",
+        "project.terminal.list",
+        "project.terminal.read",
       ]);
       if (this.maintenance && !readMethods.has(method))
         throw new Error("正在备份或恢复资料，请等完成后再操作。");
@@ -2932,6 +2948,29 @@ export class Engine {
           return this.workspaceTools.adoptFanout(projectId, String(params?.memberId ?? ""));
         case "project.fanout.reset":
           return this.workspaceTools.resetFanout(projectId);
+        case "project.terminal.list":
+          return this.terminals.list(projectId);
+        case "project.terminal.read":
+          return this.terminals.read(String(params?.terminalId ?? ""));
+        case "project.terminal.create":
+          return this.terminals.create({
+            projectId,
+            title: params?.title ? String(params.title) : undefined,
+            initialCommand: params?.initialCommand ? String(params.initialCommand) : undefined,
+          });
+        case "project.terminal.write":
+          return this.terminals.write(String(params?.terminalId ?? ""), String(params?.command ?? ""));
+        case "project.terminal.interrupt":
+          return this.terminals.interrupt(String(params?.terminalId ?? ""));
+        case "project.terminal.close":
+          return this.terminals.close(String(params?.terminalId ?? ""));
+        case "project.terminal.launchMember":
+          return this.terminals.launchMemberTerminal({
+            projectId,
+            roomId: String(params?.roomId ?? `project:${projectId}`) as RoomId,
+            memberId: String(params?.memberId ?? "shell"),
+            inheritContext: Boolean(params?.inheritContext),
+          });
         default:
           throw new Error("不支持的工作区工具请求。");
       }

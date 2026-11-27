@@ -1,6 +1,7 @@
 import {joinClauses,plainFlowError,readableContent} from '../shared/content-presentation';
-import { GitBranch, GitCompareArrows, History, LayoutList, Terminal } from 'lucide-react';
+import { ExternalLink, GitBranch, GitCompareArrows, History, LayoutList, Terminal } from 'lucide-react';
 import { WorkspaceCodePanel } from './workspace-code-panel';
+import { WorkspaceTerminalPanel } from './workspace-terminal-panel';
 import { FanoutModal } from './fanout-modal';
 import './workspace-tools.css';
 import {workspaceLocation} from './workspace-location';
@@ -89,16 +90,16 @@ export function ProjectRoom({ snapshot, project, invoke, onOpenSession,onRoundta
   const [boardOpen,setBoardOpen]=useState(()=>{try{return localStorage.getItem('fountain.projectBoard')!=='closed';}catch{return true;}});
   const toggleBoard=(open:boolean)=>{setBoardOpen(open);try{localStorage.setItem('fountain.projectBoard',open?'open':'closed');}catch{}};
   const [includePreviousRecord,setIncludePreviousRecord]=useState(true),[addition,setAddition]=useState<{memberId:string;goal:string;task?:Task;proposal?:TaskAddition}|null>(null);
-  const [boardView,setBoardView]=useState<'work'|'code'|'progress'>('work');
-  const [scriptsOpen, setScriptsOpen] = useState(false);
+  const [boardView,setBoardView]=useState<'work'|'code'|'terminal'|'progress'>('work');
   const [fanoutOpen, setFanoutOpen] = useState(false);
   const [checkpointTrigger, setCheckpointTrigger] = useState(0);
-  useEffect(()=>{setBoardView('work');setScriptsOpen(false);setFanoutOpen(false);},[project.id]);
+  const [memberPopoverId, setMemberPopoverId] = useState<string | null>(null);
+  useEffect(()=>{setBoardView('work');setFanoutOpen(false);setMemberPopoverId(null);},[project.id]);
   useEffect(() => {
     const onCmd = (ev: Event) => {
       const cmd = (ev as CustomEvent<string>).detail;
       if (cmd === 'open-code') { toggleBoard(true); setBoardView('code'); }
-      else if (cmd === 'toggle-scripts') { toggleBoard(true); setBoardView('code'); setScriptsOpen(v => !v); }
+      else if (cmd === 'toggle-scripts') { toggleBoard(true); setBoardView(v => (v === 'terminal' ? 'work' : 'terminal')); }
       else if (cmd === 'open-sdd') setSddOpen(true);
       else if (cmd === 'open-fanout') setFanoutOpen(true);
       else if (cmd === 'toggle-board') toggleBoard(!boardOpen);
@@ -108,7 +109,7 @@ export function ProjectRoom({ snapshot, project, invoke, onOpenSession,onRoundta
       if (!(ev.ctrlKey || ev.metaKey) || ev.altKey) return;
       const k = ev.key.toLowerCase();
       if (k === 'b' && !ev.shiftKey) { ev.preventDefault(); toggleBoard(!boardOpen); }
-      else if (k === 'j' && !ev.shiftKey) { ev.preventDefault(); toggleBoard(true); setBoardView('code'); setScriptsOpen(v => !v); }
+      else if (k === 'j' && !ev.shiftKey) { ev.preventDefault(); toggleBoard(true); setBoardView(v => (v === 'terminal' ? 'work' : 'terminal')); }
       else if (k === 's' && ev.shiftKey) { ev.preventDefault(); setSddOpen(true); }
       else if (k === 'f' && ev.shiftKey) { ev.preventDefault(); setFanoutOpen(true); }
       else if (k === 'g' && ev.shiftKey) { ev.preventDefault(); toggleBoard(true); setBoardView('code'); }
@@ -378,18 +379,31 @@ export function ProjectRoom({ snapshot, project, invoke, onOpenSession,onRoundta
   };
   const sideHeaderSummary = <div className="side-summary-stack">
     {sideAlerts.length > 0 && <div className="side-alerts" role="status">{sideAlerts.map(a => <button key={a.key} type="button" className={`side-alert-pill tone-${a.tone}`} onClick={a.onClick}><span className="t3-dot t3-dot-needs" aria-hidden="true" /><span>{a.label}</span></button>)}</div>}
-    {people.length > 0 && <div className="side-team-pulse" aria-label="成员实时状态">
-      {people.map(member => {
-        const isSpeaking = speakingId === member.id;
-        const activeTask = live ? tasks.find(t => t.memberId === member.id && ['running', 'correcting', 'reviewing'].includes(t.status)) : undefined;
-        const isLead = (live ? flow?.leadMemberId : project.meetingLeaderId) === member.id;
-        const stateText = isSpeaking ? '发言中' : activeTask ? TASK_STATUS[activeTask.status] : ready(member) ? '待命' : '离线';
-        return <button key={member.id} type="button" className={`side-pulse-chip member-${member.id} ${isSpeaking || activeTask ? 'is-working' : ''}`} title={`${member.name}${isLead ? '（Leader）' : ''} · ${stateText}${onOpenReport ? '（点开汇报）' : ''}`} onClick={() => onOpenReport?.(member.id)}>
-          <Avatar member={member} size={20} ring={false} mood={isSpeaking || activeTask ? 'working' : undefined} />
-          <span className="side-pulse-name">{member.name}</span>
-          <span className={`t3-dot ${isSpeaking || activeTask ? 't3-dot-working' : ready(member) ? 't3-dot-idle' : 't3-dot-off'}`} aria-hidden="true" />
-        </button>;
-      })}
+    {people.length > 0 && <div className="side-team-pulse-wrap">
+      <div className="side-team-pulse" aria-label="成员实时状态">
+        {people.map(member => {
+          const isSpeaking = speakingId === member.id;
+          const activeTask = live ? tasks.find(t => t.memberId === member.id && ['running', 'correcting', 'reviewing'].includes(t.status)) : undefined;
+          const isLead = (live ? flow?.leadMemberId : project.meetingLeaderId) === member.id;
+          const stateText = isSpeaking ? '发言中' : activeTask ? TASK_STATUS[activeTask.status] : ready(member) ? '待命' : '离线';
+          const selected = memberPopoverId === member.id;
+          return <button key={member.id} type="button" className={`side-pulse-chip member-${member.id} ${isSpeaking || activeTask ? 'is-working' : ''} ${selected ? 'is-selected' : ''}`} title={`${member.name}${isLead ? '（Leader）' : ''} · ${stateText}（点击打开终端或汇报）`} onClick={() => setMemberPopoverId(prev => (prev === member.id ? null : member.id))}>
+            <Avatar member={member} size={20} ring={false} mood={isSpeaking || activeTask ? 'working' : undefined} />
+            <span className="side-pulse-name">{member.name}</span>
+            <span className={`t3-dot ${isSpeaking || activeTask ? 't3-dot-working' : ready(member) ? 't3-dot-idle' : 't3-dot-off'}`} aria-hidden="true" />
+          </button>;
+        })}
+      </div>
+      {memberPopoverId && (() => {
+        const target = people.find(m => m.id === memberPopoverId);
+        if (!target) return null;
+        return <div className="side-member-quickbar" role="group" aria-label={`${target.name} 快捷操作`}>
+          <span className="side-member-quickbar-name">{target.name}</span>
+          <button type="button" className="button small quiet" onClick={() => { setMemberPopoverId(null); void invoke('project.terminal.launchMember', { projectId: project.id, roomId, memberId: target.id, inheritContext: false }, `已新开 ${target.name} 终端。`).catch(e => setError((e as Error).message)); }}><ExternalLink size={11} />新开终端</button>
+          <button type="button" className="button small secondary" onClick={() => { setMemberPopoverId(null); void invoke('project.terminal.launchMember', { projectId: project.id, roomId, memberId: target.id, inheritContext: true }, `已继承聊天上下文打开 ${target.name} 终端。`).catch(e => setError((e as Error).message)); }}><Terminal size={11} />继承聊天开终端</button>
+          {onOpenReport && <button type="button" className="button small quiet" onClick={() => { setMemberPopoverId(null); onOpenReport(target.id); }}>看汇报</button>}
+        </div>;
+      })()}
     </div>}
     <div className="side-quick-cards">
       <button type="button" className="side-action-card is-sdd" onClick={() => setSddOpen(true)}>
@@ -486,14 +500,14 @@ export function ProjectRoom({ snapshot, project, invoke, onOpenSession,onRoundta
           <div className="segmented side-segmented-icons" role="tablist" aria-label="项目工作台视图">
             <button type="button" role="tab" aria-selected={boardView==='work'} className={boardView==='work'?'selected':''} onClick={()=>setBoardView('work')}><LayoutList size={13}/><span>工作</span></button>
             <button type="button" role="tab" aria-selected={boardView==='code'} className={boardView==='code'?'selected':''} onClick={()=>setBoardView('code')}><GitBranch size={13}/><span>代码</span></button>
+            <button type="button" role="tab" aria-selected={boardView==='terminal'} className={boardView==='terminal'?'selected':''} onClick={()=>setBoardView('terminal')} title="交互终端与成员 CLI (Ctrl+J)"><Terminal size={13}/><span>终端</span></button>
             <button type="button" role="tab" aria-selected={boardView==='progress'} className={boardView==='progress'?'selected':''} onClick={()=>setBoardView('progress')}><History size={13}/><span>历史</span></button>
           </div>
           <span className="project-side-tools">
-            <button type="button" className={`icon-button ${scriptsOpen && boardView==='code' ? 'active' : ''}`} aria-label="脚本运行器" title="项目脚本运行器 (Ctrl+J)" onClick={()=>{setBoardView('code');setScriptsOpen(v=>!v);}}><Terminal size={14}/></button>
             <button type="button" className="icon-button" aria-label="收起看板" title="收起右侧栏 (Ctrl+B)" onClick={()=>toggleBoard(false)}><PanelRightClose size={15}/></button>
           </span>
         </div>
-      {boardView==='progress'?<ProjectProgressView project={project} snapshot={snapshot} invoke={invoke}/>:boardView==='code'?<WorkspaceCodePanel project={project} roomId={roomId} roster={roster} invoke={invoke} scriptsOpen={scriptsOpen} onToggleScripts={(open)=>setScriptsOpen(v=>open===undefined?!v:open)} onOpenDocument={(rel, edit)=>setDocument({projectId:project.id,target:rel,edit})} checkpointTrigger={checkpointTrigger}/>:<div className="side-workspace">{sideHeaderSummary}<Board focusedTask={focusedTask} invoke={invoke} rounds={rounds} tasks={tasks} data={data} snapshot={snapshot} busy={busy} blocked={blocked} resultUnknown={resultUnknown} onGiveUp={giveUp} onContinue={(op,evidence)=>resolveAttempt(op,'continue',evidence)} members={team.members.filter(member => flow?.memberIds.includes(member.id))} onLog={setLogTarget} onOpenSdd={() => setSddOpen(true)}
+      {boardView==='progress'?<ProjectProgressView project={project} snapshot={snapshot} invoke={invoke}/>:boardView==='terminal'?<WorkspaceTerminalPanel project={project} roomId={roomId} roster={roster} invoke={invoke}/>:boardView==='code'?<WorkspaceCodePanel project={project} roomId={roomId} roster={roster} invoke={invoke} scriptsOpen={false} onToggleScripts={()=>setBoardView('terminal')} onOpenDocument={(rel, edit)=>setDocument({projectId:project.id,target:rel,edit})} checkpointTrigger={checkpointTrigger}/>:<div className="side-workspace">{sideHeaderSummary}<Board focusedTask={focusedTask} invoke={invoke} rounds={rounds} tasks={tasks} data={data} snapshot={snapshot} busy={busy} blocked={blocked} resultUnknown={resultUnknown} onGiveUp={giveUp} onContinue={(op,evidence)=>resolveAttempt(op,'continue',evidence)} members={team.members.filter(member => flow?.memberIds.includes(member.id))} onLog={setLogTarget} onOpenSdd={() => setSddOpen(true)}
         onReassign={(task, memberId) => mutate('projectFlow.task.reassign', { taskId: task.id, expectedRevision: task.revision, memberId }, '已换人，新成员会从头接手这项任务。')} /></div>}
       </div>}
     </div>}

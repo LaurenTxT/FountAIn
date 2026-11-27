@@ -6,6 +6,8 @@ export const WORKSPACE_TOOLS_READS = [
   'project.checkpoints.list',
   'project.checkpoints.diff',
   'project.fanout.get',
+  'project.terminal.list',
+  'project.terminal.read',
 ] as const;
 
 export const WORKSPACE_TOOLS_WRITES = [
@@ -21,6 +23,11 @@ export const WORKSPACE_TOOLS_WRITES = [
   'project.fanout.start',
   'project.fanout.adopt',
   'project.fanout.reset',
+  'project.terminal.create',
+  'project.terminal.write',
+  'project.terminal.interrupt',
+  'project.terminal.close',
+  'project.terminal.launchMember',
 ] as const;
 
 export const WORKSPACE_TOOLS_METHODS = [
@@ -124,6 +131,30 @@ export interface FanoutState {
   candidates: FanoutCandidate[];
   createdAt: string;
   updatedAt: string;
+}
+
+export interface TerminalTabSummary {
+  id: string;
+  projectId: string;
+  title: string;
+  kind: 'shell' | 'member';
+  memberId?: string;
+  alive: boolean;
+  exitCode?: number | null;
+  createdAt: string;
+}
+
+export interface TerminalOutputSnapshot extends TerminalTabSummary {
+  output: string;
+  seq: number;
+}
+
+export interface MemberTerminalLaunchResult {
+  launched: boolean;
+  title: string;
+  command: string;
+  handoffFile?: string;
+  mode: 'windows-terminal' | 'native-console' | 'in-app';
 }
 
 /** Format Orca-style inline diff annotations into a concise, actionable prompt for an agent. */
