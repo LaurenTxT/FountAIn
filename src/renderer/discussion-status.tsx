@@ -16,8 +16,9 @@ function phaseLabel(d: RoomDiscussion) {
 }
 
 /** Who is in the room and how the conversation stands, in one bar: the invite chips double as the speakers' status. */
-export function RoomPresence({ discussion: d, state, invited, ready, locked, busy, onToggle, onPause, onResume, onEnd, onConfigure,onHost,onMention,onRest,onAnswer,showNextStep=true,flowNextStep=false }: {
+export function RoomPresence({ discussion: d, state, invited, ready, locked, busy, modelLabels, onToggle, onPause, onResume, onEnd, onConfigure,onHost,onMention,onRest,onAnswer,showNextStep=true,flowNextStep=false }: {
   discussion?: RoomDiscussion; state: RoomState; invited: string[]; ready: (member: TeamMember) => boolean; locked: boolean; busy: boolean;
+  modelLabels?: Record<string, { short: string; full: string }>;
   onToggle: (id: string) => void; onPause: () => void; onResume: () => void; onEnd: () => void;
   onConfigure?:(id:string)=>void;
   onHost?:(id:string)=>void;
@@ -61,12 +62,15 @@ export function RoomPresence({ discussion: d, state, invited, ready, locked, bus
           const skipped=on?d?.skippedMembers?.[member.id]:undefined;
           const awaiting=d?.phase==='awaiting-host',pick=(awaiting||d?.phase==='raising'&&d.hostPick&&d.handRound?.status==='collecting')&&raised&&!skipped&&Boolean(onHost);
           const tag = skipped ? '已跳过' : speaking ? '发言中' : ballot?.status === 'done' ? (ballot.want ? `举手 ${ballot.want}/3` : '不补充') : ballot ? BALLOT[ballot.status] : undefined;
-          const title = skipped?.reason || ballot?.why || ballot?.error || (!ok ? `${member.product} 还没准备好` : locked ? on ? '正在发言中，稍后可调整' : '发言进行中，稍后可以邀请' : on ? '点一下请 TA 离开' : '点一下邀请 TA 加入当前讨论');
+          const modelInfo = on && ok ? modelLabels?.[member.id] : undefined;
+          const baseTitle = skipped?.reason || ballot?.why || ballot?.error || (!ok ? `${member.product} 还没准备好` : locked ? on ? '正在发言中，稍后可调整' : '发言进行中，稍后可以邀请' : on ? '点一下请 TA 离开' : '点一下邀请 TA 加入当前讨论');
+          const chipTitle = `${pick?ballot?.why:onConfigure&&on?'调整 '+member.name+' 的项目配置':baseTitle}${modelInfo ? `\n当前模型：${modelInfo.full}` : ''}`;
           return <span key={member.id} className="guest-chip-group"><button type="button" className={`guest-chip member-${member.id} ${on ? 'on' : ''} ${locked ? 'locked' : ''} ${speaking ? 'speaking' : ''} ${ok ? '' : 'unready'}`}
-            aria-pressed={on} aria-label={pick?'请 '+member.name+' 发言':undefined} disabled={pick?!ok||busy:awaiting?true:onConfigure&&on?busy:!ok||locked||busy} title={pick?ballot?.why:onConfigure&&on?'调整 '+member.name+' 的项目配置':title} onClick={() => pick?onHost!(member.id):onConfigure&&on?onConfigure(member.id):onToggle(member.id)}>
+            aria-pressed={on} aria-label={pick?'请 '+member.name+' 发言':undefined} disabled={pick?!ok||busy:awaiting?true:onConfigure&&on?busy:!ok||locked||busy} title={chipTitle} onClick={() => pick?onHost!(member.id):onConfigure&&on?onConfigure(member.id):onToggle(member.id)}>
             <span className={`guest-chip-avatar ${on && !pick && onMention ? 'mentionable' : ''}`} title={on && !pick && onMention ? `点击头像 @${member.name}` : undefined} onClick={event => { if (on && !pick && onMention) { event.stopPropagation(); onMention(member); } }}><Avatar member={member} size={24} ring={false} mood={speaking ? 'working' : undefined} />{raised && <Hand size={11} className="guest-chip-hand" role="img" aria-label={`${member.name} 已举手`} />}</span>
             <span className="guest-chip-name">{member.name}</span>
-            {tag ? <small className="guest-chip-tag">{tag}</small> : on && !locked && <Check size={12} />}
+            {modelInfo && !pick && <small className="guest-chip-model">{modelInfo.short}</small>}
+            {tag ? <small className="guest-chip-tag">{tag}</small> : on && !locked && !modelInfo && <Check size={12} />}
             {pick&&ballot?.why&&<small className="guest-chip-reason">{ballot.why}</small>}
           </button>{onRest&&on&&<button type="button" className="guest-chip-rest" aria-label={'让 '+member.name+' 休息'}
             title={'让 '+member.name+' 暂时休息'} disabled={busy} onClick={()=>onRest(member.id,true)}><Moon size={13}/></button>}{onConfigure&&on&&<button type="button" className="guest-chip-leave" aria-label={'请 '+member.name+' 离开'} title={'请 '+member.name+' 离开会议室'} disabled={locked||busy} onClick={()=>onToggle(member.id)}><X size={11}/></button>}</span>;

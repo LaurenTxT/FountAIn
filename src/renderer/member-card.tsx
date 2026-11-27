@@ -1,7 +1,7 @@
 import type { HudRow } from '../shared/desktop-hud';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { ArrowRight, Laptop, Settings2, X } from 'lucide-react';
-import type { Session, Snapshot } from '../shared/types';
+import type { ProviderId, Session, Snapshot } from '../shared/types';
 import { ROUTINE_PERIODS, relationLines, routinePeriod } from '../shared/life';
 import { memoryEntries } from '../shared/memory';
 import { MOOD_TEXT, Portrait, useTeam, type Mood } from './members';
@@ -13,6 +13,30 @@ export interface MemberStatus { mood: Mood; text: string; session?: Session; inR
 export interface MemberCardTarget { memberId: string; rect: DOMRect }
 
 const WIDTH = 340, GAP = 10;
+const COST_MODE_LABELS: Record<string, string> = {
+  normal: '全勤',
+  economy: '智能省流',
+  on_demand: '按需',
+};
+
+function memberModelLine(memberId: string, executor: ProviderId, snapshot: Snapshot, info?: Snapshot['providers'][number]) {
+  const profile = snapshot.members.find(m => m.id === memberId);
+  const modeLabel = COST_MODE_LABELS[profile?.costMode ?? 'normal'] ?? '全勤';
+  const sessionIds = new Set(snapshot.sessions.filter(s => (s.memberId ?? s.provider) === memberId).map(s => s.id));
+  const latestRun = [...snapshot.runs]
+    .filter(r => sessionIds.has(r.sessionId) || (!r.sessionId && r.provider === executor))
+    .sort((a, b) => (b.updatedAt || b.createdAt).localeCompare(a.updatedAt || a.createdAt))[0];
+  const liveCfg = latestRun?.effectiveConfig ?? latestRun?.requestedConfig;
+  const liveModel = liveCfg?.model;
+  const liveEffort = liveCfg?.effort;
+  const fallbackModel = profile?.model || snapshot.settings.models?.[executor] || info?.model;
+  const fallbackEffort = profile?.effort || snapshot.settings.efforts?.[executor];
+  const model = liveModel || fallbackModel;
+  const effort = liveModel ? liveEffort : fallbackEffort;
+  const isRunning = latestRun && ['running', 'waiting_user', 'queued'].includes(latestRun.status);
+  const modelPart = model ? `${model}${effort ? ` · ${effort}` : ''}` : '提供方默认';
+  return `${modeLabel} · ${isRunning ? '运行中 ' : ''}${modelPart}`;
+}
 
 /** A teammate's card next to where it was opened: who they are, what they are doing now, and what you can do with them. */
 export function MemberCard({ target, snapshot, status, sharedUsage, onClose, onDesk, onOpenWork, onConnect }: {
@@ -54,6 +78,7 @@ export function MemberCard({ target, snapshot, status, sharedUsage, onClose, onD
       {(card?.routine?.[period.id] || quirk) && <p className="teammate-card-life">{card?.routine?.[period.id] && <span>{period.label}这个时候，一般在{card.routine[period.id]}</span>}{quirk && <span>小动作：{quirk}</span>}</p>}
       <dl className="teammate-card-facts">
         <div><dt>连接</dt><dd>{providerSummary(info)}{info?.version ? ` · ${versionText(info)}` : ''}</dd></div>
+        <div><dt>模型</dt><dd>{memberModelLine(member.id, member.executor, snapshot, info)}</dd></div>
         <div><dt>额度</dt><dd><QuotaMeter provider={member.executor} quota={snapshot.quotas?.[member.executor]} shared={sharedUsage} /></dd></div>
         {relations.length > 0 && <div><dt>关系</dt><dd>{relations.map(line => <span key={line}>{line.replace(/^- /, '')}</span>)}</dd></div>}
         <div><dt>记忆</dt><dd>{remembered ? `记得关于你的 ${remembered} 件事` : '还没有长期记忆'}</dd></div>

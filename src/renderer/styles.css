@@ -383,6 +383,8 @@ p, li, dd, small { text-wrap: pretty; }
 .oq-footer-actions { display: flex; align-items: center; gap: 8px; }
 .oq-footer .oq-submit { background: var(--m, var(--focus)); border-color: var(--m, var(--focus)); color: #fff; }
 .oq-footer .oq-submit:hover:not(:disabled) { filter: brightness(1.08); }
+.guest-chip-model { padding: 1px 6px; border-radius: 999px; font-size: 11px; font-weight: 500; color: var(--ink-3); background: color-mix(in srgb, var(--ink) 7%, transparent); line-height: 1.4; }
+.guest-chip.speaking .guest-chip-model { color: var(--m-ink, var(--focus)); background: color-mix(in srgb, var(--m, var(--focus)) 16%, transparent); }
 
 .timeline { flex: 1; overflow-y: auto; scroll-behavior: auto; }
 

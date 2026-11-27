@@ -1,4 +1,5 @@
 import {readableContent} from '../shared/content-presentation';
+import { applyCostModeToConfig, classifyCostTier } from '../shared/cost-mode';
 import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type MutableRefObject, type ReactNode } from 'react';
 import { ArrowDown, BookmarkPlus, Columns2, Copy, Download, MoreHorizontal, Pencil, Reply, RotateCcw, Unlink, Eraser, FileStack, Layers, LoaderCircle, MessageSquarePlus, MessagesSquare, Send, SmilePlus, Sparkles, StopCircle, Trash2 } from 'lucide-react';
 import type { Attachment, RoomHistory, RoomId, RoomMessage, RoomThread, Snapshot } from '../shared/types';
@@ -712,6 +713,72 @@ export function RoomView({ snapshot, invoke: rawInvoke, onOpenSession, onDocumen
     if (lastAiSpeakerId) { const recent = stageCast.find(member => member.id === lastAiSpeakerId) ?? team.get(lastAiSpeakerId); if (recent) return recent; }
     return stageCast[0];
   }, [personal, stageCast, speaking, focusedMemberId, lastAiSpeakerId, team]);
+  const presenceModels = useMemo(() => {
+    const map: Record<string, { short: string; full: string }> = {};
+    const costLabels: Record<string, string> = { normal: '全勤', economy: '智能省流', on_demand: '按需' };
+    const isMeetingNow = discussion && discussion.phase !== 'idle' ? discussion.style !== 'chat' : mode === 'meeting';
+    const tier = classifyCostTier({ isCasualRoom: true, isMeeting: isMeetingNow });
+    const shorten = (model: string) => {
+      const m = model.toLowerCase();
+      if (m.includes('fable')) return 'fable';
+      if (m.includes('opus')) return 'opus';
+      if (m.includes('sonnet')) return 'sonnet';
+      if (m.includes('haiku')) return 'haiku';
+      if (m.includes('astra')) return 'astra';
+      if (m.includes('sol')) return 'sol';
+      if (m.includes('terra')) return 'terra';
+      if (m.includes('luna')) return 'luna';
+      if (m.includes('carbon')) return 'carbon';
+      if (m.includes('hydrogen')) return 'hydrogen';
+      if (m.includes('argon')) return 'argon';
+      if (m.includes('neon')) return 'neon';
+      if (m.includes('v4-pro')) return 'v4-pro';
+      if (m.includes('flash')) return 'flash';
+      return model.length > 14 ? model.slice(0, 14) : model;
+    };
+    for (const member of team.members) {
+      const profile = snapshot.members.find(m => m.id === member.id);
+      const info = snapshot.providers.find(p => p.id === member.executor);
+      const isSpeaking = state.active && state.speaking === member.id;
+      let model: string | undefined;
+      let effort: string | undefined;
+      if (isSpeaking) {
+        for (let i = messages.length - 1; i >= 0; i--) {
+          const msg = messages[i];
+          if (msg.author === member.id && msg.runId) {
+            const run = snapshot.runs.find(r => r.id === msg.runId);
+            const cfg = run?.effectiveConfig ?? run?.requestedConfig;
+            if (cfg?.model) { model = cfg.model; effort = cfg.effort; break; }
+          }
+        }
+      }
+      if (!model) {
+        const baseCfg = {
+          model: profile?.model || snapshot.settings.models?.[member.executor] || info?.model,
+          effort: profile?.effort || snapshot.settings.efforts?.[member.executor],
+          modelSource: 'default' as const,
+          effortSource: 'default' as const,
+          capturedAt: '',
+        };
+        const routed = applyCostModeToConfig(baseCfg, {
+          executor: member.executor,
+          costMode: profile?.costMode,
+          economyModel: profile?.economyModel,
+          engineeringModel: profile?.engineeringModel,
+        }, tier);
+        model = routed.model;
+        effort = routed.effort;
+      }
+      if (model) {
+        const modeTag = costLabels[profile?.costMode ?? 'normal'] ?? '全勤';
+        map[member.id] = {
+          short: shorten(model),
+          full: `${modeTag} · ${model}${effort ? ` · ${effort}` : ''}`,
+        };
+      }
+    }
+    return map;
+  }, [team.members, snapshot.members, snapshot.providers, snapshot.settings.models, snapshot.settings.efforts, snapshot.runs, messages, state.active, state.speaking, discussion?.phase, discussion?.style, mode]);
   const showStage = stageOn && Boolean(spotlight);
   return <Root className={`room ${project ? 'room-embedded' : ''} ${personal ? 'personal-room' : ''} ${showStage ? 'has-stage' : ''}`} aria-label={personal?personal.kind==='desk'?'工位聊天':'汇报对话':project ? '会议聊天' : undefined} {...attach.dropTarget}>
     {(!project && (!personal || personal.kind === 'desk')) && <RoomBackdrop />}
@@ -751,7 +818,7 @@ export function RoomView({ snapshot, invoke: rawInvoke, onOpenSession, onDocumen
     </div>}</>}
     {project && surface?.recordActions && thread?.summary && <div className="room-topic-bar"><div className="topic-bar-summary"><SummaryNote thread={thread} /></div></div>}
     {!archived && !personal && !surface?.readOnly && <RoomPresence discussion={discussion} state={state} invited={invited} ready={member => ready(member.executor)}
-      locked={state.active} busy={busy || Boolean(compressing) || !snapshot.backendReady} onToggle={toggle}
+      locked={state.active} busy={busy || Boolean(compressing) || !snapshot.backendReady} modelLabels={presenceModels} onToggle={toggle}
       showNextStep={!surface} flowNextStep={Boolean(project?.flowNextStep)} onConfigure={project?.onConfigureMember}
       onRest={relayEnabled ? (memberId,resting)=>void invoke('room.member.rest',{memberId,resting}).catch(()=>{}) : undefined}
       onAnswer={openAnswer}
