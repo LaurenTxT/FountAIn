@@ -2988,15 +2988,29 @@ export class Engine {
         case "project.terminal.list":
           return this.terminals.list(projectId);
         case "project.terminal.read":
-          return this.terminals.read(String(params?.terminalId ?? ""));
+          return this.terminals.read(
+            String(params?.terminalId ?? ""),
+            params?.offset !== undefined ? Number(params.offset) : 0,
+          );
         case "project.terminal.create":
           return this.terminals.create({
             projectId,
             title: params?.title ? String(params.title) : undefined,
             initialCommand: params?.initialCommand ? String(params.initialCommand) : undefined,
+            cols: params?.cols !== undefined ? Number(params.cols) : undefined,
+            rows: params?.rows !== undefined ? Number(params.rows) : undefined,
           });
         case "project.terminal.write":
-          return this.terminals.write(String(params?.terminalId ?? ""), String(params?.command ?? ""));
+          return this.terminals.write(
+            String(params?.terminalId ?? ""),
+            String(params?.data ?? params?.command ?? ""),
+          );
+        case "project.terminal.resize":
+          return this.terminals.resize(
+            String(params?.terminalId ?? ""),
+            Number(params?.cols ?? 90),
+            Number(params?.rows ?? 26),
+          );
         case "project.terminal.interrupt":
           return this.terminals.interrupt(String(params?.terminalId ?? ""));
         case "project.terminal.close":
@@ -3007,6 +3021,9 @@ export class Engine {
             roomId: String(params?.roomId ?? `project:${projectId}`) as RoomId,
             memberId: String(params?.memberId ?? "shell"),
             inheritContext: Boolean(params?.inheritContext),
+            external: Boolean(params?.external),
+            cols: params?.cols !== undefined ? Number(params.cols) : undefined,
+            rows: params?.rows !== undefined ? Number(params.rows) : undefined,
           });
         default:
           throw new Error("不支持的工作区工具请求。");

@@ -1,5 +1,5 @@
 import {joinClauses,plainFlowError,readableContent} from '../shared/content-presentation';
-import { ExternalLink, GitBranch, GitCompareArrows, History, LayoutList, Terminal } from 'lucide-react';
+import { GitBranch, GitCompareArrows, History, LayoutList, Terminal } from 'lucide-react';
 import { WorkspaceCodePanel } from './workspace-code-panel';
 import { WorkspaceTerminalPanel } from './workspace-terminal-panel';
 import { FanoutModal } from './fanout-modal';
@@ -94,7 +94,8 @@ export function ProjectRoom({ snapshot, project, invoke, onOpenSession,onRoundta
   const [fanoutOpen, setFanoutOpen] = useState(false);
   const [checkpointTrigger, setCheckpointTrigger] = useState(0);
   const [memberPopoverId, setMemberPopoverId] = useState<string | null>(null);
-  useEffect(()=>{setBoardView('work');setFanoutOpen(false);setMemberPopoverId(null);},[project.id]);
+  const [focusTerminalId, setFocusTerminalId] = useState<string | undefined>(undefined);
+  useEffect(()=>{setBoardView('work');setFanoutOpen(false);setMemberPopoverId(null);setFocusTerminalId(undefined);},[project.id]);
   useEffect(() => {
     const onCmd = (ev: Event) => {
       const cmd = (ev as CustomEvent<string>).detail;
@@ -399,8 +400,8 @@ export function ProjectRoom({ snapshot, project, invoke, onOpenSession,onRoundta
         if (!target) return null;
         return <div className="side-member-quickbar" role="group" aria-label={`${target.name} 快捷操作`}>
           <span className="side-member-quickbar-name">{target.name}</span>
-          <button type="button" className="button small quiet" onClick={() => { setMemberPopoverId(null); void invoke('project.terminal.launchMember', { projectId: project.id, roomId, memberId: target.id, inheritContext: false }, `已新开 ${target.name} 终端。`).catch(e => setError((e as Error).message)); }}><ExternalLink size={11} />新开终端</button>
-          <button type="button" className="button small secondary" onClick={() => { setMemberPopoverId(null); void invoke('project.terminal.launchMember', { projectId: project.id, roomId, memberId: target.id, inheritContext: true }, `已继承聊天上下文打开 ${target.name} 终端。`).catch(e => setError((e as Error).message)); }}><Terminal size={11} />继承聊天开终端</button>
+          <button type="button" className="button small quiet" onClick={() => { setMemberPopoverId(null); void invoke<{ terminalId?: string }>('project.terminal.launchMember', { projectId: project.id, roomId, memberId: target.id, inheritContext: false }).then(res => { if (res?.terminalId) { setFocusTerminalId(res.terminalId); setBoardView('terminal'); } }).catch(e => setError((e as Error).message)); }}><Terminal size={11} />新开终端</button>
+          <button type="button" className="button small secondary" onClick={() => { setMemberPopoverId(null); void invoke<{ terminalId?: string }>('project.terminal.launchMember', { projectId: project.id, roomId, memberId: target.id, inheritContext: true }).then(res => { if (res?.terminalId) { setFocusTerminalId(res.terminalId); setBoardView('terminal'); } }).catch(e => setError((e as Error).message)); }}><History size={11} />继承聊天开终端</button>
           {onOpenReport && <button type="button" className="button small quiet" onClick={() => { setMemberPopoverId(null); onOpenReport(target.id); }}>看汇报</button>}
         </div>;
       })()}
@@ -507,7 +508,7 @@ export function ProjectRoom({ snapshot, project, invoke, onOpenSession,onRoundta
             <button type="button" className="icon-button" aria-label="收起看板" title="收起右侧栏 (Ctrl+B)" onClick={()=>toggleBoard(false)}><PanelRightClose size={15}/></button>
           </span>
         </div>
-      {boardView==='progress'?<ProjectProgressView project={project} snapshot={snapshot} invoke={invoke}/>:boardView==='terminal'?<WorkspaceTerminalPanel project={project} roomId={roomId} roster={roster} invoke={invoke}/>:boardView==='code'?<WorkspaceCodePanel project={project} roomId={roomId} roster={roster} invoke={invoke} scriptsOpen={false} onToggleScripts={()=>setBoardView('terminal')} onOpenDocument={(rel, edit)=>setDocument({projectId:project.id,target:rel,edit})} checkpointTrigger={checkpointTrigger}/>:<div className="side-workspace">{sideHeaderSummary}<Board focusedTask={focusedTask} invoke={invoke} rounds={rounds} tasks={tasks} data={data} snapshot={snapshot} busy={busy} blocked={blocked} resultUnknown={resultUnknown} onGiveUp={giveUp} onContinue={(op,evidence)=>resolveAttempt(op,'continue',evidence)} members={team.members.filter(member => flow?.memberIds.includes(member.id))} onLog={setLogTarget} onOpenSdd={() => setSddOpen(true)}
+      {boardView==='progress'?<ProjectProgressView project={project} snapshot={snapshot} invoke={invoke}/>:boardView==='terminal'?<WorkspaceTerminalPanel project={project} roomId={roomId} roster={roster} invoke={invoke} focusTerminalId={focusTerminalId}/>:boardView==='code'?<WorkspaceCodePanel project={project} roomId={roomId} roster={roster} invoke={invoke} scriptsOpen={false} onToggleScripts={()=>setBoardView('terminal')} onOpenDocument={(rel, edit)=>setDocument({projectId:project.id,target:rel,edit})} checkpointTrigger={checkpointTrigger}/>:<div className="side-workspace">{sideHeaderSummary}<Board focusedTask={focusedTask} invoke={invoke} rounds={rounds} tasks={tasks} data={data} snapshot={snapshot} busy={busy} blocked={blocked} resultUnknown={resultUnknown} onGiveUp={giveUp} onContinue={(op,evidence)=>resolveAttempt(op,'continue',evidence)} members={team.members.filter(member => flow?.memberIds.includes(member.id))} onLog={setLogTarget} onOpenSdd={() => setSddOpen(true)}
         onReassign={(task, memberId) => mutate('projectFlow.task.reassign', { taskId: task.id, expectedRevision: task.revision, memberId }, '已换人，新成员会从头接手这项任务。')} /></div>}
       </div>}
     </div>}

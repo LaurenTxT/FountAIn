@@ -2,6 +2,7 @@ import { spawn, type ChildProcess } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { createRequire } from 'node:module';
 import os from 'node:os';
 import path from 'node:path';
 import type { MemberProfile, Project, ProviderInfo, RoomId, RoomMessage, Settings } from '../shared/types';
@@ -12,11 +13,40 @@ import type {
 } from '../shared/workspace-tools';
 import type { Store } from './store';
 
-const MAX_BUFFER_CHARS = 120_000;
+const MAX_BUFFER_CHARS = 240_000;
 
-// Strip ANSI escape sequences for clean in-app terminal rendering
-function stripAnsi(text: string): string {
-  return text.replace(/\x1B\[[0-9;?]*[ -/]*[@-~]|\x1B\][^\x07]*\x07/g, '');
+interface PtyProcess {
+  write(data: string): void;
+  resize(cols: number, rows: number): void;
+  kill(signal?: string): void;
+  onData(cb: (data: string) => void): void;
+  onExit(cb: (ev: { exitCode: number; signal?: number }) => void): void;
+}
+
+interface NodePtyModule {
+  spawn(
+    file: string,
+    args: string[],
+    options: {
+      name?: string;
+      cols?: number;
+      rows?: number;
+      cwd?: string;
+      env?: Record<string, string | undefined>;
+    },
+  ): PtyProcess;
+}
+
+let cachedPty: NodePtyModule | null | undefined;
+function loadNodePty(): NodePtyModule | null {
+  if (cachedPty !== undefined) return cachedPty;
+  try {
+    const req = createRequire(import.meta.url);
+    cachedPty = req('node-pty') as NodePtyModule;
+  } catch {
+    cachedPty = null;
+  }
+  return cachedPty;
 }
 
 function psSingleQuote(value: string): string {
@@ -35,9 +65,12 @@ interface LiveTerminal {
   title: string;
   kind: 'shell' | 'member';
   memberId?: string;
-  proc: ChildProcess;
-  output: string;
-  seq: number;
+  pty?: PtyProcess;
+  proc?: ChildProcess;
+  isPty: boolean;
+  buffer: string;
+  baseOffset: number;
+  totalOffset: number;
   alive: boolean;
   exitCode: number | null;
   createdAt: string;
@@ -72,9 +105,18 @@ export class TerminalManager {
     return out;
   }
 
-  read(terminalId: string): TerminalOutputSnapshot {
+  read(terminalId: string, offset = 0): TerminalOutputSnapshot {
     const s = this.sessions.get(terminalId);
     if (!s) throw new Error('终端会话不存在或已关闭。');
+    const safeOffset = Math.max(0, Math.floor(offset));
+    let data = '';
+    let reset = false;
+    if (safeOffset === 0 || safeOffset < s.baseOffset) {
+      data = s.buffer;
+      reset = safeOffset > 0;
+    } else if (safeOffset < s.totalOffset) {
+      data = s.buffer.slice(safeOffset - s.baseOffset);
+    }
     return {
       id: s.id,
       projectId: s.projectId,
@@ -84,75 +126,111 @@ export class TerminalManager {
       alive: s.alive,
       exitCode: s.exitCode,
       createdAt: s.createdAt,
-      output: s.output,
-      seq: s.seq,
+      data,
+      nextOffset: s.totalOffset,
+      reset,
+      isPty: s.isPty,
     };
   }
 
-  create(params: { projectId: string; title?: string; initialCommand?: string }): TerminalTabSummary {
-    const project = this.project(params.projectId);
-    const id = `term-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
-    const existingCount = this.list(project.id).length;
-    const title = params.title?.trim() || `PowerShell ${existingCount + 1}`;
-    const isWin = process.platform === 'win32';
+  private appendChunk(entry: LiveTerminal, chunk: string) {
+    if (!chunk) return;
+    entry.buffer += chunk;
+    entry.totalOffset += chunk.length;
+    if (entry.buffer.length > MAX_BUFFER_CHARS) {
+      const drop = entry.buffer.length - MAX_BUFFER_CHARS;
+      entry.buffer = entry.buffer.slice(drop);
+      entry.baseOffset += drop;
+    }
+  }
 
-    const proc = isWin
-      ? spawn(
-          'powershell.exe',
-          [
-            '-NoLogo',
-            '-NoProfile',
-            '-NoExit',
-            '-Command',
-            '[Console]::InputEncoding=[System.Text.Encoding]::UTF8; [Console]::OutputEncoding=[System.Text.Encoding]::UTF8; $OutputEncoding=[System.Text.Encoding]::UTF8',
-          ],
-          {
-            cwd: project.directory,
-            windowsHide: true,
-            env: { ...process.env, FORCE_COLOR: '0', TERM: 'dumb' },
-          },
-        )
-      : spawn(process.env.SHELL || '/bin/bash', ['-i'], {
-          cwd: project.directory,
-          env: { ...process.env, FORCE_COLOR: '0', TERM: 'dumb' },
-        });
+  private spawnInApp(params: {
+    projectId: string;
+    cwd: string;
+    title: string;
+    kind: 'shell' | 'member';
+    memberId?: string;
+    file: string;
+    args: string[];
+    env?: Record<string, string | undefined>;
+    cols?: number;
+    rows?: number;
+    initialCommand?: string;
+  }): TerminalTabSummary {
+    const id = `term-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+    const ptyMod = loadNodePty();
+    const cols = Math.max(40, Math.min(240, params.cols ?? 90));
+    const rows = Math.max(12, Math.min(80, params.rows ?? 26));
+    const mergedEnv: Record<string, string | undefined> = {
+      ...process.env,
+      TERM: 'xterm-256color',
+      COLORTERM: 'truecolor',
+      ...(params.env ?? {}),
+    };
 
     const entry: LiveTerminal = {
       id,
-      projectId: project.id,
-      title,
-      kind: 'shell',
-      proc,
-      output: `[FountAIn 终端] 工作目录: ${project.directory}\n`,
-      seq: 1,
+      projectId: params.projectId,
+      title: params.title,
+      kind: params.kind,
+      memberId: params.memberId,
+      isPty: Boolean(ptyMod),
+      buffer: '',
+      baseOffset: 0,
+      totalOffset: 0,
       alive: true,
       exitCode: null,
       createdAt: new Date().toISOString(),
     };
 
-    const append = (chunk: Buffer | string) => {
-      const text = stripAnsi(typeof chunk === 'string' ? chunk : chunk.toString('utf8'));
-      if (!text) return;
-      entry.output = (entry.output + text).slice(-MAX_BUFFER_CHARS);
-      entry.seq += 1;
-    };
-
-    proc.stdout?.on('data', append);
-    proc.stderr?.on('data', append);
-    proc.on('exit', (code) => {
-      entry.alive = false;
-      entry.exitCode = code;
-      append(`\n[进程已退出，退出码 ${code ?? 0}]\n`);
-    });
-    proc.on('error', (err) => {
-      entry.alive = false;
-      append(`\n[终端启动失败] ${err.message}\n`);
-    });
+    if (ptyMod) {
+      const pty = ptyMod.spawn(params.file, params.args, {
+        name: 'xterm-256color',
+        cols,
+        rows,
+        cwd: params.cwd,
+        env: mergedEnv,
+      });
+      entry.pty = pty;
+      pty.onData((data) => this.appendChunk(entry, data));
+      pty.onExit(({ exitCode }) => {
+        entry.alive = false;
+        entry.exitCode = exitCode;
+        this.appendChunk(entry, `\r\n\x1b[90m[终端进程已退出，退出码 ${exitCode}]\x1b[0m\r\n`);
+      });
+    } else {
+      const proc = spawn(params.file, params.args, {
+        cwd: params.cwd,
+        windowsHide: true,
+        env: mergedEnv,
+      });
+      entry.proc = proc;
+      proc.stdout?.on('data', (d: Buffer) => this.appendChunk(entry, d.toString('utf8')));
+      proc.stderr?.on('data', (d: Buffer) => this.appendChunk(entry, d.toString('utf8')));
+      proc.on('exit', (code) => {
+        entry.alive = false;
+        entry.exitCode = code;
+        this.appendChunk(entry, `\r\n[终端进程已退出，退出码 ${code ?? 0}]\r\n`);
+      });
+      proc.on('error', (err) => {
+        entry.alive = false;
+        this.appendChunk(entry, `\r\n[终端启动失败] ${err.message}\r\n`);
+      });
+    }
 
     this.sessions.set(id, entry);
 
     if (params.initialCommand?.trim()) {
-      this.write(id, params.initialCommand.trim());
+      const cmd = params.initialCommand.trim();
+      setTimeout(() => {
+        if (entry.alive) {
+          try {
+            this.write(id, cmd + '\r');
+          } catch {
+            // Ignore if closed early
+          }
+        }
+      }, 350);
     }
 
     return {
@@ -160,35 +238,73 @@ export class TerminalManager {
       projectId: entry.projectId,
       title: entry.title,
       kind: entry.kind,
+      memberId: entry.memberId,
       alive: entry.alive,
       exitCode: entry.exitCode,
       createdAt: entry.createdAt,
     };
   }
 
-  write(terminalId: string, command: string): { ok: true } {
+  create(params: {
+    projectId: string;
+    title?: string;
+    initialCommand?: string;
+    cols?: number;
+    rows?: number;
+  }): TerminalTabSummary {
+    const project = this.project(params.projectId);
+    const existingCount = this.list(project.id).length;
+    const title = params.title?.trim() || `PowerShell ${existingCount + 1}`;
+    const isWin = process.platform === 'win32';
+    return this.spawnInApp({
+      projectId: project.id,
+      cwd: project.directory,
+      title,
+      kind: 'shell',
+      file: isWin ? 'powershell.exe' : process.env.SHELL || '/bin/bash',
+      args: isWin ? ['-NoLogo'] : ['-i'],
+      cols: params.cols,
+      rows: params.rows,
+      initialCommand: params.initialCommand,
+    });
+  }
+
+  write(terminalId: string, data: string): { ok: true } {
     const s = this.sessions.get(terminalId);
-    if (!s || !s.alive || !s.proc.stdin?.writable) {
+    if (!s || !s.alive) {
       throw new Error('该终端已结束，请新建终端标签。');
     }
-    const line = command.replace(/\r?\n$/, '');
-    s.output = (s.output + `\n> ${line}\n`).slice(-MAX_BUFFER_CHARS);
-    s.seq += 1;
-    s.proc.stdin.write(line + (process.platform === 'win32' ? '\r\n' : '\n'));
+    if (s.pty) {
+      s.pty.write(data);
+    } else if (s.proc?.stdin?.writable) {
+      s.proc.stdin.write(data);
+    }
+    return { ok: true };
+  }
+
+  resize(terminalId: string, cols: number, rows: number): { ok: true } {
+    const s = this.sessions.get(terminalId);
+    if (s?.pty && s.alive) {
+      try {
+        s.pty.resize(Math.max(20, Math.min(300, Math.floor(cols))), Math.max(6, Math.min(120, Math.floor(rows))));
+      } catch {
+        // Ignore transient resize errors during exit
+      }
+    }
     return { ok: true };
   }
 
   interrupt(terminalId: string): { ok: true } {
     const s = this.sessions.get(terminalId);
-    if (!s) return { ok: true };
-    if (s.alive) {
+    if (!s || !s.alive) return { ok: true };
+    if (s.pty) {
+      s.pty.write('\x03');
+    } else {
       try {
-        s.proc.kill('SIGINT');
+        s.proc?.kill('SIGINT');
       } catch {
-        // Fallback
+        // Ignore
       }
-      s.output = (s.output + '\n^C [已发送中断信号]\n').slice(-MAX_BUFFER_CHARS);
-      s.seq += 1;
     }
     return { ok: true };
   }
@@ -197,7 +313,8 @@ export class TerminalManager {
     const s = this.sessions.get(terminalId);
     if (s) {
       try {
-        s.proc.kill();
+        s.pty?.kill();
+        s.proc?.kill();
       } catch {
         // Ignore
       }
@@ -213,7 +330,9 @@ export class TerminalManager {
   }
 
   private async writeHandoffContext(project: Project, roomId: RoomId, memberName: string): Promise<string> {
-    const messages = this.host.recentRoomMessages(roomId, 18).filter((m) => !m.system && !m.contextOnly && m.text?.trim());
+    const messages = this.host
+      .recentRoomMessages(roomId, 18)
+      .filter((m) => !m.system && !m.contextOnly && m.text?.trim());
     const relPath = '.fountain/terminal-handoff.md';
     const absPath = path.join(project.directory, '.fountain', 'terminal-handoff.md');
     await mkdir(path.dirname(absPath), { recursive: true });
@@ -241,15 +360,12 @@ export class TerminalManager {
       }
     }
 
-    // Include SDD spec snippet if present
     for (const candidate of ['01_Drafts_and_Code/sdd/spec.md', '.fountain/sdd/spec.md']) {
       const p = path.join(project.directory, candidate);
       if (existsSync(p)) {
         try {
           const spec = (await readFile(p, 'utf8')).trim().slice(0, 2000);
-          if (spec) {
-            lines.push('## 当前 SDD Spec 摘要', '', spec, '');
-          }
+          if (spec) lines.push('## 当前 SDD Spec 摘要', '', spec, '');
         } catch {
           // Ignore
         }
@@ -259,7 +375,6 @@ export class TerminalManager {
 
     await writeFile(absPath, lines.join('\n'), 'utf8');
 
-    // Keep git clean if .gitignore exists
     const gitignore = path.join(project.directory, '.gitignore');
     if (existsSync(gitignore)) {
       try {
@@ -278,10 +393,10 @@ export class TerminalManager {
     return relPath;
   }
 
-  private resolveMemberLaunchCommand(
+  private resolveMemberExecutable(
     member: MemberProfile,
     handoffFile?: string,
-  ): { displayCommand: string; psScript: string } {
+  ): { file: string; args: string[]; displayCommand: string; env: Record<string, string> } {
     const provider = this.store.get<ProviderInfo>('providers', member.executor);
     const settings = this.store.get<Settings>('settings', 'settings');
     const configuredPath =
@@ -289,68 +404,56 @@ export class TerminalManager {
       (settings?.paths as Record<string, string | undefined> | undefined)?.[member.executor] ||
       '';
     const nodeExe = this.host.resolveNodeExecutable();
-    const memberEnv = this.host.resolveMemberEnv(member);
+    const env = this.host.resolveMemberEnv(member);
     const handoffPrompt = handoffFile
       ? `请先阅读 ${handoffFile} 了解我们刚才在 FountAIn 会议室的讨论上下文，然后继续协助我。`
       : '';
 
-    const envLines = Object.entries(memberEnv).map(
-      ([k, v]) => `$env:${k} = ${psSingleQuote(v)}`,
-    );
-
-    const bannerLines = [
-      `Write-Host '================================================' -ForegroundColor DarkCyan`,
-      `Write-Host ${psSingleQuote(`  FountAIn · ${member.name} 交互终端`)} -ForegroundColor Cyan`,
-      handoffFile
-        ? `Write-Host ${psSingleQuote(`  已继承聊天上下文 -> ${handoffFile}`)} -ForegroundColor Green`
-        : `Write-Host '  全新独立对话会话（已自动复用 FountAIn 登录状态）' -ForegroundColor DarkGray`,
-      `Write-Host '================================================' -ForegroundColor DarkCyan`,
-    ];
-
-    // Helper for JS entrypoints vs native exe
     const isJs = /\.(?:m?js|cjs)$/i.test(configuredPath);
-    const execExpr = configuredPath
-      ? isJs
-        ? `& ${psSingleQuote(nodeExe)} ${psSingleQuote(configuredPath)}`
-        : `& ${psSingleQuote(configuredPath)}`
-      : '';
+    const baseFile = configuredPath ? (isJs ? nodeExe : configuredPath) : '';
+    const baseArgs = configuredPath && isJs ? [configuredPath] : [];
 
-    let runLine = '';
-    if (member.executor === 'claude' || /claude/i.test(configuredPath)) {
-      const base = execExpr || 'claude';
-      runLine = handoffPrompt ? `${base} ${psSingleQuote(handoffPrompt)}` : base;
-    } else if (member.executor === 'codex' || /codex/i.test(configuredPath)) {
-      const base = execExpr || 'codex';
-      runLine = handoffPrompt ? `${base} ${psSingleQuote(handoffPrompt)}` : base;
-    } else if (member.executor === 'dsh' || /dsh/i.test(configuredPath)) {
-      const base = execExpr || 'dsh';
-      runLine = base;
-      if (handoffPrompt) {
-        bannerLines.push(
-          `Write-Host ${psSingleQuote(`  提示：进入后可输入「${handoffPrompt}」`)} -ForegroundColor Yellow`,
-        );
-      }
-    } else if (/agy(?:\.exe)?$/i.test(configuredPath)) {
-      const base = execExpr || 'agy';
-      runLine = handoffPrompt ? `${base} -i ${psSingleQuote(handoffPrompt)}` : base;
-    } else if (execExpr) {
-      runLine = handoffPrompt ? `${execExpr} ${psSingleQuote(handoffPrompt)}` : execExpr;
-    } else {
-      runLine = `Write-Host ${psSingleQuote(`未检测到 ${member.name} 的本地 CLI 入口，已打开项目 PowerShell 终端。`)} -ForegroundColor Yellow`;
+    if (!baseFile) {
+      const isWin = process.platform === 'win32';
+      return {
+        file: isWin ? 'powershell.exe' : process.env.SHELL || '/bin/bash',
+        args: isWin ? ['-NoLogo'] : ['-i'],
+        displayCommand: 'powershell.exe',
+        env,
+      };
     }
 
+    let extraArgs: string[] = [];
+    if (member.executor === 'claude' || /claude/i.test(configuredPath)) {
+      extraArgs = handoffPrompt ? [handoffPrompt] : [];
+    } else if (member.executor === 'codex' || /codex/i.test(configuredPath)) {
+      extraArgs = handoffPrompt ? [handoffPrompt] : [];
+    } else if (member.executor === 'dsh' || /dsh/i.test(configuredPath)) {
+      extraArgs = [];
+    } else if (/agy(?:\.exe)?$/i.test(configuredPath)) {
+      extraArgs = handoffPrompt ? ['-i', handoffPrompt] : [];
+    } else {
+      extraArgs = handoffPrompt ? [handoffPrompt] : [];
+    }
+
+    const args = [...baseArgs, ...extraArgs];
     return {
-      displayCommand: runLine,
-      psScript: [...envLines, ...bannerLines, runLine].join('\r\n'),
+      file: baseFile,
+      args,
+      displayCommand: [baseFile, ...args].join(' '),
+      env,
     };
   }
 
-  /** Orca-style member terminal launcher: opens a real interactive terminal for any member (fresh or with inherited room context). */
+  /** Orca-style member terminal launcher: runs natively INSIDE FountAIn via ConPTY by default, or externally if requested. */
   async launchMemberTerminal(params: {
     projectId: string;
     roomId: RoomId;
     memberId: string;
     inheritContext?: boolean;
+    external?: boolean;
+    cols?: number;
+    rows?: number;
   }): Promise<MemberTerminalLaunchResult> {
     const project = this.project(params.projectId);
     const isShell = params.memberId === 'shell';
@@ -360,32 +463,71 @@ export class TerminalManager {
     if (!isShell && !member) throw new Error('找不到该成员。');
 
     const title = isShell
-      ? `FountAIn · ${project.name} Shell`
-      : `FountAIn · ${member!.name}${params.inheritContext ? '（继承上下文）' : ''}`;
+      ? `Shell ${this.list(project.id).length + 1}`
+      : `${member!.name}${params.inheritContext ? ' · 续聊' : ''}`;
 
     let handoffFile: string | undefined;
     if (params.inheritContext && member) {
       handoffFile = await this.writeHandoffContext(project, params.roomId, member.name);
     }
 
-    const { displayCommand, psScript } = isShell
-      ? {
-          displayCommand: 'powershell.exe',
-          psScript: `Write-Host ${psSingleQuote(`FountAIn · ${project.name} 项目终端`)} -ForegroundColor Cyan`,
-        }
-      : this.resolveMemberLaunchCommand(member!, handoffFile);
+    // Default: embedded ConPTY inside FountAIn!
+    if (!params.external) {
+      if (isShell) {
+        const tab = this.create({
+          projectId: project.id,
+          title,
+          cols: params.cols,
+          rows: params.rows,
+        });
+        return {
+          launched: true,
+          title: tab.title,
+          command: 'powershell.exe',
+          mode: 'in-app',
+          terminalId: tab.id,
+        };
+      }
+      const spec = this.resolveMemberExecutable(member!, handoffFile);
+      const tab = this.spawnInApp({
+        projectId: project.id,
+        cwd: project.directory,
+        title,
+        kind: 'member',
+        memberId: member!.id,
+        file: spec.file,
+        args: spec.args,
+        env: spec.env,
+        cols: params.cols,
+        rows: params.rows,
+      });
+      return {
+        launched: true,
+        title: tab.title,
+        command: spec.displayCommand,
+        handoffFile,
+        mode: 'in-app',
+        terminalId: tab.id,
+      };
+    }
 
+    // Optional external Windows Terminal pop-out
+    const spec = isShell
+      ? { file: 'powershell.exe', args: ['-NoLogo'], displayCommand: 'powershell.exe', env: {} }
+      : this.resolveMemberExecutable(member!, handoffFile);
     if (process.platform === 'win32') {
-      // Write a self-deleting temp launcher script (UTF-8 BOM) so:
-      // 1) wt.exe -w 0 preserves all FountAIn auth env vars (CLAUDE_CONFIG_DIR, DSH_HOME, CODEX_HOME, API key, proxy)
-      // 2) Secrets never appear on the command line or process list
+      const envLines = Object.entries(spec.env).map(([k, v]) => `$env:${k} = ${psSingleQuote(v)}`);
+      const runLine = isShell
+        ? `Write-Host ${psSingleQuote(`FountAIn · ${project.name}`)} -ForegroundColor Cyan`
+        : `& ${psSingleQuote(spec.file)} ${spec.args.map(psSingleQuote).join(' ')}`;
       const launcherFile = path.join(os.tmpdir(), `fountain-term-${randomUUID()}.ps1`);
       const fullScript = [
         'Remove-Item -LiteralPath $MyInvocation.MyCommand.Path -Force -ErrorAction SilentlyContinue',
         '[Console]::InputEncoding = [System.Text.Encoding]::UTF8',
         '[Console]::OutputEncoding = [System.Text.Encoding]::UTF8',
         '$OutputEncoding = [System.Text.Encoding]::UTF8',
-        psScript,
+        ...envLines,
+        runLine,
       ].join('\r\n');
       await writeFile(launcherFile, '\uFEFF' + fullScript, { encoding: 'utf8', mode: 0o600 });
 
@@ -397,7 +539,7 @@ export class TerminalManager {
             '0',
             'new-tab',
             '--title',
-            title,
+            `FountAIn · ${title}`,
             '-d',
             project.directory,
             'powershell.exe',
@@ -416,23 +558,15 @@ export class TerminalManager {
           resolve(true);
         });
       });
-
-      if (wtSpawned) {
-        return { launched: true, title, command: displayCommand, handoffFile, mode: 'windows-terminal' };
-      }
-
-      // Fallback to classic Windows PowerShell console window
-      const fallback = spawn(
-        'cmd.exe',
-        ['/c', 'start', title, 'powershell.exe', '-NoLogo', '-NoExit', '-ExecutionPolicy', 'Bypass', '-File', launcherFile],
-        { cwd: project.directory, detached: true, stdio: 'ignore', windowsHide: true },
-      );
-      fallback.unref();
-      return { launched: true, title, command: displayCommand, handoffFile, mode: 'native-console' };
+      return {
+        launched: true,
+        title,
+        command: spec.displayCommand,
+        handoffFile,
+        mode: wtSpawned ? 'windows-terminal' : 'native-console',
+      };
     }
-
-    // Non-Windows fallback: open an in-app terminal tab running the command
-    this.create({ projectId: project.id, title, initialCommand: displayCommand });
-    return { launched: true, title, command: displayCommand, handoffFile, mode: 'in-app' };
+    const tab = this.create({ projectId: project.id, title });
+    return { launched: true, title: tab.title, command: spec.displayCommand, handoffFile, mode: 'in-app', terminalId: tab.id };
   }
 }

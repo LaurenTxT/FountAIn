@@ -1,11 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { Terminal as XTerm } from '@xterm/xterm';
+import { FitAddon } from '@xterm/addon-fit';
+import '@xterm/xterm/css/xterm.css';
 import {
   ExternalLink,
   History,
   LoaderCircle,
   Play,
   Plus,
-  Send,
   Sparkles,
   Square,
   Terminal,
@@ -26,25 +28,28 @@ export function WorkspaceTerminalPanel({
   roomId,
   roster,
   invoke,
+  focusTerminalId,
 }: {
   project: Project;
   roomId: RoomId;
   roster: string[];
   invoke: Invoke;
+  focusTerminalId?: string;
 }) {
   const team = useTeam();
   const [tabs, setTabs] = useState<TerminalTabSummary[]>([]);
   const [activeId, setActiveId] = useState<string>('');
-  const [snapshot, setSnapshot] = useState<TerminalOutputSnapshot | null>(null);
-  const [input, setInput] = useState('');
-  const [history, setHistory] = useState<string[]>([]);
-  const [histIdx, setHistIdx] = useState(-1);
   const [plusOpen, setPlusOpen] = useState(false);
   const [scripts, setScripts] = useState<ProjectScriptItem[]>([]);
   const [busy, setBusy] = useState(false);
   const [sendingError, setSendingError] = useState(false);
   const [notice, setNotice] = useState('');
-  const outRef = useRef<HTMLPreElement>(null);
+
+  const hostRef = useRef<HTMLDivElement>(null);
+  const termRef = useRef<XTerm | null>(null);
+  const fitRef = useRef<FitAddon | null>(null);
+  const offsetRef = useRef<number>(0);
+  const tailBufferRef = useRef<string>('');
 
   const loadTabs = useCallback(async () => {
     try {
@@ -66,58 +71,159 @@ export function WorkspaceTerminalPanel({
   }, [invoke, project.id]);
 
   useEffect(() => {
-    setSnapshot(null);
     setActiveId('');
     setNotice('');
     void loadTabs();
     void loadScripts();
   }, [project.id, loadTabs, loadScripts]);
 
-  // Poll active terminal output smoothly
   useEffect(() => {
-    if (!activeId) {
-      setSnapshot(null);
-      return;
-    }
+    if (!focusTerminalId) return;
+    void loadTabs().then(() => setActiveId(focusTerminalId));
+  }, [focusTerminalId, loadTabs]);
+
+  // Mount & bind xterm.js to the active PTY terminal tab
+  useEffect(() => {
+    const container = hostRef.current;
+    if (!activeId || !container) return;
+
+    const term = new XTerm({
+      cursorBlink: true,
+      fontSize: 12.5,
+      lineHeight: 1.32,
+      fontFamily: '"Cascadia Code", "JetBrains Mono", Consolas, "Microsoft YaHei UI", monospace',
+      scrollback: 5000,
+      theme: {
+        background: '#111319',
+        foreground: '#e6eaf5',
+        cursor: '#7c8cf8',
+        selectionBackground: 'rgba(124, 140, 248, 0.32)',
+        black: '#1a1d26',
+        red: '#f07c7c',
+        green: '#58c996',
+        yellow: '#fbbf24',
+        blue: '#60a5fa',
+        magenta: '#c084fc',
+        cyan: '#38bdf8',
+        white: '#eef0f6',
+        brightBlack: '#64748b',
+        brightRed: '#f87171',
+        brightGreen: '#4ade80',
+        brightYellow: '#fde047',
+        brightBlue: '#93c5fd',
+        brightMagenta: '#d8b4fe',
+        brightCyan: '#7dd3fc',
+        brightWhite: '#ffffff',
+      },
+    });
+    const fitAddon = new FitAddon();
+    term.loadAddon(fitAddon);
+    container.innerHTML = '';
+    term.open(container);
+
+    termRef.current = term;
+    fitRef.current = fitAddon;
+    offsetRef.current = 0;
+    tailBufferRef.current = '';
+
+    const syncSize = () => {
+      try {
+        fitAddon.fit();
+        if (term.cols > 0 && term.rows > 0) {
+          void invoke('project.terminal.resize', {
+            projectId: project.id,
+            terminalId: activeId,
+            cols: term.cols,
+            rows: term.rows,
+          }).catch(() => {});
+        }
+      } catch {
+        // Ignore transient layout sizing
+      }
+    };
+
+    window.requestAnimationFrame(() => {
+      syncSize();
+      term.focus();
+    });
+
+    const ro = new ResizeObserver(() => syncSize());
+    ro.observe(container);
+
+    // Send live keystrokes straight to ConPTY
+    const dataDisp = term.onData((data) => {
+      void invoke('project.terminal.write', {
+        projectId: project.id,
+        terminalId: activeId,
+        data,
+      }).catch(() => {});
+    });
+
+    // High-frequency incremental output stream polling (80ms)
     let alive = true;
+    let inFlight = false;
     const poll = async () => {
+      if (!alive || inFlight) return;
+      inFlight = true;
       try {
         const snap = await invoke<TerminalOutputSnapshot>('project.terminal.read', {
           projectId: project.id,
           terminalId: activeId,
+          offset: offsetRef.current,
         });
-        if (alive) {
-          setSnapshot((prev) => {
-            if (prev?.id === snap.id && prev.seq === snap.seq) return prev;
-            return snap;
-          });
+        if (!alive) return;
+        if (snap.reset) term.reset();
+        if (snap.data) {
+          term.write(snap.data);
+          tailBufferRef.current = (tailBufferRef.current + snap.data).slice(-6000);
         }
+        offsetRef.current = snap.nextOffset;
+        setTabs((prev) =>
+          prev.map((t) =>
+            t.id === snap.id && (t.alive !== snap.alive || t.exitCode !== snap.exitCode)
+              ? { ...t, alive: snap.alive, exitCode: snap.exitCode }
+              : t,
+          ),
+        );
       } catch {
-        // Tab may have been closed
+        // Tab closed
+      } finally {
+        inFlight = false;
       }
     };
+
     void poll();
-    const timer = window.setInterval(() => void poll(), 700);
+    const timer = window.setInterval(() => void poll(), 80);
+
     return () => {
       alive = false;
       window.clearInterval(timer);
+      ro.disconnect();
+      dataDisp.dispose();
+      term.dispose();
+      termRef.current = null;
+      fitRef.current = null;
     };
   }, [activeId, invoke, project.id]);
 
-  // Auto-scroll to bottom on new output
-  useEffect(() => {
-    const node = outRef.current;
-    if (node) node.scrollTop = node.scrollHeight;
-  }, [snapshot?.seq]);
+  function currentDims() {
+    return {
+      cols: termRef.current?.cols || 90,
+      rows: termRef.current?.rows || 26,
+    };
+  }
 
   async function createShellTab(initialCommand?: string, title?: string) {
     setBusy(true);
     setPlusOpen(false);
     try {
+      const { cols, rows } = currentDims();
       const created = await invoke<TerminalTabSummary>('project.terminal.create', {
         projectId: project.id,
         title,
         initialCommand,
+        cols,
+        rows,
       });
       await loadTabs();
       setActiveId(created.id);
@@ -128,47 +234,28 @@ export function WorkspaceTerminalPanel({
     }
   }
 
-  async function launchMember(memberId: string, inheritContext: boolean) {
+  async function launchMember(memberId: string, inheritContext: boolean, external = false) {
     setBusy(true);
     setPlusOpen(false);
     try {
+      const { cols, rows } = currentDims();
       const res = await invoke<MemberTerminalLaunchResult>(
         'project.terminal.launchMember',
-        { projectId: project.id, roomId, memberId, inheritContext },
-        inheritContext
-          ? '已导出当前聊天上下文并拉起成员交互终端。'
-          : '已拉起新的交互终端窗口。',
+        { projectId: project.id, roomId, memberId, inheritContext, external, cols, rows },
       );
-      setNotice(
-        res.handoffFile
-          ? `已打开「${res.title}」· 上下文已同步到 ${res.handoffFile}`
-          : `已打开「${res.title}」`,
-      );
-      if (res.mode === 'in-app') {
+      if (res.handoffFile) {
+        setNotice(`已继承聊天上下文 -> ${res.handoffFile}`);
+      } else {
+        setNotice('');
+      }
+      if (res.terminalId) {
         await loadTabs();
+        setActiveId(res.terminalId);
       }
     } catch (err) {
       setNotice((err as Error).message);
     } finally {
       setBusy(false);
-    }
-  }
-
-  async function sendCommand() {
-    const cmd = input.trim();
-    if (!cmd) return;
-    setInput('');
-    setHistory((prev) => [cmd, ...prev.filter((x) => x !== cmd)].slice(0, 40));
-    setHistIdx(-1);
-
-    if (!activeId) {
-      await createShellTab(cmd);
-      return;
-    }
-    try {
-      await invoke('project.terminal.write', { projectId: project.id, terminalId: activeId, command: cmd });
-    } catch (err) {
-      setNotice((err as Error).message);
     }
   }
 
@@ -181,8 +268,9 @@ export function WorkspaceTerminalPanel({
       await invoke('project.terminal.write', {
         projectId: project.id,
         terminalId: activeId,
-        command: sc.command,
+        data: sc.command + '\r',
       });
+      termRef.current?.focus();
     } catch (err) {
       setNotice((err as Error).message);
     }
@@ -201,19 +289,23 @@ export function WorkspaceTerminalPanel({
     if (!activeId) return;
     try {
       await invoke('project.terminal.interrupt', { projectId: project.id, terminalId: activeId });
+      termRef.current?.focus();
     } catch {
       // Ignore
     }
   }
 
   async function sendTerminalTailToAgent() {
-    if (!snapshot?.output || sendingError) return;
+    const cleanTail = tailBufferRef.current
+      .replace(/\x1B\[[0-9;?]*[ -/]*[@-~]|\x1B\][^\x07]*\x07/g, '')
+      .trim()
+      .slice(-2600);
+    if (!cleanTail || sendingError) return;
     setSendingError(true);
     try {
-      const tail = snapshot.output.trim().slice(-2600);
       const codex = team.members.find((m) => m.id === 'codex' && roster.includes(m.id));
       const mention = codex ? `@${codex.name} ` : '';
-      const text = `${mention}我在项目终端里运行命令遇到以下输出/报错，请帮我分析原因并处理：\n\n\`\`\`\n${tail}\n\`\`\``;
+      const text = `${mention}我在内置终端里运行命令遇到以下输出/报错，请帮我分析原因并处理：\n\n\`\`\`\n${cleanTail}\n\`\`\``;
       await invoke(
         'room.send',
         {
@@ -242,33 +334,57 @@ export function WorkspaceTerminalPanel({
       {/* Orca-style Terminal Tab Strip + "+" Launcher */}
       <div className="wt-term-bar">
         <div className="wt-term-tabs" role="tablist">
-          {tabs.map((tab) => (
-            <div
-              key={tab.id}
-              role="tab"
-              aria-selected={tab.id === activeId}
-              className={`wt-term-tab ${tab.id === activeId ? 'active' : ''}`}
-            >
-              <button type="button" className="wt-term-tab-btn" onClick={() => setActiveId(tab.id)}>
-                <span className={`wt-term-dot ${tab.alive ? 'alive' : 'dead'}`} />
-                <span>{tab.title}</span>
+          {tabs.map((tab) => {
+            const m = tab.memberId ? team.get(tab.memberId) : undefined;
+            return (
+              <div
+                key={tab.id}
+                role="tab"
+                aria-selected={tab.id === activeId}
+                className={`wt-term-tab ${tab.id === activeId ? 'active' : ''}`}
+              >
+                <button type="button" className="wt-term-tab-btn" onClick={() => setActiveId(tab.id)}>
+                  {m ? <Avatar member={m} size={15} ring={false} /> : <span className={`wt-term-dot ${tab.alive ? 'alive' : 'dead'}`} />}
+                  <span>{tab.title}</span>
+                </button>
+                <button
+                  type="button"
+                  className="wt-term-tab-close"
+                  aria-label={`关闭 ${tab.title}`}
+                  onClick={() => void closeTab(tab.id)}
+                >
+                  <X size={11} />
+                </button>
+              </div>
+            );
+          })}
+        </div>
+        <div className="wt-term-bar-right">
+          {activeId && (
+            <>
+              <button
+                type="button"
+                className="icon-button"
+                title="中断当前命令 (Ctrl+C)"
+                onClick={() => void interruptActive()}
+              >
+                <Square size={12} />
               </button>
               <button
                 type="button"
-                className="wt-term-tab-close"
-                aria-label={`关闭 ${tab.title}`}
-                onClick={() => void closeTab(tab.id)}
+                className="icon-button"
+                title="把终端最近输出/报错发给会议室成员排查"
+                disabled={sendingError}
+                onClick={() => void sendTerminalTailToAgent()}
               >
-                <X size={11} />
+                {sendingError ? <LoaderCircle size={12} className="spin" /> : <Sparkles size={13} />}
               </button>
-            </div>
-          ))}
-        </div>
-        <div className="wt-term-plus-wrap">
+            </>
+          )}
           <button
             type="button"
             className={`wt-term-plus ${plusOpen ? 'open' : ''}`}
-            title="新建终端或拉起成员模型交互终端"
+            title="新建内置终端或成员模型交互终端"
             aria-expanded={plusOpen}
             disabled={busy}
             onClick={() => setPlusOpen((v) => !v)}
@@ -279,11 +395,11 @@ export function WorkspaceTerminalPanel({
         </div>
       </div>
 
-      {/* Orca "+" Popover Menu: Pick Member Model CLI (Fresh / Inherit Chat) or Shell */}
+      {/* Orca "+" Popover Menu: Embedded Member CLIs (Fresh / Inherit Chat) + Shell */}
       {plusOpen && (
         <div className="wt-term-menu" role="menu">
           <div className="wt-term-menu-section">
-            <span className="wt-term-menu-label">拉起成员交互终端（Windows Terminal）</span>
+            <span className="wt-term-menu-label">内置成员交互终端（直接嵌在应用内）</span>
             {members.map((m) => (
               <div key={m.id} className="wt-term-member-row">
                 <span className="wt-term-member-info">
@@ -295,38 +411,46 @@ export function WorkspaceTerminalPanel({
                   <button
                     type="button"
                     className="button small quiet"
-                    title={`全新打开 ${m.name} 交互终端`}
-                    onClick={() => void launchMember(m.id, false)}
+                    title={`在应用内新开 ${m.name} 交互终端`}
+                    onClick={() => void launchMember(m.id, false, false)}
                   >
-                    <ExternalLink size={11} /> 全新
+                    <Terminal size={11} /> 全新
                   </button>
                   <button
                     type="button"
                     className="button small secondary"
-                    title={`导出当前聊天上下文并打开 ${m.name} 终端`}
-                    onClick={() => void launchMember(m.id, true)}
+                    title={`导出当前聊天上下文并在应用内打开 ${m.name} 终端`}
+                    onClick={() => void launchMember(m.id, true, false)}
                   >
                     <History size={11} /> 继承聊天
+                  </button>
+                  <button
+                    type="button"
+                    className="icon-button"
+                    title={`弹出独立 Windows Terminal 窗口运行 ${m.name}`}
+                    onClick={() => void launchMember(m.id, false, true)}
+                  >
+                    <ExternalLink size={11} />
                   </button>
                 </span>
               </div>
             ))}
           </div>
           <div className="wt-term-menu-section">
-            <span className="wt-term-menu-label">系统 Shell 终端</span>
+            <span className="wt-term-menu-label">系统 Shell</span>
             <div className="wt-term-shell-btns">
               <button type="button" className="button small secondary" onClick={() => void createShellTab()}>
-                <Terminal size={12} /> 内置 PowerShell 标签
+                <Terminal size={12} /> 内置 PowerShell
               </button>
-              <button type="button" className="button small quiet" onClick={() => void launchMember('shell', false)}>
-                <ExternalLink size={12} /> 弹出系统终端窗口
+              <button type="button" className="button small quiet" onClick={() => void launchMember('shell', false, true)}>
+                <ExternalLink size={12} /> 弹出外部窗口
               </button>
             </div>
           </div>
         </div>
       )}
 
-      {/* Quick Script Pills (merged from Code panel so zero duplication) */}
+      {/* Quick Script Pills */}
       {scripts.length > 0 && (
         <div className="wt-term-scripts">
           {scripts.slice(0, 7).map((sc) => (
@@ -353,80 +477,27 @@ export function WorkspaceTerminalPanel({
         </div>
       )}
 
-      {/* Terminal Screen or Orca Empty Launcher */}
+      {/* Embedded xterm.js Canvas or Empty Launcher */}
       {!activeId ? (
         <div className="wt-term-empty">
           <Terminal size={24} />
-          <strong>项目交互终端</strong>
-          <small>点右上角「+ 新建」拉起任意成员的真实 CLI 终端（支持全新对话或继承当前聊天上下文），或直接开启内置 PowerShell。</small>
+          <strong>内置交互终端（ConPTY）</strong>
+          <small>支持在应用内直接运行 Claude、Codex、DeepSeek、Gemini 完整彩色交互界面，自动复用 FountAIn 登录状态。</small>
           <div className="wt-term-empty-actions">
-            <button type="button" className="button small primary" onClick={() => void createShellTab()}>
-              <Plus size={13} /> 开启内置终端
+            <button type="button" className="button small primary" onClick={() => setPlusOpen(true)}>
+              <Plus size={13} /> 选择成员模型终端
             </button>
-            <button type="button" className="button small secondary" onClick={() => setPlusOpen(true)}>
-              <Sparkles size={13} /> 选择成员模型终端
+            <button type="button" className="button small secondary" onClick={() => void createShellTab()}>
+              <Terminal size={13} /> 打开 PowerShell
             </button>
           </div>
         </div>
       ) : (
-        <>
-          <pre ref={outRef} className="wt-term-output">
-            {snapshot?.output || '正在初始化终端…'}
-          </pre>
-          <div className="wt-term-input-bar">
-            <span className="wt-term-prompt">&gt;</span>
-            <input
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-              placeholder="输入命令后回车运行（↑/↓ 翻历史）…"
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') {
-                  e.preventDefault();
-                  void sendCommand();
-                } else if (e.key === 'ArrowUp' && history.length) {
-                  e.preventDefault();
-                  const next = Math.min(histIdx + 1, history.length - 1);
-                  setHistIdx(next);
-                  setInput(history[next]);
-                } else if (e.key === 'ArrowDown') {
-                  e.preventDefault();
-                  const next = histIdx - 1;
-                  setHistIdx(next);
-                  setInput(next >= 0 ? history[next] : '');
-                } else if (e.key === 'c' && e.ctrlKey && !input) {
-                  e.preventDefault();
-                  void interruptActive();
-                }
-              }}
-            />
-            <button
-              type="button"
-              className="icon-button"
-              title="发送中断 (Ctrl+C)"
-              onClick={() => void interruptActive()}
-            >
-              <Square size={12} />
-            </button>
-            <button
-              type="button"
-              className="button small quiet"
-              title="把当前终端输出/报错发给会议室成员排查"
-              disabled={sendingError || !snapshot?.output}
-              onClick={() => void sendTerminalTailToAgent()}
-            >
-              {sendingError ? <LoaderCircle size={12} className="spin" /> : <Sparkles size={12} />}
-              发给成员
-            </button>
-            <button
-              type="button"
-              className="button small primary"
-              disabled={!input.trim()}
-              onClick={() => void sendCommand()}
-            >
-              <Send size={12} />
-            </button>
-          </div>
-        </>
+        <div
+          ref={hostRef}
+          className="wt-xterm-host"
+          onClick={() => termRef.current?.focus()}
+        />
       )}
     </div>
   );

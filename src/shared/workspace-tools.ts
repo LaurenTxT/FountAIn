@@ -25,6 +25,7 @@ export const WORKSPACE_TOOLS_WRITES = [
   'project.fanout.reset',
   'project.terminal.create',
   'project.terminal.write',
+  'project.terminal.resize',
   'project.terminal.interrupt',
   'project.terminal.close',
   'project.terminal.launchMember',
@@ -145,8 +146,10 @@ export interface TerminalTabSummary {
 }
 
 export interface TerminalOutputSnapshot extends TerminalTabSummary {
-  output: string;
-  seq: number;
+  data: string;
+  nextOffset: number;
+  reset: boolean;
+  isPty: boolean;
 }
 
 export interface MemberTerminalLaunchResult {
@@ -155,6 +158,7 @@ export interface MemberTerminalLaunchResult {
   command: string;
   handoffFile?: string;
   mode: 'windows-terminal' | 'native-console' | 'in-app';
+  terminalId?: string;
 }
 
 /** Format Orca-style inline diff annotations into a concise, actionable prompt for an agent. */

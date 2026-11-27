@@ -1297,40 +1297,22 @@
   gap: 8px;
   margin-top: 4px;
 }
-.wt-term-output {
-  flex: 1;
-  margin: 0;
-  padding: 10px 12px;
-  overflow: auto;
-  background: color-mix(in srgb, #000 32%, var(--surface));
-  color: var(--ink);
-  font-family: var(--mono, ui-monospace, monospace);
-  font-size: 11.5px;
-  line-height: 1.5;
-  white-space: pre-wrap;
-  word-break: break-word;
-}
-.wt-term-input-bar {
-  display: flex;
+.wt-term-bar-right {
+  display: inline-flex;
   align-items: center;
-  gap: 6px;
-  padding: 8px 10px;
-  border-top: 1px solid var(--line);
-  background: var(--surface-2);
+  gap: 3px;
+  flex-shrink: 0;
 }
-.wt-term-prompt {
-  font-family: var(--mono, ui-monospace, monospace);
-  font-weight: 700;
-  color: var(--accent);
-}
-.wt-term-input-bar input {
+.wt-xterm-host {
   flex: 1;
-  min-width: 0;
-  padding: 5px 8px;
-  font-family: var(--mono, ui-monospace, monospace);
-  font-size: 12px;
-  border-radius: 7px;
-  border: 1px solid var(--line);
-  background: var(--surface);
-  color: var(--ink);
+  min-height: 0;
+  padding: 6px 8px;
+  background: #111319;
+  overflow: hidden;
+}
+.wt-xterm-host .xterm {
+  height: 100%;
+}
+.wt-xterm-host .xterm-viewport {
+  overflow-y: auto !important;
 }
