@@ -972,13 +972,14 @@ ${JSON.stringify(payload)}`;
           if (d.members.every(id=>d!.proposal!.accepted.includes(id)||d!.proposal!.skipped?.includes(id))) this.acceptClosure(d);
         } else if (substantive) { d.phase = 'talking'; d.proposal = undefined; }
         d=this.afterHandTurn(d);
-        if (reply.next) d.handoff = reply.next;
+        if (reply.next && !d.meetingRound?.mentionedOnly) d.handoff = reply.next;
         if (substantive && !reply.unverifiedVote && !priorityTarget) {
           const replied = reply.replyTo ? this.store.get<RoomMessage>('room_messages',reply.replyTo) : undefined;
           const mentionedIds = roomMentions(body,this.store.members()).ids;
           d.relevant = [...new Set([...mentionedIds, ...(replied && d.members.includes(replied.author) ? [replied.author] : [])])];
-          // In meeting mode, allow any member (especially Leader) to @mention or hand off via `next` to call in another seated member.
-          if (d.style !== 'chat') {
+          // In meeting mode, allow any member (especially Leader) to @mention or hand off via `next` to call in another seated member,
+          // EXCEPT when the user explicitly addressed specific member(s) (`mentionedOnly`), so nobody else chimes in uninvited.
+          if (d.style !== 'chat' && !d.meetingRound?.mentionedOnly) {
             const current = d;
             const handoffList = [...new Set([...mentionedIds, ...(reply.next ? [reply.next] : [])])].filter(targetId =>
               targetId !== author &&
