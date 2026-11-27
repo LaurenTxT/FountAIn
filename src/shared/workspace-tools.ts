@@ -13,6 +13,8 @@ export const WORKSPACE_TOOLS_WRITES = [
   'project.git.commit',
   'project.git.revertFile',
   'project.git.checkout',
+  'project.file.write',
+  'project.file.import',
   'project.scripts.run',
   'project.checkpoints.create',
   'project.checkpoints.restore',

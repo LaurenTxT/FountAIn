@@ -2851,6 +2851,7 @@ export class Engine {
     if (
       method.startsWith("project.git.") ||
       method === "project.tree" ||
+      method.startsWith("project.file.") ||
       method.startsWith("project.scripts.") ||
       method.startsWith("project.checkpoints.") ||
       method.startsWith("project.fanout.")
@@ -2894,6 +2895,19 @@ export class Engine {
           );
         case "project.tree":
           return this.workspaceTools.listTree(projectId, params?.dir ? String(params.dir) : "");
+        case "project.file.write":
+          return this.workspaceTools.writeProjectFile(
+            projectId,
+            String(params?.relativePath ?? ""),
+            String(params?.content ?? ""),
+          );
+        case "project.file.import":
+          return this.workspaceTools.importProjectFiles({
+            projectId,
+            targetDir: params?.targetDir ? String(params.targetDir) : "",
+            paths: Array.isArray(params?.paths) ? params.paths.map(String) : undefined,
+            files: Array.isArray(params?.files) ? params.files : undefined,
+          });
         case "project.scripts.list":
           return this.workspaceTools.listScripts(projectId);
         case "project.scripts.run":

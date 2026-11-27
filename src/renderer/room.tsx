@@ -789,7 +789,27 @@ export function RoomView({ snapshot, invoke: rawInvoke, onOpenSession, onDocumen
     return map;
   }, [team.members, snapshot.members, snapshot.providers, snapshot.settings.models, snapshot.settings.efforts, snapshot.runs, messages, state.active, state.speaking, discussion?.phase, discussion?.style, mode]);
   const showStage = stageOn && Boolean(spotlight);
-  return <Root className={`room ${project ? 'room-embedded' : ''} ${personal ? 'personal-room' : ''} ${showStage ? 'has-stage' : ''}`} aria-label={personal?personal.kind==='desk'?'工位聊天':'汇报对话':project ? '会议聊天' : undefined} {...attach.dropTarget}>
+  const handleRoomDragOver = (event: React.DragEvent) => {
+    if (Array.from(event.dataTransfer?.types ?? []).includes('application/x-fountain-project-file')) {
+      event.preventDefault();
+      event.dataTransfer.dropEffect = 'copy';
+      return;
+    }
+    attach.dropTarget.onDragOver(event);
+  };
+  const handleRoomDrop = (event: React.DragEvent) => {
+    const projectFile = event.dataTransfer?.getData('application/x-fountain-project-file');
+    if (projectFile) {
+      event.preventDefault();
+      event.stopPropagation();
+      const token = `@${projectFile} `;
+      setDraft(draft && !/\s$/.test(draft) ? `${draft} ${token}` : `${draft}${token}`);
+      window.requestAnimationFrame(() => textarea.current?.focus());
+      return;
+    }
+    attach.dropTarget.onDrop(event);
+  };
+  return <Root className={`room ${project ? 'room-embedded' : ''} ${personal ? 'personal-room' : ''} ${showStage ? 'has-stage' : ''}`} aria-label={personal?personal.kind==='desk'?'工位聊天':'汇报对话':project ? '会议聊天' : undefined} onDragEnter={attach.dropTarget.onDragEnter} onDragLeave={attach.dropTarget.onDragLeave} onDragOver={handleRoomDragOver} onDrop={handleRoomDrop}>
     {(!project && (!personal || personal.kind === 'desk')) && <RoomBackdrop />}
     <div className="room-top">
     {project ? surface?.recordActions ? null : <div className="room-tool-row">

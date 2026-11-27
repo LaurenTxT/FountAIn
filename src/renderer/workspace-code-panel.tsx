@@ -120,7 +120,7 @@ export function WorkspaceCodePanel({
   invoke: Invoke;
   scriptsOpen: boolean;
   onToggleScripts: (open?: boolean) => void;
-  onOpenDocument: (relativePath: string) => void;
+  onOpenDocument: (relativePath: string, edit?: boolean) => void;
   onSentToRoom?: () => void;
   checkpointTrigger?: number;
 }) {
@@ -154,6 +154,9 @@ export function WorkspaceCodePanel({
   const [treeMap, setTreeMap] = useState<Record<string, ProjectTreeEntry[]>>({});
   const [openDirs, setOpenDirs] = useState<Set<string>>(() => new Set(['']));
   const [loadingDir, setLoadingDir] = useState<string | null>(null);
+  const [dropDir, setDropDir] = useState<string | null>(null);
+  const [newFileName, setNewFileName] = useState('');
+  const [importingFiles, setImportingFiles] = useState(false);
 
   // Checkpoints state
   const [checkpoints, setCheckpoints] = useState<ProjectCheckpointItem[]>([]);
@@ -513,18 +516,90 @@ export function WorkspaceCodePanel({
     [team.members, roster],
   );
 
+  async function handleTreeDrop(event: React.DragEvent, targetDir: string) {
+    event.preventDefault();
+    event.stopPropagation();
+    setDropDir(null);
+    const dropped = [...(event.dataTransfer?.files ?? [])];
+    if (!dropped.length || importingFiles) return;
+    setImportingFiles(true);
+    try {
+      const paths: string[] = [];
+      const memoryFiles: { name: string; bytes: number[] }[] = [];
+      for (const f of dropped) {
+        const hostPath = window.fountain?.pathForFile?.(f) ?? '';
+        if (hostPath) paths.push(hostPath);
+        else memoryFiles.push({ name: f.name || `file-${Date.now()}`, bytes: Array.from(new Uint8Array(await f.arrayBuffer())) });
+      }
+      const res = await invoke<{ imported: string[] }>(
+        'project.file.import',
+        { projectId: project.id, targetDir, paths, files: memoryFiles },
+        `已导入 ${dropped.length} 个文件到 ${targetDir || '项目根目录'}`,
+      );
+      if (res?.imported?.length) {
+        await Promise.all([loadDir(targetDir), loadDir(''), loadGit()]);
+      }
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setImportingFiles(false);
+    }
+  }
+
+  async function handleCreateFile() {
+    const clean = newFileName.trim().replace(/^[/\\]+/, '');
+    if (!clean) return;
+    try {
+      await invoke('project.file.write', { projectId: project.id, relativePath: clean, content: '' }, `已新建 ${clean}`);
+      setNewFileName('');
+      const parent = clean.includes('/') ? clean.slice(0, clean.lastIndexOf('/')) : '';
+      await Promise.all([loadDir(''), parent ? loadDir(parent) : Promise.resolve(), loadGit()]);
+      onOpenDocument(clean, true);
+    } catch (err) {
+      setError((err as Error).message);
+    }
+  }
+
   function renderTree(dir: string, depth: number) {
     const list = treeMap[dir] ?? [];
     return list.map((entry) => {
       const isOpen = openDirs.has(entry.path);
+      const isDropTarget = entry.isDir && dropDir === entry.path;
       return (
         <div key={entry.path}>
-          <div className="wt-tree-row" style={{ paddingLeft: `${10 + depth * 14}px` }}>
+          <div
+            className={`wt-tree-row ${isDropTarget ? 'drop-target' : ''}`}
+            style={{ paddingLeft: `${10 + depth * 14}px` }}
+            draggable
+            onDragStart={(e) => {
+              e.dataTransfer.setData('application/x-fountain-project-file', entry.path);
+              e.dataTransfer.setData('text/plain', `@${entry.path}`);
+              e.dataTransfer.effectAllowed = 'copy';
+            }}
+            onDragOver={(e) => {
+              if (!entry.isDir) return;
+              if (Array.from(e.dataTransfer?.types ?? []).includes('Files')) {
+                e.preventDefault();
+                e.stopPropagation();
+                e.dataTransfer.dropEffect = 'copy';
+                setDropDir(entry.path);
+              }
+            }}
+            onDragLeave={(e) => {
+              if (entry.isDir && dropDir === entry.path && !e.currentTarget.contains(e.relatedTarget as Node)) {
+                setDropDir(null);
+              }
+            }}
+            onDrop={(e) => {
+              if (entry.isDir) void handleTreeDrop(e, entry.path);
+            }}
+          >
             {entry.isDir ? (
               <button
                 type="button"
                 className="wt-tree-main"
                 onClick={() => void toggleDir(entry.path)}
+                title="点击展开；可将外部文件拖到此文件夹导入"
               >
                 {isOpen ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
                 {isOpen ? (
@@ -539,7 +614,7 @@ export function WorkspaceCodePanel({
                 type="button"
                 className="wt-tree-main"
                 onClick={() => onOpenDocument(entry.path)}
-                title={entry.path}
+                title={`${entry.path}（点击查看/编辑；拖到左侧聊天框引用）`}
               >
                 <span className="wt-tree-spacer" />
                 {fileIcon(entry.name)}
@@ -850,7 +925,45 @@ export function WorkspaceCodePanel({
         )}
 
         {subTab === 'files' && (
-          <div className="wt-tree">
+          <div
+            className={`wt-tree ${dropDir === '' ? 'drop-active' : ''}`}
+            onDragOver={(e) => {
+              if (Array.from(e.dataTransfer?.types ?? []).includes('Files')) {
+                e.preventDefault();
+                e.dataTransfer.dropEffect = 'copy';
+                if (dropDir === null) setDropDir('');
+              }
+            }}
+            onDragLeave={(e) => {
+              if (!e.currentTarget.contains(e.relatedTarget as Node)) setDropDir(null);
+            }}
+            onDrop={(e) => void handleTreeDrop(e, '')}
+          >
+            <div className="wt-tree-toolbar">
+              <input
+                value={newFileName}
+                onChange={(e) => setNewFileName(e.target.value)}
+                placeholder="新建文件（如 notes.md）…"
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && newFileName.trim()) void handleCreateFile();
+                }}
+              />
+              <button
+                type="button"
+                className="button small secondary"
+                disabled={!newFileName.trim()}
+                onClick={() => void handleCreateFile()}
+              >
+                <Plus size={12} /> 新建
+              </button>
+            </div>
+            <div className="wt-tree-drop-hint">
+              {importingFiles
+                ? '正在导入文件…'
+                : dropDir !== null
+                  ? `松开即可导入到「${dropDir || '项目根目录'}」`
+                  : '拖外部文件到此处或任意文件夹导入 · 拖文件到左侧聊天框引用'}
+            </div>
             {!treeMap[''] ? (
               <div className="wt-empty">
                 <LoaderCircle size={18} className="spin" />

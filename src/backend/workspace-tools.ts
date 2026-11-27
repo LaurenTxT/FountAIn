@@ -1,6 +1,6 @@
 import { execFile, spawn } from 'node:child_process';
 import { existsSync } from 'node:fs';
-import { mkdir, readdir, readFile, stat, unlink, writeFile } from 'node:fs/promises';
+import { cp, mkdir, readdir, readFile, stat, unlink, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import type { MemberProfile, Project } from '../shared/types';
 import {
@@ -362,6 +362,61 @@ export class WorkspaceToolsController {
       if (a.isDir !== b.isDir) return a.isDir ? -1 : 1;
       return a.name.localeCompare(b.name);
     });
+  }
+
+  async writeProjectFile(projectId: string, relativePath: string, content: string): Promise<{ path: string; bytes: number }> {
+    const project = this.project(projectId);
+    const rel = relativePath.trim().replace(/^[/\\]+/, '');
+    if (!rel) throw new Error('缺少文件路径。');
+    const abs = resolveSafePath(project.directory, rel);
+    await mkdir(path.dirname(abs), { recursive: true });
+    const buf = Buffer.from(content, 'utf8');
+    await writeFile(abs, buf);
+    return { path: rel.replaceAll('\\', '/'), bytes: buf.length };
+  }
+
+  async importProjectFiles(params: {
+    projectId: string;
+    targetDir?: string;
+    paths?: string[];
+    files?: { name: string; bytes: Uint8Array | number[] }[];
+  }): Promise<{ imported: string[] }> {
+    const project = this.project(params.projectId);
+    const relDir = (params.targetDir ?? '').trim().replace(/^[/\\]+/, '');
+    const destDir = relDir ? resolveSafePath(project.directory, relDir) : project.directory;
+    await mkdir(destDir, { recursive: true });
+
+    const uniqueDest = (baseName: string) => {
+      const clean = path.basename(baseName).replace(/[<>:"/\\|?*\x00-\x1f]/g, '_') || 'file';
+      const parsed = path.parse(clean);
+      let candidate = clean;
+      let n = 1;
+      while (existsSync(path.join(destDir, candidate))) {
+        candidate = `${parsed.name} (${n++})${parsed.ext}`;
+      }
+      return {
+        abs: resolveSafePath(project.directory, relDir ? `${relDir}/${candidate}` : candidate),
+        rel: (relDir ? `${relDir}/${candidate}` : candidate).replaceAll('\\', '/'),
+      };
+    };
+
+    const imported: string[] = [];
+    for (const srcPath of params.paths ?? []) {
+      const trimmed = String(srcPath ?? '').trim();
+      if (!trimmed || !existsSync(trimmed)) continue;
+      const dest = uniqueDest(path.basename(trimmed));
+      if (path.resolve(trimmed).toLowerCase() === path.resolve(dest.abs).toLowerCase()) continue;
+      await cp(trimmed, dest.abs, { recursive: true });
+      imported.push(dest.rel);
+    }
+    for (const item of params.files ?? []) {
+      if (!item?.name) continue;
+      const dest = uniqueDest(item.name);
+      const buf = Buffer.from(item.bytes instanceof Uint8Array ? item.bytes : Uint8Array.from(item.bytes ?? []));
+      await writeFile(dest.abs, buf);
+      imported.push(dest.rel);
+    }
+    return { imported };
   }
 
   async listScripts(projectId: string): Promise<ProjectScriptItem[]> {

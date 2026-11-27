@@ -1005,3 +1005,87 @@
   border-color: var(--accent);
   transform: translateY(-0.5px);
 }
+
+/* ── File Tree Drag & Drop + Inline File Editor ── */
+.wt-tree-toolbar {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+.wt-tree-toolbar input {
+  flex: 1;
+  min-width: 0;
+  padding: 5px 8px;
+  font-size: 12px;
+  border-radius: 7px;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  color: var(--ink);
+}
+.wt-tree-drop-hint {
+  font-size: 11px;
+  color: var(--ink-3);
+  padding: 5px 8px;
+  margin-bottom: 6px;
+  border-radius: 8px;
+  border: 1px dashed var(--line-strong);
+  background: color-mix(in srgb, var(--surface-2) 60%, transparent);
+  text-align: center;
+  transition: border-color 0.14s ease, background 0.14s ease, color 0.14s ease;
+}
+.wt-tree.drop-active .wt-tree-drop-hint,
+.wt-tree-row.drop-target {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 14%, var(--surface-2));
+  color: var(--accent);
+}
+.wt-tree-row.drop-target {
+  outline: 1px dashed var(--accent);
+}
+
+.doc-head-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+.doc-dirty-dot {
+  color: #f59e0b;
+  margin-left: 6px;
+  font-size: 11px;
+}
+.doc-rel-path {
+  flex: 1;
+  min-width: 0;
+  font-family: var(--mono, ui-monospace, monospace);
+  font-size: 11px;
+  color: var(--ink-3);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.project-document-body.is-editing {
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+}
+.doc-editor-textarea {
+  flex: 1;
+  width: 100%;
+  min-height: 360px;
+  padding: 12px 14px;
+  border: 0;
+  outline: none;
+  resize: none;
+  background: var(--surface);
+  color: var(--ink);
+  font-family: var(--mono, ui-monospace, monospace);
+  font-size: 12.5px;
+  line-height: 1.55;
+  tab-size: 2;
+}
+.doc-truncated-note {
+  font-size: 12px;
+  color: var(--ink-3);
+  margin-bottom: 8px;
+}
