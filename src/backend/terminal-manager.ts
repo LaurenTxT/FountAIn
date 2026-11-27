@@ -423,15 +423,26 @@ export class TerminalManager {
       };
     }
 
+    const selectedModel = (
+      member.model ||
+      (settings?.models as Record<string, string | undefined> | undefined)?.[member.executor] ||
+      provider?.model ||
+      ''
+    ).trim();
+    const modelArgs =
+      selectedModel && selectedModel !== 'default' && !selectedModel.startsWith('[')
+        ? ['--model', selectedModel]
+        : [];
+
     let extraArgs: string[] = [];
     if (member.executor === 'claude' || /claude/i.test(configuredPath)) {
-      extraArgs = handoffPrompt ? [handoffPrompt] : [];
+      extraArgs = [...modelArgs, ...(handoffPrompt ? [handoffPrompt] : [])];
     } else if (member.executor === 'codex' || /codex/i.test(configuredPath)) {
-      extraArgs = handoffPrompt ? [handoffPrompt] : [];
+      extraArgs = [...modelArgs, ...(handoffPrompt ? [handoffPrompt] : [])];
     } else if (member.executor === 'dsh' || /dsh/i.test(configuredPath)) {
       extraArgs = [];
     } else if (/agy(?:\.exe)?$/i.test(configuredPath)) {
-      extraArgs = handoffPrompt ? ['-i', handoffPrompt] : [];
+      extraArgs = [...modelArgs, ...(handoffPrompt ? ['-i', handoffPrompt] : [])];
     } else {
       extraArgs = handoffPrompt ? [handoffPrompt] : [];
     }
