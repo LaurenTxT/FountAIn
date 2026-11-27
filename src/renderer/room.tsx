@@ -172,7 +172,8 @@ export function RoomView({ snapshot, invoke: rawInvoke, onOpenSession, onDocumen
   const invited = personal ? [personal.memberId] : project ? project.roster : ownInvited;
   const setInvited = (next: string[] | ((previous: string[]) => string[])) => { const value = typeof next === 'function' ? next(invited) : next; if (project) project.onRoster(value); else setOwnInvited(value); };
   const usable = invited.map(id => team.members.find(member => member.id === id)).filter((member): member is TeamMember => Boolean(member && ready(member.executor) && !state.restingMemberIds?.includes(member.id)));
-  const [mode, setMode] = useState<'chat' | 'meeting'>('chat');
+  const [mode, setMode] = useState<'chat' | 'meeting'>(() => (project ? 'meeting' : 'chat'));
+  useEffect(() => { setMode(project ? 'meeting' : 'chat'); }, [roomId, Boolean(project)]);
   const [paceMs, setPaceMs] = useState<number>(() => {
     try { const raw = Number(localStorage.getItem(PACE_KEY)); if ([0, 6000, 12000].includes(raw)) return raw; } catch {}
     return 6000;

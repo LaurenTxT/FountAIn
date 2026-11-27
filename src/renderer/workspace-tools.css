@@ -948,3 +948,43 @@
   align-items: center;
   gap: 8px;
 }
+
+/* ── Unified Kickoff Mode Switcher (Quick vs SDD Blind) ── */
+.kickoff-unified {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.kickoff-mode-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.kickoff-mode-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  border: 1px solid var(--border);
+  background: var(--surface-elevated);
+  color: var(--ink-muted);
+}
+.kickoff-mode-pill.active {
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
+  background: color-mix(in srgb, var(--accent) 12%, var(--surface-elevated));
+  color: var(--ink);
+  font-weight: 600;
+}
+.kickoff-mode-pill.sdd {
+  cursor: pointer;
+  color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 35%, var(--border));
+  transition: background 0.14s ease, border-color 0.14s ease, transform 0.14s ease;
+}
+.kickoff-mode-pill.sdd:hover {
+  background: color-mix(in srgb, var(--accent) 15%, var(--surface-elevated));
+  border-color: var(--accent);
+  transform: translateY(-0.5px);
+}

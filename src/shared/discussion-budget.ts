@@ -7,7 +7,7 @@ export interface DiscussionCallLimits {
   work: DiscussionCallLimit;
 }
 export const DEFAULT_DISCUSSION_LIMITS: DiscussionCallLimits = {
-  chat: {mode:'unlimited', calls:8},
+  chat: {mode:'custom', calls:8},
   work: {mode:'per-member', calls:8},
 };
 /** Persist only valid choices; omitted settings from older installations use the new defaults. */

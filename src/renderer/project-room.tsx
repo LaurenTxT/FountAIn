@@ -264,8 +264,14 @@ export function ProjectRoom({ snapshot, project, invoke, onOpenSession,onRoundta
   // What needs the owner now, in the order the work asks for it.
   const items = !data ? null : <>
     {fresh ? (picking
-      ? <LeadPicker team={people} initialLead={project.meetingLeaderId} ready={ready} busy={busy} onCancel={() => setPicking(false)} onStart={start} />
-      : <div className="dock-row"><Sparkles size={15} /><p>{flow && !live ? '上一段工作已经结束。' : ''}先在聊天里和大家说说这次要做什么、有什么要求。讨论清楚了，再选一位负责人起草方案；<strong>你确认方案后才开工</strong>。</p>{briefLeader&&<button type="button" className="button small primary" disabled={busy} onClick={() => void resumeFromBrief()}><Sparkles size={13} />请 {briefLeader.name} 接续门牌当前阶段</button>}</div>)
+      ? <div className="kickoff-unified">
+          <div className="kickoff-mode-bar" role="group" aria-label="立项模式选择">
+            <span className="kickoff-mode-pill active"><Hand size={13} />快速立项（单人起草方案）</span>
+            <button type="button" className="kickoff-mode-pill sdd" onClick={() => { setPicking(false); setSddOpen(true); }}><GitCompareArrows size={13} />改用 SDD 双盲规范立项（宪法 → Spec → 双盲对照）</button>
+          </div>
+          <LeadPicker team={people} initialLead={project.meetingLeaderId} ready={ready} busy={busy} onCancel={() => setPicking(false)} onStart={start} />
+        </div>
+      : <div className="dock-row"><Sparkles size={15} /><p>{flow && !live ? '上一段工作已经结束。' : ''}讨论清楚后点击右侧<strong>「立项 / 起草方案」</strong>（支持快速立项或 SDD 双盲规范）；<strong>你确认方案后才开工</strong>。</p>{briefLeader&&<button type="button" className="button small primary" disabled={busy} onClick={() => void resumeFromBrief()}><Sparkles size={13} />请 {briefLeader.name} 接续门牌当前阶段</button>}</div>)
     : <>
       {!live && <div className="dock-row"><CheckCircle2 size={15} /><p>{flow!.status === 'completed' ? '这段工作已经完成，成品已写回项目。' : '这段工作已取消，记录和成果都保留着。'}</p><button type="button" className="button small primary" disabled={busy} onClick={() => setStarting(true)}><Sparkles size={13} />开始新的一段工作</button></div>}
       {!live && flow!.completionReport && <CompletionReport report={flow!.completionReport} />}
@@ -409,7 +415,7 @@ export function ProjectRoom({ snapshot, project, invoke, onOpenSession,onRoundta
     </div>
   </div>;
   const dock = !data ? null : <FlowDock view={dockView} setView={setDockView} open={dockOpen} onToggle={setDockOpen} waiting={waiting} standing={standing}
-    bodyRef={nextStepBody} action={fresh && !picking ? <button type="button" className="button small primary" disabled={busy || people.filter(ready).length < 2} title={people.filter(ready).length < 2 ? '至少需要两位已准备好的成员参加' : ''} onClick={() => { setPicking(true); setDockOpen(true); }}><Hand size={13} />选负责人，起草方案</button> : nextStep?<span className="flow-next-step" role="group" aria-label="项目下一步"><small>下一步</small><button type="button" className="button small primary" disabled={busy} onClick={nextStep.run}>{nextStep.label}</button></span>:undefined}>{items}</FlowDock>;
+    bodyRef={nextStepBody} action={fresh && !picking ? <button type="button" className="button small primary" disabled={busy || people.filter(ready).length < 2} title={people.filter(ready).length < 2 ? '至少需要两位已准备好的成员参加' : ''} onClick={() => { setPicking(true); setDockOpen(true); }}><Hand size={13} />立项 / 起草方案</button> : nextStep?<span className="flow-next-step" role="group" aria-label="项目下一步"><small>下一步</small><button type="button" className="button small primary" disabled={busy} onClick={nextStep.run}>{nextStep.label}</button></span>:undefined}>{items}</FlowDock>;
 
   /** Flow messages in the chat: what was posted and where it stands now; acting on it happens in the dock. */
   const renderFlow = (message: RoomMessage) => {
