@@ -350,6 +350,40 @@ p, li, dd, small { text-wrap: pretty; }
 .room-midturn-immediate { flex: none; white-space: nowrap; border-color: color-mix(in srgb, var(--focus) 38%, var(--line)); color: var(--focus); }
 .room-midturn-immediate:hover:not(:disabled) { background: color-mix(in srgb, var(--focus) 12%, transparent); }
 
+/* ───────────── Owner Question Answer Modal ───────────── */
+.oq-modal { gap: 14px; }
+.oq-tabs { display: flex; flex-wrap: wrap; gap: 6px; }
+.oq-tab { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px 4px 6px; border-radius: 999px; border: 1px solid var(--line); background: var(--surface-2); color: var(--ink-2); font-size: var(--fs-sm); font-weight: 600; transition: border-color .15s, background .15s, color .15s; }
+.oq-tab:hover:not(:disabled) { border-color: var(--m-line, var(--line-strong)); color: var(--ink); }
+.oq-tab.active { background: var(--m-soft, color-mix(in srgb, var(--focus) 12%, var(--surface))); border-color: var(--m-line, var(--focus)); color: var(--ink); }
+.oq-tab-num { font-size: 11px; opacity: .7; }
+.oq-card { position: relative; display: flex; flex-direction: column; gap: 10px; padding: 14px 16px 14px 18px; border-radius: var(--r-lg); background: linear-gradient(135deg, color-mix(in srgb, var(--m, var(--focus)) 10%, var(--surface-2)), var(--surface-2) 68%); border: 1px solid color-mix(in srgb, var(--m, var(--focus)) 28%, var(--line)); overflow: hidden; }
+.oq-card::before { content: ""; position: absolute; left: 0; top: 10px; bottom: 10px; width: 3.5px; border-radius: 0 3px 3px 0; background: var(--m, var(--focus)); }
+.oq-card-head { display: flex; align-items: center; gap: 10px; }
+.oq-card-meta { display: flex; flex-direction: column; min-width: 0; flex: 1; }
+.oq-card-meta strong { font-size: var(--fs-md); color: var(--ink); line-height: 1.25; }
+.oq-card-meta small { font-size: var(--fs-sm); color: var(--ink-3); line-height: 1.25; }
+.oq-progress { flex: none; padding: 2px 8px; border-radius: 999px; font-size: 11px; font-weight: 600; background: color-mix(in srgb, var(--m, var(--focus)) 16%, transparent); color: var(--m-ink, var(--focus)); }
+.oq-ctx-toggle { flex: none; font-size: var(--fs-sm); }
+.oq-question-text { margin: 0; font-size: 14.5px; line-height: 1.65; color: var(--ink); white-space: pre-wrap; word-break: break-word; }
+.oq-context { margin-top: 2px; padding: 10px 12px; border-radius: var(--r-md); background: color-mix(in srgb, var(--surface) 75%, transparent); border: 1px solid var(--line); }
+.oq-context-label { display: block; margin-bottom: 4px; font-size: 11px; font-weight: 600; color: var(--ink-3); letter-spacing: .02em; }
+.oq-context p { margin: 0; font-size: var(--fs-sm); line-height: 1.55; color: var(--ink-2); white-space: pre-wrap; word-break: break-word; }
+.oq-choices { display: flex; flex-direction: column; gap: 8px; }
+.oq-choices-label { font-size: var(--fs-sm); font-weight: 600; color: var(--ink-3); }
+.oq-choices-list { display: flex; flex-wrap: wrap; gap: 8px; }
+.oq-choice { padding: 7px 13px; border-radius: 999px; border: 1px solid color-mix(in srgb, var(--m, var(--focus)) 32%, var(--line)); background: var(--surface-2); color: var(--ink); font-size: var(--fs-md); font-weight: 500; text-align: left; line-height: 1.35; transition: background .15s, border-color .15s, transform .12s, box-shadow .15s; }
+.oq-choice:hover:not(:disabled) { background: color-mix(in srgb, var(--m, var(--focus)) 14%, var(--surface-2)); border-color: var(--m, var(--focus)); transform: translateY(-1px); }
+.oq-choice.selected { background: color-mix(in srgb, var(--m, var(--focus)) 20%, var(--surface-2)); border-color: var(--m, var(--focus)); box-shadow: 0 0 0 1px color-mix(in srgb, var(--m, var(--focus)) 35%, transparent); font-weight: 600; }
+.oq-field > span { font-weight: 600; color: var(--ink-2); }
+.oq-textarea { min-height: 92px; padding: 11px 13px; border-radius: var(--r-md); line-height: 1.6; resize: vertical; transition: border-color .15s, box-shadow .15s; }
+.oq-textarea:focus { border-color: var(--m, var(--focus)); box-shadow: 0 0 0 3px color-mix(in srgb, var(--m, var(--focus)) 18%, transparent); }
+.oq-footer { justify-content: space-between; align-items: center; gap: 12px; }
+.oq-shortcut-hint { font-size: var(--fs-sm); color: var(--ink-3); }
+.oq-footer-actions { display: flex; align-items: center; gap: 8px; }
+.oq-footer .oq-submit { background: var(--m, var(--focus)); border-color: var(--m, var(--focus)); color: #fff; }
+.oq-footer .oq-submit:hover:not(:disabled) { filter: brightness(1.08); }
+
 .timeline { flex: 1; overflow-y: auto; scroll-behavior: auto; }
 
 .member-message { display: flex; align-items: flex-start; gap: 12px; }

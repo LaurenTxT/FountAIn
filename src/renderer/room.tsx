@@ -42,6 +42,26 @@ const SUGGESTIONS = ['大家今天过得怎么样？', '互相做个自我介绍
 export type RoomFocus = { threadId?: string; messageId?: string; nonce: number };
 const mergeMessages = (...groups: RoomMessage[][]) => [...new Map(groups.flat().map(message => [message.id, message])).values()];
 
+const QUESTION_STOP = /[？?。！!]+$/u;
+/** Extract 1-click quick-choice suggestions from common A/B or yes/no member questions. */
+function extractQuestionChoices(raw: string): string[] {
+  const clean = raw.replace(/\s+/g, ' ').trim();
+  if (!clean) return [];
+  const colonIdx = Math.max(clean.lastIndexOf('：'), clean.lastIndexOf(':'));
+  const body = colonIdx >= 0 && clean.length - colonIdx > 6 ? clean.slice(colonIdx + 1).trim() : clean;
+  const trimmed = body.replace(QUESTION_STOP, '').trim();
+  const orMatch = trimmed.match(/^(?:你是想|你希望|请问|请问是|是)?(.{2,60}?)[，,、\s]*还是\s*(.{2,60})$/u);
+  if (orMatch) {
+    const a = orMatch[1].replace(/^(?:先|直接)?是/u, '').trim();
+    const b = orMatch[2].replace(/^(?:先|直接)?是/u, '').trim();
+    if (a && b && a !== b) return [a, b];
+  }
+  if (/(?:是否|确认.{0,30}吗|可以吗|行吗|好吗|同意.{0,12}吗|要不要|需要.{0,16}吗)/u.test(clean)) {
+    return ['可以，按这个来', '先等等，我补充一下'];
+  }
+  return [];
+}
+
 /** Reactions under a message; on members' messages in the current topic the user can add or remove theirs. */
 function Reactions({ message, name, userAvatar, onToggle }: { message: RoomMessage; name: (author: string) => string; userAvatar?: string; onToggle?: (emoji: string) => void }) {
   const team = useTeam();
@@ -152,17 +172,18 @@ export function RoomView({ snapshot, invoke: rawInvoke, onOpenSession, onDocumen
   const discussion = state.mode === 'discuss' ? state.discussion : undefined;
   const ownerQuestions=pendingOwnerQuestions(discussion);
   const [questionDialog,setQuestionDialog]=useState<{discussionId:string;questionId?:string;memberId:string;quote?:RoomMessage;text:string}>();
-  const [questionBusy,setQuestionBusy]=useState(false),[questionError,setQuestionError]=useState('');
+  const [questionBusy,setQuestionBusy]=useState(false),[questionError,setQuestionError]=useState(''),[questionContextOpen,setQuestionContextOpen]=useState(false);
+  const questionTextarea=useRef<HTMLTextAreaElement>(null);
   const canInterrupt=Boolean(discussion&&discussion.phase!=='idle'&&discussion.phase!=='summarizing'&&!discussion.interruption&&!discussion.unknownRunId&&!discussion.unknownRunIds?.length);
   const questionMembers=team.members.filter(member=>discussion?.members.includes(member.id)&&!state.restingMemberIds?.includes(member.id)&&!discussion.stoppedMembers?.includes(member.id)&&!discussion.skippedMembers?.[member.id]&&ready(member.executor));
   function openAnswer(questionId:string) {
     if(!discussion)return;
-    setQuestionError('');
+    setQuestionError('');setQuestionContextOpen(false);
     setQuestionDialog({discussionId:discussion.id,questionId,memberId:'',text:''});
   }
   function openInterruption(quote?:RoomMessage) {
     if(!discussion||!canInterrupt)return;
-    setQuestionError('');
+    setQuestionError('');setQuestionContextOpen(false);
     setQuestionDialog({discussionId:discussion.id,memberId:questionMembers.some(member=>member.id===quote?.author)?quote!.author:'',quote,text:''});
   }
   async function submitQuestion() {
@@ -170,8 +191,18 @@ export function RoomView({ snapshot, invoke: rawInvoke, onOpenSession, onDocumen
     setQuestionBusy(true);setQuestionError('');
     try {
       const {discussionId,questionId,text,memberId,quote}=questionDialog;
-      if(questionId)await invoke('room.question.answer',{discussionId,questionId,text});
-      else await invoke('room.question.interrupt',{discussionId,text,memberId:memberId||null,replyTo:quote?.id});
+      if(questionId){
+        await invoke('room.question.answer',{discussionId,questionId,text});
+        const remaining=ownerQuestions.filter(item=>item.id!==questionId);
+        if(remaining.length){
+          setQuestionContextOpen(false);
+          setQuestionDialog({discussionId,questionId:remaining[0].id,memberId:'',text:''});
+          requestAnimationFrame(()=>questionTextarea.current?.focus());
+          return;
+        }
+      } else {
+        await invoke('room.question.interrupt',{discussionId,text,memberId:memberId||null,replyTo:quote?.id});
+      }
       setQuestionDialog(undefined);
     }catch(error){setQuestionError((error as Error).message);}
     finally{setQuestionBusy(false);}
@@ -890,25 +921,81 @@ export function RoomView({ snapshot, invoke: rawInvoke, onOpenSession, onDocumen
     {panel && <TopicPanel onChanged={() => setReloads(n => n + 1)} snapshot={personal?{...snapshot,room}:snapshot} personal={Boolean(personal)} historyOnly={historyOnly} selectedId={selectedId} usable={writers} invoke={invoke} busy={busy}
       onSelect={id => { void selectTopic(id); setPanel(false); }} onContinue={item => personal?void selectTopic(item.id):setNewTopic({ from: item })}
       onExport={id => void exportTopic(id)} onClear={() => void manage('clear')} onClose={() => setPanel(false)} />}
-    {questionDialog&&questionDialog.discussionId===discussion?.id&&!archived&&<Modal
-      title={questionDialog.questionId?'回答成员':'打断提问'}
-      onClose={()=>{if(!questionBusy)setQuestionDialog(undefined);}}>
-      <div className="modal-body">
-        {questionDialog.questionId ? <blockquote>{ownerQuestions.find(item=>item.id===questionDialog.questionId)?.text??'这条问题已处理。'}</blockquote> : <>
-          <label className="field">谁先回答<select value={questionDialog.memberId} disabled={questionBusy} onChange={e=>setQuestionDialog({...questionDialog,memberId:e.target.value})}><option value="">所有可用参会成员</option>{questionMembers.map(member=><option key={member.id} value={member.id}>{member.name}</option>)}</select></label>
-          <label className="field">引用发言<select value={questionDialog.quote?.id??''} disabled={questionBusy} onChange={event=>setQuestionDialog({...questionDialog,quote:quoteOptions.find(item=>item.id===event.target.value)})}>
-            <option value="">不引用</option>
-            {quoteOptions.map(item=><option value={item.id} key={item.id}>{name(item)}：{item.text.replace(/\s+/g,' ').slice(0,65)}</option>)}
-          </select></label>
-          {questionDialog.quote&&<blockquote>{name(questionDialog.quote)}：{questionDialog.quote.text.slice(0,350)}</blockquote>}
-        </>}
-        <form id="owner-question-form" onSubmit={event=>{event.preventDefault();void submitQuestion();}}>
-          <label className="field">{questionDialog.questionId?'你的回答':'你的问题'}<textarea rows={4} autoFocus maxLength={12000} disabled={questionBusy} value={questionDialog.text} onChange={e=>setQuestionDialog({...questionDialog,text:e.target.value})}/></label>
-        </form>
-        {questionError&&<p role="alert">{questionError}</p>}
-      </div>
-      <div className="modal-footer"><button type="button" className="button quiet" disabled={questionBusy} onClick={()=>setQuestionDialog(undefined)}>关闭</button><button type="submit" form="owner-question-form" className="button primary" disabled={questionBusy||!questionDialog.text.trim()}>{questionDialog.questionId?'提交回答':'发送并优先回答'}</button></div>
-    </Modal>}
+    {questionDialog&&questionDialog.discussionId===discussion?.id&&!archived&&(() => {
+      const activeQuestion = questionDialog.questionId ? ownerQuestions.find(item => item.id === questionDialog.questionId) : undefined;
+      const asker = activeQuestion ? team.get(activeQuestion.from) : undefined;
+      const sourceMessage = activeQuestion ? messages.find(m => m.id === activeQuestion.messageId) : undefined;
+      const quickChoices = activeQuestion ? extractQuestionChoices(activeQuestion.text) : [];
+      const activeIndex = activeQuestion ? ownerQuestions.findIndex(item => item.id === activeQuestion.id) : -1;
+      const hasMoreQuestions = Boolean(activeQuestion && ownerQuestions.length > 1);
+      const showContextToggle = Boolean(sourceMessage?.text && sourceMessage.text.trim() !== activeQuestion?.text.trim());
+      return <Modal
+        title={asker ? `回答 ${asker.name}` : questionDialog.questionId ? '回答成员' : '打断提问'}
+        subtitle={hasMoreQuestions ? `当前有 ${ownerQuestions.length} 条待你确认的问题` : undefined}
+        onClose={()=>{if(!questionBusy)setQuestionDialog(undefined);}}>
+        <div className={`modal-body oq-modal ${asker ? `member-${asker.id}` : ''}`}>
+          {questionDialog.questionId ? <>
+            {hasMoreQuestions && <div className="oq-tabs" role="tablist" aria-label="切换待回答问题">
+              {ownerQuestions.map((item, idx) => {
+                const m = team.get(item.from);
+                const selected = item.id === activeQuestion?.id;
+                return <button type="button" role="tab" aria-selected={selected} key={item.id} className={`oq-tab ${m ? `member-${m.id}` : ''} ${selected ? 'active' : ''}`} disabled={questionBusy} onClick={() => { setQuestionContextOpen(false); setQuestionError(''); setQuestionDialog({ ...questionDialog, questionId: item.id, text: '' }); requestAnimationFrame(() => questionTextarea.current?.focus()); }}>
+                  {m && <Avatar member={m} size={18} ring={false} />}
+                  <span>{m?.name ?? '成员'}</span>
+                  <span className="oq-tab-num">{idx + 1}/{ownerQuestions.length}</span>
+                </button>;
+              })}
+            </div>}
+            <div className={`oq-card ${asker ? `member-${asker.id}` : ''}`}>
+              <div className="oq-card-head">
+                {asker && <Avatar member={asker} size={30} ring={false} />}
+                <div className="oq-card-meta">
+                  <strong>{asker?.name ?? '成员提问'}</strong>
+                  {asker?.product && <small>{asker.product}</small>}
+                </div>
+                {hasMoreQuestions && activeIndex >= 0 && <span className="oq-progress">{activeIndex + 1} / {ownerQuestions.length}</span>}
+                {showContextToggle && <button type="button" className="link-button oq-ctx-toggle" onClick={() => setQuestionContextOpen(v => !v)}>{questionContextOpen ? '收起原发言' : '查看原发言'}</button>}
+              </div>
+              <p className="oq-question-text">{activeQuestion?.text ?? '这条问题已处理。'}</p>
+              {questionContextOpen && sourceMessage && <div className="oq-context">
+                <span className="oq-context-label">原发言上下文</span>
+                <p>{sourceMessage.text.slice(0, 600)}{sourceMessage.text.length > 600 ? '…' : ''}</p>
+              </div>}
+            </div>
+            {quickChoices.length > 0 && <div className="oq-choices" role="group" aria-label="快捷选项">
+              <span className="oq-choices-label">快捷选择（点击填入，可再补充）</span>
+              <div className="oq-choices-list">
+                {quickChoices.map(choice => {
+                  const chosen = questionDialog.text.trim() === choice;
+                  return <button type="button" key={choice} className={`oq-choice ${chosen ? 'selected' : ''}`} disabled={questionBusy} onClick={() => { setQuestionDialog({ ...questionDialog, text: choice }); requestAnimationFrame(() => { const el = questionTextarea.current; if (el) { el.focus(); el.setSelectionRange(choice.length, choice.length); } }); }}>{choice}</button>;
+                })}
+              </div>
+            </div>}
+          </> : <>
+            <label className="field">谁先回答<select value={questionDialog.memberId} disabled={questionBusy} onChange={e=>setQuestionDialog({...questionDialog,memberId:e.target.value})}><option value="">所有可用参会成员</option>{questionMembers.map(member=><option key={member.id} value={member.id}>{member.name}</option>)}</select></label>
+            <label className="field">引用发言<select value={questionDialog.quote?.id??''} disabled={questionBusy} onChange={event=>setQuestionDialog({...questionDialog,quote:quoteOptions.find(item=>item.id===event.target.value)})}>
+              <option value="">不引用</option>
+              {quoteOptions.map(item=><option value={item.id} key={item.id}>{name(item)}：{item.text.replace(/\s+/g,' ').slice(0,65)}</option>)}
+            </select></label>
+            {questionDialog.quote&&<div className="oq-card"><p className="oq-question-text">{name(questionDialog.quote)}：{questionDialog.quote.text.slice(0,350)}</p></div>}
+          </>}
+          <form id="owner-question-form" onSubmit={event=>{event.preventDefault();void submitQuestion();}}>
+            <label className="field oq-field">
+              <span>{questionDialog.questionId ? '你的回答' : '你的问题'}</span>
+              <textarea ref={questionTextarea} className="oq-textarea" rows={4} autoFocus maxLength={12000} disabled={questionBusy} placeholder={questionDialog.questionId ? '写下你的决定或补充… Enter 提交，Shift + Enter 换行' : '写下你要打断提出的问题… Enter 发送，Shift + Enter 换行'} value={questionDialog.text} onChange={e=>setQuestionDialog({...questionDialog,text:e.target.value})} onKeyDown={event => { if (isSendKey(event)) { event.preventDefault(); void submitQuestion(); } }} />
+            </label>
+          </form>
+          {questionError&&<p className="inline-notice error" role="alert">{questionError}</p>}
+        </div>
+        <div className={`modal-footer oq-footer ${asker ? `member-${asker.id}` : ''}`}>
+          <span className="oq-shortcut-hint">Enter 提交 · Shift + Enter 换行</span>
+          <div className="oq-footer-actions">
+            <button type="button" className="button quiet" disabled={questionBusy} onClick={()=>setQuestionDialog(undefined)}>关闭</button>
+            <button type="submit" form="owner-question-form" className="button primary oq-submit" disabled={questionBusy||!questionDialog.text.trim()}>{questionBusy ? '正在提交…' : questionDialog.questionId ? (hasMoreQuestions ? '提交并下一条' : '提交回答') : '发送并优先回答'}</button>
+          </div>
+        </div>
+      </Modal>;
+    })()}
     {autoCompressDialog&&<Modal title="自动压缩设置" subtitle="此设置用于茶歇室和项目会议室。" onClose={()=>{if(!savingAutoCompress)setAutoCompressDialog(undefined);}}>
       <div className="modal-body">
         <label><input type="checkbox" checked={autoCompressDialog.enabled} disabled={savingAutoCompress} onChange={event=>setAutoCompressDialog({...autoCompressDialog,enabled:event.target.checked})}/>自动压缩上下文</label>
