@@ -423,6 +423,15 @@ p, li, dd, small { text-wrap: pretty; }
 .sdd-footer { justify-content: space-between; align-items: center; }
 .sdd-footer-right { display: flex; gap: 8px; align-items: center; }
 
+/* ───────────── T3 / Orca Inspired Minimal Polish ───────────── */
+.composer-pace-pill { height: 26px; padding: 0 9px; border-radius: 999px; border: 1px solid var(--line); background: var(--surface-2); color: var(--ink-2); font-size: var(--fs-sm); font-weight: 500; white-space: nowrap; transition: border-color .15s, color .15s, background .15s; }
+.composer-pace-pill:hover { border-color: var(--line-strong); color: var(--ink); background: var(--surface); }
+.room-message-actions .room-tools { opacity: .45; transition: opacity .15s var(--ease); }
+.room-message:hover .room-message-actions .room-tools,
+.room-message:focus-within .room-message-actions .room-tools { opacity: 1; }
+.room-presence { padding-block: 6px; }
+.composer-bottom { gap: 7px; }
+
 .timeline { flex: 1; overflow-y: auto; scroll-behavior: auto; }
 
 .member-message { display: flex; align-items: flex-start; gap: 12px; }

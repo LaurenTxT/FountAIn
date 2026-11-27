@@ -1,7 +1,7 @@
 /* Project meeting room: the conversation that follows the work on the left, the board on the right. */
-.project-room { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 10px; padding: 14px 20px 14px; overflow: hidden; background: radial-gradient(900px 300px at 50% -140px, var(--lamp-soft), transparent 70%), var(--bg); }
-.project-room-head { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
-.project-room-icon { display: grid; place-items: center; width: 38px; height: 38px; border-radius: var(--r-md); background: var(--brand); color: var(--brand-ink); flex: none; }
+.project-room { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 7px; padding: 10px 16px 12px; overflow: hidden; background: radial-gradient(900px 260px at 50% -140px, var(--lamp-soft), transparent 70%), var(--bg); }
+.project-room-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.project-room-icon { display: grid; place-items: center; width: 32px; height: 32px; border-radius: var(--r-md); background: var(--brand); color: var(--brand-ink); flex: none; }
 .project-room-title { flex: 1; min-width: 180px; }
 .project-room-title h1 { margin: 0; font-size: var(--fs-lg); display: flex; align-items: baseline; gap: 10px; }
 .project-room-title h1 small { font-size: var(--fs-sm); font-weight: 500; color: var(--ink-3); }
@@ -32,7 +32,9 @@
 .flow-steps li.current > span { background: var(--brand); color: var(--brand-ink); }
 .flow-steps li.paused, .flow-steps li.cancelled { margin-left: 6px; padding: 0 11px; background: var(--warn-soft); border-color: transparent; color: var(--warn); font-weight: 600; }
 /* Steps on the left, the members' report chips on the right of the same row. */
-.project-room-subbar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; min-width: 0; }
+.project-room-subbar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; min-width: 0; padding: 2px 0; }
+.project-sdd-btn { border-color: color-mix(in srgb, var(--focus) 36%, var(--line)); color: var(--focus); background: color-mix(in srgb, var(--focus) 7%, var(--surface)); }
+.project-sdd-btn:hover:not(:disabled) { background: color-mix(in srgb, var(--focus) 14%, var(--surface)); }
 .project-room-subbar .flow-steps { flex: 1 1 auto; min-width: 0; }
 .project-room-loading { display: flex; align-items: center; gap: 8px; padding: 28px; justify-content: center; color: var(--ink-3); font-size: var(--fs-md); }
 

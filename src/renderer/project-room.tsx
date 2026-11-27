@@ -370,9 +370,9 @@ export function ProjectRoom({ snapshot, project, invoke, onOpenSession,onRoundta
     {live && <ol className="flow-steps" aria-label="流程进度">{STEPS.map((label, index) => <li key={label} className={index < step ? 'done' : index === step ? 'current' : ''} aria-current={index === step ? 'step' : undefined}>{index < step ? <Check size={11} /> : <span>{index + 1}</span>}{label}</li>)}
       {flow!.dispatchMode !== 'running' && <li className="paused">已暂停派发</li>}</ol>}
     {onOpenReport && <ReportSwitcher entries={reports} onOpen={onOpenReport} />}
-    {parentProject&&fresh&&<button type="button" className="button small secondary" disabled={busy} onClick={()=>setMaterials(true)}><FolderOpen size={14}/>立项资料</button>}
-    <button type="button" className="button small secondary" disabled={busy} title="SDD 规范驱动与双盲提案立项（主控 + 军师盲出 → 对照表拍板 → 拆解开工）" onClick={()=>setSddOpen(true)}><GitCompareArrows size={14}/>双盲 / SDD 立项</button>
-    <button type="button" className="button small secondary" onClick={()=>void invoke<StudyRoomDocuments|null>('projectFlow.study.documents',{projectId:project.id}).then(result=>{if(result)setStudyDocs(result);else if(parentProject)setMissingStudy(project.id);else setError('当前未开启结构化任务房模式。');}).catch(reason=>setError((reason as Error).message))}><ScrollText size={14}/>房间门牌与交接</button>
+    {parentProject&&fresh&&<button type="button" className="button small quiet" title="管理立项资料副本" disabled={busy} onClick={()=>setMaterials(true)}><FolderOpen size={13}/>资料</button>}
+    <button type="button" className="button small secondary project-sdd-btn" disabled={busy} title="SDD 规范驱动与双盲提案立项（宪法 → Spec → 双盲 Plan → 自动打勾 Tasks）" onClick={()=>setSddOpen(true)}><GitCompareArrows size={13}/>SDD / 双盲</button>
+    <button type="button" className="button small quiet" title="只读查看 ROOM_BRIEF.md 与 HANDOFF.md" onClick={()=>void invoke<StudyRoomDocuments|null>('projectFlow.study.documents',{projectId:project.id}).then(result=>{if(result)setStudyDocs(result);else if(parentProject)setMissingStudy(project.id);else setError('当前未开启结构化任务房模式。');}).catch(reason=>setError((reason as Error).message))}><ScrollText size={13}/>门牌</button>
     </div>
     {missingStudy===project.id&&parentProject&&<Modal title="初始化任务房" subtitle={project.name} onClose={()=>{if(!busy)setMissingStudy(undefined);}}>
       <div className="modal-body"><p>补齐 00–03 目录、房间门牌、交接日志和讨论白板。已存在的文件会保留。</p>{error&&<p role="alert">{error}</p>}</div>
