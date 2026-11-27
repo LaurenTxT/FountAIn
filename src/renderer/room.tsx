@@ -716,7 +716,7 @@ export function RoomView({ snapshot, invoke: rawInvoke, onOpenSession, onDocumen
   const presenceModels = useMemo(() => {
     const map: Record<string, { short: string; full: string }> = {};
     const costLabels: Record<string, string> = { normal: '全勤', economy: '智能省流', on_demand: '按需' };
-    const isMeetingNow = discussion && discussion.phase !== 'idle' ? discussion.style !== 'chat' : mode === 'meeting';
+    const isMeetingNow = state.active && discussion ? discussion.style !== 'chat' : mode === 'meeting';
     const tier = classifyCostTier({ isCasualRoom: true, isMeeting: isMeetingNow });
     const shorten = (model: string) => {
       const m = model.toLowerCase();
