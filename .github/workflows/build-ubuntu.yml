@@ -23,7 +23,9 @@ jobs:
           cache: 'npm'
 
       - name: Install dependencies
-        run: npm ci
+        run: |
+          npm ci
+          node node_modules/electron/install.js
 
       - name: Typecheck
         run: npm run typecheck
@@ -32,7 +34,7 @@ jobs:
         run: node --import tsx --test tests/*.test.ts
 
       - name: Build Ubuntu AppImage and deb
-        run: npm run package:linux
+        run: npm run package:linux -- --publish never
 
       - name: Upload Ubuntu packages
         uses: actions/upload-artifact@v4
