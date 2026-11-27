@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Check, FileText, GitCompareArrows, LoaderCircle, RotateCcw, Sparkles } from 'lucide-react';
+import { BookOpenCheck, Check, FileText, GitCompareArrows, LoaderCircle, RotateCcw, Sparkles } from 'lucide-react';
 import type { Project, Snapshot } from '../shared/types';
-import type { SddStage, SddState } from '../shared/sdd';
+import { DEFAULT_CONSTITUTION_TEMPLATE, type SddStage, type SddState } from '../shared/sdd';
 import type { ReviewLevel } from '../shared/project-flow';
 import { Avatar, useTeam } from './members';
 import { Markdown } from './Markdown';
@@ -44,10 +44,11 @@ export function SddModal({
   const [advisorId, setAdvisorId] = useState('');
   const [specDraft, setSpecDraft] = useState('');
   const [editingSpec, setEditingSpec] = useState(false);
+  const [constDraft, setConstDraft] = useState('');
   const [planDraft, setPlanDraft] = useState('');
   const [editingPlan, setEditingPlan] = useState(false);
   const [decisionNote, setDecisionNote] = useState('');
-  const [docTab, setDocTab] = useState<'workflow' | 'spec' | 'plan' | 'tasks'>('workflow');
+  const [docTab, setDocTab] = useState<'workflow' | 'constitution' | 'spec' | 'plan' | 'tasks'>('workflow');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
 
@@ -64,6 +65,7 @@ export function SddModal({
       setLeadId((prev) => prev || next.leadMemberId || availableMembers[0]?.id || '');
       setAdvisorId((prev) => (prev !== '' ? prev : (next.advisorMemberId ?? '')));
       if (next.specText && !editingSpec) setSpecDraft(next.specText);
+      if (next.constitutionText !== undefined) setConstDraft((prev) => prev || next.constitutionText || '');
       if (next.planText && !editingPlan) setPlanDraft(next.planText);
       if (next.error) setError(next.error);
     } catch (e) {
@@ -98,6 +100,23 @@ export function SddModal({
         leadMemberId: leadId,
         advisorMemberId: advisorId || undefined,
       });
+      setState(next);
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function saveConstitution() {
+    if (!constDraft.trim()) return;
+    setBusy(true);
+    setError('');
+    try {
+      const next = await invoke<SddState>('sdd.constitution.save', {
+        projectId: project.id,
+        constitutionText: constDraft,
+      }, '已保存 constitution.md（后续每轮 SDD 自动带入）');
       setState(next);
     } catch (e) {
       setError((e as Error).message);
@@ -242,9 +261,12 @@ export function SddModal({
             <button type="button" role="tab" aria-selected={docTab === 'workflow'} className={docTab === 'workflow' ? 'active' : ''} onClick={() => setDocTab('workflow')}>
               <GitCompareArrows size={13} />流程
             </button>
+            <button type="button" role="tab" aria-selected={docTab === 'constitution'} className={docTab === 'constitution' ? 'active' : ''} onClick={() => { if (!constDraft) setConstDraft(state?.constitutionText || DEFAULT_CONSTITUTION_TEMPLATE); setDocTab('constitution'); }}>
+              <BookOpenCheck size={13} />宪法{state?.constitutionText ? ' ✓' : ''}
+            </button>
             {state?.specText && (
               <button type="button" role="tab" aria-selected={docTab === 'spec'} className={docTab === 'spec' ? 'active' : ''} onClick={() => setDocTab('spec')}>
-                <FileText size={13} />spec.md
+                <FileText size={13} />spec.md{state.specCriteria?.length ? ` (${state.specCriteria.length})` : ''}
               </button>
             )}
             {state?.planText && (
@@ -262,7 +284,21 @@ export function SddModal({
 
         {error && <p className="inline-notice error" role="alert">{error}</p>}
 
-        {docTab !== 'workflow' ? (
+        {docTab === 'constitution' ? (
+          <div className="sdd-review-section">
+            <div className="sdd-section-head">
+              <strong>项目技术宪法（{state?.sddRelDir}/constitution.md）</strong>
+              <small className="panel-muted">长期红线与技术规范，每轮 SDD 自动带入给主控与军师</small>
+            </div>
+            <div className="sdd-editor-wrap">
+              <textarea rows={13} disabled={busy} value={constDraft} onChange={(e) => setConstDraft(e.target.value)} />
+              <div className="sdd-actions-row">
+                <button type="button" className="button primary small" disabled={busy || !constDraft.trim()} onClick={() => void saveConstitution()}>保存宪法</button>
+                <button type="button" className="button quiet small" disabled={busy} onClick={() => setDocTab('workflow')}>返回流程</button>
+              </div>
+            </div>
+          </div>
+        ) : docTab !== 'workflow' ? (
           <div className="sdd-doc-preview">
             <Markdown
               text={

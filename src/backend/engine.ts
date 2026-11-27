@@ -591,6 +591,11 @@ export class Engine {
       changed: () => {
         publishRoundReports(this.store);
         publishFlowCards(this.store);
+        if (this.sdd) {
+          for (const st of this.store.list<{ projectId: string }>("sdd_states")) {
+            void this.sdd.syncTasksFromFlow(st.projectId).catch(() => {});
+          }
+        }
         this.broadcast();
       },
       maxParallel: () => this.settings.maxParallel,
@@ -2776,6 +2781,11 @@ export class Engine {
       switch (method) {
         case "sdd.get":
           return this.sdd.get(projectId);
+        case "sdd.constitution.save":
+          return this.sdd.saveConstitution({
+            projectId,
+            constitutionText: String(params?.constitutionText ?? ""),
+          });
         case "sdd.spec.draft":
           return this.sdd.draftSpec({
             projectId,

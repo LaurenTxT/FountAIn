@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { RENDERER_METHODS } from '../src/shared/rpc-methods';
-import { SDD_RPC_METHODS, resolveSddRelDir } from '../src/shared/sdd';
+import { SDD_RPC_METHODS, extractSpecCriteria, resolveSddRelDir } from '../src/shared/sdd';
 import { applyCostModeToConfig, classifyCostTier } from '../src/shared/cost-mode';
 import { roomNaturalMentions } from '../src/shared/room';
 
@@ -73,11 +73,19 @@ test('Guardrail: roomNaturalMentions and model switching stay aligned', () => {
   assert.deepEqual(roomNaturalMentions('别用 astra，直接用 sol 跑', roster), []);
 });
 
-test('Guardrail: SDD RPC methods are all in RENDERER_METHODS and SDD dir auto-adapts', () => {
+test('Guardrail: SDD RPC methods are all in RENDERER_METHODS and SDD dir/criteria helpers work', () => {
   const allowlist = new Set(RENDERER_METHODS);
   for (const method of SDD_RPC_METHODS) {
     assert.ok(allowlist.has(method), `SDD method ${method} missing from RENDERER_METHODS`);
   }
   assert.equal(resolveSddRelDir(true), '01_Drafts_and_Code/sdd');
   assert.equal(resolveSddRelDir(false), '.fountain/sdd');
+  const criteria = extractSpecCriteria(`
+# Spec
+## 4. 可验收标准
+- [ ] 支持导出 PDF 并保留目录
+- [x] 不影响原有 Markdown 导出
+- 普通列表不算验收项
+  `);
+  assert.deepEqual(criteria, ['支持导出 PDF 并保留目录', '不影响原有 Markdown 导出']);
 });

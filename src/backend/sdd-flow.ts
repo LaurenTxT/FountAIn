@@ -2,7 +2,8 @@ import { existsSync } from 'node:fs';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import type { MemberProfile, Project } from '../shared/types';
-import { resolveSddRelDir, type SddState } from '../shared/sdd';
+import type { ProjectFlow, Task } from '../shared/project-flow';
+import { extractSpecCriteria, resolveSddRelDir, type SddState } from '../shared/sdd';
 import type { Store } from './store';
 
 export interface SddHost {
@@ -74,16 +75,20 @@ export class SddController {
     const project = this.project(projectId);
     const relDir = this.sddRelDir(project);
     const stored = this.store.get<SddState>('sdd_states', projectId);
-    const [specDisk, planDisk, tasksDisk] = await Promise.all([
+    const [constDisk, specDisk, planDisk, tasksDisk] = await Promise.all([
+      this.readDoc(project, relDir, 'constitution.md'),
       this.readDoc(project, relDir, 'spec.md'),
       this.readDoc(project, relDir, 'plan.md'),
       this.readDoc(project, relDir, 'tasks.md'),
     ]);
     if (stored) {
+      const effectiveSpec = specDisk !== undefined ? specDisk : stored.specText;
       return {
         ...stored,
         sddRelDir: relDir,
+        ...(constDisk !== undefined ? { constitutionText: constDisk } : {}),
         ...(specDisk !== undefined ? { specText: specDisk } : {}),
+        specCriteria: extractSpecCriteria(effectiveSpec),
         ...(planDisk !== undefined ? { planText: planDisk } : {}),
         ...(tasksDisk !== undefined ? { tasksText: tasksDisk } : {}),
       };
@@ -104,11 +109,23 @@ export class SddController {
       requirement: '',
       leadMemberId: defaultLead,
       advisorMemberId: defaultAdvisor,
+      constitutionText: constDisk,
       specText: specDisk,
+      specCriteria: extractSpecCriteria(specDisk),
       planText: planDisk,
       tasksText: tasksDisk,
       updatedAt: now(),
     };
+  }
+
+  async saveConstitution(params: { projectId: string; constitutionText: string }): Promise<SddState> {
+    const project = this.project(params.projectId);
+    const relDir = this.sddRelDir(project);
+    const constitutionText = String(params.constitutionText ?? '').trim();
+    if (!constitutionText) throw new Error('宪法内容不能为空。');
+    await this.writeDoc(project, relDir, 'constitution.md', constitutionText);
+    const current = await this.get(project.id);
+    return this.save({ ...current, sddRelDir: relDir, constitutionText, error: undefined });
   }
 
   async draftSpec(params: {
@@ -143,15 +160,16 @@ export class SddController {
         const prompt = [
           `你正在以主控（${lead.name}）身份为项目「${project.name}」（目录：${project.directory}）起草 SDD 需求规范（spec.md）。`,
           `【只读约束】只可只读查看项目现有文件，禁止修改任何代码或文件。`,
+          current.constitutionText ? `【项目技术宪法（必须遵守）】\n${current.constitutionText}` : '',
           `【用户原始需求】\n${requirement}`,
           `【输出要求】直接输出一份清晰、克制、面向项目负责人的 Markdown 规范文档（不要包在 JSON 里），严格包含以下 4 节：`,
           `# 需求规范 (Spec)`,
           `## 1. 目标与背景`,
           `## 2. 非目标 (Out of Scope)`,
           `## 3. 核心约束与边界`,
-          `## 4. 可验收标准 (Acceptance Criteria)（列出逐条可核验的检查项，用 - [ ] 列表）`,
+          `## 4. 可验收标准 (Acceptance Criteria)（列出逐条可核验的检查项，用 - [ ] 列表，后续会自动提取为硬性验收清单）`,
           `若有查完代码仍定不了、且会改变方向的问题，放在末尾「## 5. 待确认问题」并附推荐项。`,
-        ].join('\n\n');
+        ].filter(Boolean).join('\n\n');
         const res = await this.host.runIsolatedReadOnly(project.id, lead, 'SDD 起草 Spec', prompt);
         if (res.status !== 'done' || !res.text.trim()) {
           throw new Error(res.error || '起草 Spec 失败，请重试。');
@@ -159,7 +177,7 @@ export class SddController {
         const specText = res.text.trim();
         await this.writeDoc(project, relDir, 'spec.md', specText);
         const latest = this.store.get<SddState>('sdd_states', project.id) ?? working;
-        this.save({ ...latest, stage: 'spec_review', specText, error: undefined });
+        this.save({ ...latest, stage: 'spec_review', specText, specCriteria: extractSpecCriteria(specText), error: undefined });
       } catch (err) {
         const latest = this.store.get<SddState>('sdd_states', project.id) ?? working;
         this.save({ ...latest, stage: latest.specText ? 'spec_review' : 'idle', error: (err as Error).message });
@@ -237,6 +255,7 @@ export class SddController {
       try {
         const sharedContext = [
           `项目：「${project.name}」（目录：${project.directory}）`,
+          current.constitutionText ? `【项目技术宪法（硬性约束，必须遵守）】\n${current.constitutionText}` : '',
           requirement ? `【用户原始需求】\n${requirement}` : '',
           specText ? `【已确认的 Spec 规范】\n${specText}` : '',
         ]
@@ -377,21 +396,32 @@ export class SddController {
       await this.writeDoc(project, relDir, 'plan.md', finalPlan);
     }
 
+    const specCriteria = extractSpecCriteria(current.specText);
     const tasksMd = [
       `# 任务清单 (Tasks)`,
       ``,
-      `- 依据规范：\`${relDir}/spec.md\``,
-      `- 依据方案：\`${relDir}/plan.md\``,
+      ...(current.constitutionText ? [`- 项目宪法：\`${relDir}/constitution.md\``] : []),
+      ...(current.specText ? [`- 需求规范：\`${relDir}/spec.md\``] : []),
+      `- 已拍板方案：\`${relDir}/plan.md\``,
       `- 主控 Leader：${this.member(current.leadMemberId).name}`,
       ...(decisionNote ? [`- 用户拍板意见：${decisionNote}`] : []),
       ``,
-      `> 已转入 FountAIn 项目流程自动拆解可执行任务（含接口契约、\`allowedPaths\` 与 \`check\` 验收标准）。`,
+      ...(specCriteria.length
+        ? [
+            `## Spec 强制验收标准（共 ${specCriteria.length} 条）`,
+            ...specCriteria.map((c) => `- [ ] ${c}`),
+            ``,
+          ]
+        : []),
+      `## 执行任务（由 FountAIn 项目流程自动同步打勾）`,
+      `> 正在拆解任务，拆解完成后将自动同步每条子任务状态。`,
     ].join('\n');
     await this.writeDoc(project, relDir, 'tasks.md', tasksMd);
 
     const updated = this.save({
       ...current,
       sddRelDir: relDir,
+      specCriteria,
       planText: finalPlan || current.planText,
       tasksText: tasksMd,
       userDecisionNote: decisionNote || undefined,
@@ -400,10 +430,14 @@ export class SddController {
     });
 
     const topicParts = [
-      `【SDD + 双盲拍板立项】请严格依据已拍板的规范与方案拆解并执行本轮任务：`,
-      current.specText ? `- 需求规范：${relDir}/spec.md` : '',
+      `【SDD + 双盲拍板立项】请严格依据已拍板的宪法、规范与方案拆解并执行本轮任务：`,
+      current.constitutionText ? `- 项目技术宪法（必须遵守）：${relDir}/constitution.md` : '',
+      current.specText ? `- 需求规范（唯一事实源）：${relDir}/spec.md` : '',
       finalPlan ? `- 已拍板双盲方案：${relDir}/plan.md` : '',
       `- 任务清单：${relDir}/tasks.md`,
+      specCriteria.length
+        ? `\n【Spec 强制验收标准（以下每一条都必须映射到对应任务的 check 验收标准中，不得遗漏）】\n${specCriteria.map((c, i) => `${i + 1}. ${c}`).join('\n')}`
+        : '',
       decisionNote ? `\n【用户拍板决定】\n${decisionNote}` : '',
       finalPlan ? `\n【方案摘要】\n${finalPlan.slice(0, 6000)}` : '',
     ]
@@ -419,6 +453,76 @@ export class SddController {
     });
 
     return { state: updated, launched: true };
+  }
+
+  /** Automatically sync real ProjectFlow tasks & completion checkmarks into tasks.md on disk. */
+  async syncTasksFromFlow(projectId: string): Promise<void> {
+    const stored = this.store.get<SddState>('sdd_states', projectId);
+    if (!stored || stored.stage !== 'tasks_ready') return;
+    const project = this.store.get<Project>('projects', projectId);
+    if (!project) return;
+    const flow = this.store
+      .list<ProjectFlow>('project_flows')
+      .filter((f) => f.projectId === projectId)
+      .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))[0];
+    if (!flow) return;
+    const tasks = this.store
+      .list<Task>('flow_tasks')
+      .filter((t) => t.flowId === flow.id)
+      .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+    if (!tasks.length) return;
+
+    const relDir = this.sddRelDir(project);
+    const members = new Map(this.store.members().map((m) => [m.id, m.name]));
+    const statusLabels: Record<string, string> = {
+      pending: '待开始',
+      ready: '就绪',
+      queued: '排队中',
+      running: '执行中',
+      awaiting_review: '待复核',
+      reviewing: '复核中',
+      correcting: '返工修正',
+      review_passed: '已通过复核',
+      accepted: '已验收',
+      done: '已完成',
+      blocked: '阻塞',
+      escalated: '待你决定',
+      cancelled: '已取消',
+    };
+    const isDone = (status: string) => ['review_passed', 'accepted', 'done'].includes(status);
+    const doneCount = tasks.filter((t) => isDone(t.status)).length;
+    const specCriteria = extractSpecCriteria(stored.specText);
+
+    const lines = [
+      `# 任务清单 (Tasks)`,
+      ``,
+      `- 同步时间：${now()}`,
+      `- 进度：**${doneCount} / ${tasks.length}** 项已通过复核`,
+      ...(stored.constitutionText ? [`- 项目宪法：\`${relDir}/constitution.md\``] : []),
+      ...(stored.specText ? [`- 需求规范：\`${relDir}/spec.md\``] : []),
+      `- 已拍板方案：\`${relDir}/plan.md\``,
+      ...(stored.userDecisionNote ? [`- 用户拍板意见：${stored.userDecisionNote}`] : []),
+      ``,
+      `## 执行任务`,
+      ...tasks.map((t) => {
+        const mark = isDone(t.status) ? 'x' : ' ';
+        const who = members.get(t.memberId) ?? t.memberId;
+        const st = statusLabels[t.status] ?? t.status;
+        const scope = t.allowedPaths?.length ? ` · 范围：\`${t.allowedPaths.join('`, `')}\`` : '';
+        return `- [${mark}] **${t.title}**（${who} · ${st}${scope}）`;
+      }),
+      ...(specCriteria.length
+        ? [
+            ``,
+            `## Spec 强制验收标准（共 ${specCriteria.length} 条）`,
+            ...specCriteria.map((c) => `- [${doneCount === tasks.length ? 'x' : ' '}] ${c}`),
+          ]
+        : []),
+    ];
+    const tasksMd = lines.join('\n') + '\n';
+    if (tasksMd === stored.tasksText) return;
+    await this.writeDoc(project, relDir, 'tasks.md', tasksMd);
+    this.store.put('sdd_states', projectId, { ...stored, tasksText: tasksMd, updatedAt: now() });
   }
 
   async reset(projectId: string): Promise<SddState> {
