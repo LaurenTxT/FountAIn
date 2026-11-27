@@ -5,6 +5,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { RENDERER_METHODS } from '../src/shared/rpc-methods';
 import { SDD_RPC_METHODS, extractSpecCriteria, resolveSddRelDir } from '../src/shared/sdd';
+import { WORKSPACE_TOOLS_METHODS, formatDiffAnnotationsPrompt } from '../src/shared/workspace-tools';
 import { applyCostModeToConfig, classifyCostTier } from '../src/shared/cost-mode';
 import { roomNaturalMentions } from '../src/shared/room';
 
@@ -88,4 +89,28 @@ test('Guardrail: SDD RPC methods are all in RENDERER_METHODS and SDD dir/criteri
 - 普通列表不算验收项
   `);
   assert.deepEqual(criteria, ['支持导出 PDF 并保留目录', '不影响原有 Markdown 导出']);
+});
+
+test('Guardrail: Workspace Tools RPC methods are allowlisted and diff annotations format cleanly', () => {
+  const allowlist = new Set(RENDERER_METHODS);
+  for (const method of WORKSPACE_TOOLS_METHODS) {
+    assert.ok(allowlist.has(method), `Workspace tool method ${method} missing from RENDERER_METHODS`);
+  }
+  const msg = formatDiffAnnotationsPrompt(
+    [
+      {
+        id: '1',
+        path: 'src/app.ts',
+        line: 42,
+        side: 'new',
+        codeLine: 'const x = foo();',
+        comment: '这里缺少空值兜底',
+      },
+    ],
+    'Codex',
+  );
+  assert.match(msg, /@Codex/);
+  assert.match(msg, /src\/app\.ts/);
+  assert.match(msg, /第 42 行/);
+  assert.match(msg, /这里缺少空值兜底/);
 });

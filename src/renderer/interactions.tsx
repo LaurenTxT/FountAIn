@@ -60,7 +60,18 @@ export type QuickPickTarget =
   | { kind: 'project'; project: Project }
   | { kind: 'desk'; memberId: string }
   | { kind: 'room' }
-  | { kind: 'roundtable'; topicId?: string };
+  | { kind: 'roundtable'; topicId?: string }
+  | { kind: 'command'; commandId: string };
+
+export interface CommandPaletteAction {
+  id: string;
+  title: string;
+  subtitle: string;
+  keywords?: string;
+  shortcut?: string;
+  icon: ReactNode;
+  run: () => void;
+}
 
 interface SwitcherEntry {
   key: string;
@@ -71,9 +82,22 @@ interface SwitcherEntry {
   searchText: string;
   memberId?: string;
   icon?: ReactNode;
+  shortcut?: string;
 }
 
-export function QuickSwitcher({ snapshot, firstInput, onPick, onClose }: { snapshot: Snapshot; firstInput: (id: string) => string | undefined; onPick: (target: QuickPickTarget) => void; onClose: () => void }) {
+export function QuickSwitcher({
+  snapshot,
+  firstInput,
+  commands = [],
+  onPick,
+  onClose,
+}: {
+  snapshot: Snapshot;
+  firstInput: (id: string) => string | undefined;
+  commands?: CommandPaletteAction[];
+  onPick: (target: QuickPickTarget) => void;
+  onClose: () => void;
+}) {
   const [query, setQuery] = useState('');
   const [index, setIndex] = useState(0);
   const team = useTeam();
@@ -81,6 +105,18 @@ export function QuickSwitcher({ snapshot, firstInput, onPick, onClose }: { snaps
 
   const entries = useMemo<SwitcherEntry[]>(() => {
     const list: SwitcherEntry[] = [];
+    for (const cmd of commands) {
+      list.push({
+        key: `cmd:${cmd.id}`,
+        target: { kind: 'command', commandId: cmd.id },
+        title: cmd.title,
+        subtitle: cmd.subtitle,
+        badge: '命令',
+        searchText: `命令 command action ${cmd.title} ${cmd.subtitle} ${cmd.keywords ?? ''}`.toLowerCase(),
+        icon: cmd.icon,
+        shortcut: cmd.shortcut,
+      });
+    }
     for (const project of snapshot.projects) {
       if (project.kind) continue;
       list.push({
@@ -157,7 +193,7 @@ export function QuickSwitcher({ snapshot, firstInput, onPick, onClose }: { snaps
       });
     }
     return list;
-  }, [snapshot.projects, snapshot.roundtable, snapshot.room.messages.length, snapshot.sessions, snapshot.runs, projects, firstInput, team]);
+  }, [commands, snapshot.projects, snapshot.roundtable, snapshot.room.messages.length, snapshot.sessions, snapshot.runs, projects, firstInput, team]);
 
   const results = useMemo(() => {
     const words = query.toLowerCase().split(/\s+/).filter(Boolean);
@@ -187,22 +223,41 @@ export function QuickSwitcher({ snapshot, firstInput, onPick, onClose }: { snaps
   useEffect(() => setIndex(0), [query]);
   return <div className="modal-overlay switcher-overlay" onMouseDown={event => { if (event.target === event.currentTarget) onClose(); }}>
     <div className="switcher" role="dialog" aria-modal="true" aria-label="快速搜索与跳转">
-      <label className="switcher-search"><Search size={16} /><input autoFocus value={query} onChange={event => setQuery(event.target.value)} placeholder="搜索项目、工位、茶歇室、圆桌、会话或聊天内容…" aria-label="快速搜索"
+      <label className="switcher-search"><Search size={16} /><input autoFocus value={query} onChange={event => setQuery(event.target.value)} placeholder="输入命令、项目、文件、工位或聊天内容…" aria-label="命令面板与快速搜索"
         onKeyDown={event => {
           if (event.key === 'Escape') { event.preventDefault(); onClose(); }
           else if (event.key === 'ArrowDown') { event.preventDefault(); setIndex(value => Math.min(value + 1, Math.max(0, results.length - 1))); }
           else if (event.key === 'ArrowUp') { event.preventDefault(); setIndex(value => Math.max(value - 1, 0)); }
-          else if (event.key === 'Enter' && results[index]) { event.preventDefault(); onPick(results[index].target); }
+          else if (event.key === 'Enter' && results[index]) {
+            event.preventDefault();
+            const picked = results[index].target;
+            if (picked.kind === 'command') {
+              const cmd = commands.find(c => c.id === picked.commandId);
+              onClose();
+              cmd?.run();
+            } else {
+              onPick(picked);
+            }
+          }
         }} /><kbd>Esc</kbd></label>
       <div className="switcher-list" role="listbox">
-        {!results.length && <div className="switcher-empty">没有找到匹配的项目、房间或消息</div>}
-        {results.map((item, position) => <button type="button" role="option" aria-selected={position === index} key={item.key} className={`switcher-item ${item.memberId ? `member-${item.memberId}` : ''} ${position === index ? 'active' : ''}`} onMouseEnter={() => setIndex(position)} onClick={() => onPick(item.target)}>
+        {!results.length && <div className="switcher-empty">没有找到匹配的命令、项目或消息</div>}
+        {results.map((item, position) => <button type="button" role="option" aria-selected={position === index} key={item.key} className={`switcher-item ${item.memberId ? `member-${item.memberId}` : ''} ${item.target.kind === 'command' ? 'is-command' : ''} ${position === index ? 'active' : ''}`} onMouseEnter={() => setIndex(position)} onClick={() => {
+          const picked = item.target;
+          if (picked.kind === 'command') {
+            const cmd = commands.find(c => c.id === picked.commandId);
+            onClose();
+            cmd?.run();
+          } else {
+            onPick(picked);
+          }
+        }}>
           {item.memberId ? <Avatar member={team.get(item.memberId)} size={28} ring={false} /> : <span className="switcher-icon">{item.icon ?? <Laptop size={15} />}</span>}
           <span><strong>{item.title}</strong><small>{item.badge} · {item.subtitle}</small></span>
-          {position === index && <CornerDownLeft size={14} />}
+          {item.shortcut ? <kbd className="switcher-kbd">{item.shortcut}</kbd> : position === index ? <CornerDownLeft size={14} /> : null}
         </button>)}
       </div>
-      <div className="switcher-hint"><span><kbd>↑</kbd><kbd>↓</kbd> 选择</span><span><kbd>Enter</kbd> 打开</span><span><kbd>Ctrl</kbd>+<kbd>N</kbd> 新会话</span><span><kbd>Ctrl</kbd>+<kbd>,</kbd> 设置</span></div>
+      <div className="switcher-hint"><span><kbd>↑</kbd><kbd>↓</kbd> 选择</span><span><kbd>Enter</kbd> 执行</span><span><kbd>Ctrl</kbd>+<kbd>B</kbd> 右侧栏</span><span><kbd>Ctrl</kbd>+<kbd>J</kbd> 脚本运行器</span><span><kbd>Ctrl</kbd>+<kbd>,</kbd> 设置</span></div>
     </div>
   </div>;
 }

@@ -18,6 +18,7 @@ import {
   Activity, CalendarClock, AlertCircle, CheckCircle2, ChevronDown, ChevronRight,
   Folder, FolderOpen, Globe2, Plus, RefreshCw, Settings2, StopCircle, Users, X,
   MoreHorizontal, Trash2, GitMerge, Pencil, MessagesSquare, IdCard, Laptop, Search,
+  GitBranch, GitCompareArrows, Terminal, History, Sun, Moon, PanelRightClose, Sparkles,
 } from 'lucide-react';
 import { BUILTIN_MEMBERS, DEFAULT_PROFILE, DEFAULT_SETTINGS, rememberExecutors } from '../shared/defaults';
 import type { Project, ProviderId, Session, Settings, Snapshot } from '../shared/types';
@@ -40,7 +41,7 @@ import { SettingsModal, type Installs, type SettingsTab, type ThemeChoice } from
 import qqOfficialIcon from './assets/qq-official.png';
 import { QuotaBadge, QuotaOverview } from './quota';
 import { AutomationPanel } from './automation';
-import { ContextMenu, QuickSwitcher, isBusy, useMemberNotifications, type MenuItem, type MenuState } from './interactions';
+import { ContextMenu, QuickSwitcher, isBusy, useMemberNotifications, type CommandPaletteAction, type MenuItem, type MenuState } from './interactions';
 import {refreshAfterRpc} from '../shared/rpc-refresh';
 import {
   IconButton, errorText, greeting, isActiveRun, providerSummary, runnable,
@@ -519,7 +520,26 @@ export default function App() {
         onOpenWork={go(() => { if (status.inRoom) setView('room'); else if (status.session) openRecordedSession(status.session); })}
         onDesk={go(()=>openDesk(target.memberId))} onConnect={go(() => openSettings('members', null, executor ?? null))} />;
     })()}
-    {switcher && <QuickSwitcher snapshot={snapshot} firstInput={firstInput} onClose={() => setSwitcher(false)} onPick={target => {
+    {switcher && <QuickSwitcher
+      snapshot={snapshot}
+      firstInput={firstInput}
+      commands={([
+        ...(view === 'project' ? [
+          { id: 'proj-code', title: '打开代码变更与文件树', subtitle: '查看 Git Diff、行级批注返工与文件树', keywords: 'git diff files code 代码 变更 文件', shortcut: 'Ctrl+Shift+G', icon: <GitBranch size={15} />, run: () => window.dispatchEvent(new CustomEvent('fountain:cmd', { detail: 'open-code' })) },
+          { id: 'proj-scripts', title: '打开项目脚本运行器', subtitle: '一键运行 npm scripts / 测试，报错直发成员修', keywords: 'script terminal run test build 脚本 终端', shortcut: 'Ctrl+J', icon: <Terminal size={15} />, run: () => window.dispatchEvent(new CustomEvent('fountain:cmd', { detail: 'toggle-scripts' })) },
+          { id: 'proj-sdd', title: '打开 SDD / 双盲规范立项', subtitle: '宪法 → Spec → 双盲 Plan 对照 → 自动 Tasks', keywords: 'sdd spec blind plan 双盲 规范', shortcut: 'Ctrl+Shift+S', icon: <GitCompareArrows size={15} />, run: () => window.dispatchEvent(new CustomEvent('fountain:cmd', { detail: 'open-sdd' })) },
+          { id: 'proj-fanout', title: '发起同题并行盲写比稿 (Fan-out)', subtitle: '多成员在独立副本并行写代码，横向对比 Diff 择优写回', keywords: 'fanout parallel bakeoff 并行 盲写 比稿 orca', shortcut: 'Ctrl+Shift+F', icon: <Sparkles size={15} />, run: () => window.dispatchEvent(new CustomEvent('fountain:cmd', { detail: 'open-fanout' })) },
+          { id: 'proj-checkpoint', title: '创建安全检查点 (Checkpoint)', subtitle: 'T3 风格隐式 Git 快照，不污染提交历史', keywords: 'checkpoint snapshot save 快照 检查点 回滚', icon: <History size={15} />, run: () => window.dispatchEvent(new CustomEvent('fountain:cmd', { detail: 'create-checkpoint' })) },
+          { id: 'proj-board', title: '展开 / 收起右侧工作区', subtitle: '扩大聊天区域或呼出右侧面板', keywords: 'panel sidebar board 看板 右侧栏', shortcut: 'Ctrl+B', icon: <PanelRightClose size={15} />, run: () => window.dispatchEvent(new CustomEvent('fountain:cmd', { detail: 'toggle-board' })) },
+        ] : []),
+        { id: 'new-project', title: '新建项目', subtitle: '关联本地代码目录或课程任务房', keywords: 'create project folder 新建 项目', icon: <Plus size={15} />, run: () => setModal('project') },
+        { id: 'open-automation', title: '自动功能与定时任务', subtitle: '管理定时巡检与自动运行任务', keywords: 'automation schedule cron 定时 自动', icon: <CalendarClock size={15} />, run: () => setAutomationOpen(true) },
+        { id: 'open-quota', title: '查看用量与额度', subtitle: '检查各模型账号余额与配额状态', keywords: 'quota billing usage 额度 用量', icon: <Activity size={15} />, run: () => setQuotaOpen(true) },
+        { id: 'toggle-theme', title: theme === 'dark' ? '切换为浅色主题' : '切换为深色主题', subtitle: '即时切换界面明暗外观', keywords: 'theme dark light 主题 深色 浅色', icon: theme === 'dark' ? <Sun size={15} /> : <Moon size={15} />, run: () => setTheme(t => (t === 'dark' ? 'light' : 'dark')) },
+        { id: 'open-settings', title: '打开设置', subtitle: '模型连接、团队角色、权限与备份', keywords: 'settings config preferences 设置 配置', shortcut: 'Ctrl+,', icon: <Settings2 size={15} />, run: () => openSettings('connections') },
+      ] as CommandPaletteAction[])}
+      onClose={() => setSwitcher(false)}
+      onPick={target => {
       setSwitcher(false);
       if (target.kind === 'session') openRecordedSession(target.session);
       else if (target.kind === 'project') openProject(target.project);

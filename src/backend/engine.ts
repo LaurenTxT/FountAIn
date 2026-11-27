@@ -114,6 +114,7 @@ import type { CatalogLoginState } from "../shared/executor-catalog";
 import { Store } from "./store";
 import { RoomDiscussionController } from "./room-discussion";
 import { SddController } from "./sdd-flow";
+import { WorkspaceToolsController } from "./workspace-tools";
 import { QqBridgeController, type QqInboundMessage, type QqReplyTarget } from "./qq-bridge";
 import { RoomContexts } from "./room-contexts";
 import type { RoomId } from "../shared/types";
@@ -389,6 +390,7 @@ export class Engine {
   private autoCompressTimers = new Map<string, NodeJS.Timeout>();
   private qqBridge!: QqBridgeController;
   private sdd!: SddController;
+  private workspaceTools!: WorkspaceToolsController;
   private projectRelayFocus = new Map<string, ProjectRelayTarget>();
   private crossRoomWaiters = new Map<
     RoomId,
@@ -825,6 +827,34 @@ export class Engine {
         return { text: result.text ?? "", status: result.status ?? "failed", error: result.error };
       },
       startProjectFlow: (params) => this.projectFlow.invoke("projectFlow.start", params),
+    });
+    this.workspaceTools = new WorkspaceToolsController(this.store, {
+      changed: () => this.broadcast(),
+      runIsolatedWritable: async (projectId, member, title, prompt) => {
+        const session = this.createSession(projectId, member.executor, title, true, member.id);
+        const sent = (await this.send(session.id, prompt, "message")) as { runId: string };
+        const result = await this.waitForReply(sent.runId, session.id);
+        return {
+          sessionId: session.id,
+          text: result.text ?? "",
+          status: result.status ?? "failed",
+          error: result.error,
+        };
+      },
+      getSessionDiff: async (sessionId) => {
+        const res = (await this.invoke("project.diff", { sessionId })) as {
+          text?: string;
+          changes?: { path: string }[];
+        };
+        const diff = String(res?.text ?? "");
+        const files = Array.isArray(res?.changes)
+          ? res.changes.map((c) => c.path)
+          : [...diff.matchAll(/^diff --git a\/(.+?) b\//gm)].map((m) => m[1]);
+        return { diff, files };
+      },
+      applySessionWorkspace: async (sessionId) => {
+        return this.invoke("workspace.apply", { sessionId });
+      },
     });
     if (!timing?.maintenanceOnly) {
       this.qqBridge.reconfigure(this.settings.qqBridge);
@@ -2816,6 +2846,78 @@ export class Engine {
           return this.sdd.reset(projectId);
         default:
           throw new Error("不支持的 SDD 请求。");
+      }
+    }
+    if (
+      method.startsWith("project.git.") ||
+      method === "project.tree" ||
+      method.startsWith("project.scripts.") ||
+      method.startsWith("project.checkpoints.") ||
+      method.startsWith("project.fanout.")
+    ) {
+      const readMethods = new Set([
+        "project.git.status",
+        "project.git.diff",
+        "project.tree",
+        "project.scripts.list",
+        "project.checkpoints.list",
+        "project.checkpoints.diff",
+        "project.fanout.get",
+      ]);
+      if (this.maintenance && !readMethods.has(method))
+        throw new Error("正在备份或恢复资料，请等完成后再操作。");
+      const projectId = String(params?.projectId ?? "");
+      switch (method) {
+        case "project.git.status":
+          return this.workspaceTools.gitStatus(projectId);
+        case "project.git.diff":
+          return this.workspaceTools.gitDiff(projectId, params?.relativePath ? String(params.relativePath) : undefined);
+        case "project.git.commit":
+          return this.workspaceTools.gitCommit(
+            projectId,
+            String(params?.message ?? ""),
+            Array.isArray(params?.files) ? params.files.map(String) : undefined,
+          );
+        case "project.git.revertFile":
+          return this.workspaceTools.gitRevertFile(
+            projectId,
+            String(params?.relativePath ?? ""),
+            Boolean(params?.untracked),
+          );
+        case "project.git.checkout":
+          return this.workspaceTools.gitCheckout(
+            projectId,
+            String(params?.branch ?? ""),
+            Boolean(params?.create),
+          );
+        case "project.tree":
+          return this.workspaceTools.listTree(projectId, params?.dir ? String(params.dir) : "");
+        case "project.scripts.list":
+          return this.workspaceTools.listScripts(projectId);
+        case "project.scripts.run":
+          return this.workspaceTools.runScript(projectId, String(params?.command ?? ""));
+        case "project.checkpoints.list":
+          return this.workspaceTools.listCheckpoints(projectId);
+        case "project.checkpoints.create":
+          return this.workspaceTools.createCheckpoint(projectId, params?.label ? String(params.label) : undefined);
+        case "project.checkpoints.diff":
+          return this.workspaceTools.diffCheckpoint(projectId, String(params?.checkpointId ?? ""));
+        case "project.checkpoints.restore":
+          return this.workspaceTools.restoreCheckpoint(projectId, String(params?.checkpointId ?? ""));
+        case "project.fanout.get":
+          return this.workspaceTools.getFanout(projectId);
+        case "project.fanout.start":
+          return this.workspaceTools.startFanout({
+            projectId,
+            prompt: String(params?.prompt ?? ""),
+            memberIds: Array.isArray(params?.memberIds) ? params.memberIds.map(String) : [],
+          });
+        case "project.fanout.adopt":
+          return this.workspaceTools.adoptFanout(projectId, String(params?.memberId ?? ""));
+        case "project.fanout.reset":
+          return this.workspaceTools.resetFanout(projectId);
+        default:
+          throw new Error("不支持的工作区工具请求。");
       }
     }
     // Finish obsolete view reads without recreating a deleted room or surfacing a false delete error.

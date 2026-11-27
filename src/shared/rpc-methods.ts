@@ -3,6 +3,7 @@ import { AUTOMATION_RPC_METHODS } from './automation';
 import { PROJECT_FLOW_METHODS } from './project-flow';
 import { PROJECT_TREE_METHODS } from './project-tree';
 import { SDD_RPC_METHODS } from './sdd';
+import { WORKSPACE_TOOLS_METHODS } from './workspace-tools';
 
 /** Every request the workbench window may send. The main process rejects any other name. */
 export const RENDERER_METHODS: readonly string[] = [
@@ -164,4 +165,5 @@ export const RENDERER_METHODS: readonly string[] = [
   ...PROJECT_FLOW_METHODS,
   ...PROJECT_TREE_METHODS,
   ...SDD_RPC_METHODS,
+  ...WORKSPACE_TOOLS_METHODS,
 ];

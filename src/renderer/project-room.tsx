@@ -1,5 +1,8 @@
 import {joinClauses,plainFlowError,readableContent} from '../shared/content-presentation';
-import { GitCompareArrows } from 'lucide-react';
+import { GitBranch, GitCompareArrows, History, LayoutList, Terminal } from 'lucide-react';
+import { WorkspaceCodePanel } from './workspace-code-panel';
+import { FanoutModal } from './fanout-modal';
+import './workspace-tools.css';
 import {workspaceLocation} from './workspace-location';
 import { memberUserSummary, reportForDisplay } from '../shared/report-presentation';
 import { RoundResults } from './round-results';
@@ -86,8 +89,37 @@ export function ProjectRoom({ snapshot, project, invoke, onOpenSession,onRoundta
   const [boardOpen,setBoardOpen]=useState(()=>{try{return localStorage.getItem('fountain.projectBoard')!=='closed';}catch{return true;}});
   const toggleBoard=(open:boolean)=>{setBoardOpen(open);try{localStorage.setItem('fountain.projectBoard',open?'open':'closed');}catch{}};
   const [includePreviousRecord,setIncludePreviousRecord]=useState(true),[addition,setAddition]=useState<{memberId:string;goal:string;task?:Task;proposal?:TaskAddition}|null>(null);
-  const [boardView,setBoardView]=useState<'work'|'progress'>('work');
-  useEffect(()=>setBoardView('work'),[project.id]);
+  const [boardView,setBoardView]=useState<'work'|'code'|'progress'>('work');
+  const [scriptsOpen, setScriptsOpen] = useState(false);
+  const [fanoutOpen, setFanoutOpen] = useState(false);
+  const [checkpointTrigger, setCheckpointTrigger] = useState(0);
+  useEffect(()=>{setBoardView('work');setScriptsOpen(false);setFanoutOpen(false);},[project.id]);
+  useEffect(() => {
+    const onCmd = (ev: Event) => {
+      const cmd = (ev as CustomEvent<string>).detail;
+      if (cmd === 'open-code') { toggleBoard(true); setBoardView('code'); }
+      else if (cmd === 'toggle-scripts') { toggleBoard(true); setBoardView('code'); setScriptsOpen(v => !v); }
+      else if (cmd === 'open-sdd') setSddOpen(true);
+      else if (cmd === 'open-fanout') setFanoutOpen(true);
+      else if (cmd === 'toggle-board') toggleBoard(!boardOpen);
+      else if (cmd === 'create-checkpoint') { toggleBoard(true); setBoardView('code'); setCheckpointTrigger(n => n + 1); }
+    };
+    const onKey = (ev: KeyboardEvent) => {
+      if (!(ev.ctrlKey || ev.metaKey) || ev.altKey) return;
+      const k = ev.key.toLowerCase();
+      if (k === 'b' && !ev.shiftKey) { ev.preventDefault(); toggleBoard(!boardOpen); }
+      else if (k === 'j' && !ev.shiftKey) { ev.preventDefault(); toggleBoard(true); setBoardView('code'); setScriptsOpen(v => !v); }
+      else if (k === 's' && ev.shiftKey) { ev.preventDefault(); setSddOpen(true); }
+      else if (k === 'f' && ev.shiftKey) { ev.preventDefault(); setFanoutOpen(true); }
+      else if (k === 'g' && ev.shiftKey) { ev.preventDefault(); toggleBoard(true); setBoardView('code'); }
+    };
+    window.addEventListener('fountain:cmd', onCmd);
+    window.addEventListener('keydown', onKey);
+    return () => {
+      window.removeEventListener('fountain:cmd', onCmd);
+      window.removeEventListener('keydown', onKey);
+    };
+  }, [boardOpen]);
   const [sddOpen, setSddOpen] = useState(false);
   const [sddSummary, setSddSummary] = useState<SddState | null>(null);
   useEffect(() => {
@@ -353,18 +385,28 @@ export function ProjectRoom({ snapshot, project, invoke, onOpenSession,onRoundta
         </button>;
       })}
     </div>}
-    <button type="button" className="side-sdd-card" onClick={() => setSddOpen(true)}>
-      <div className="side-sdd-top">
-        <span className="side-sdd-title"><GitCompareArrows size={13} />SDD · 双盲规范</span>
-        <span className={`side-sdd-stage stage-${sddSummary?.stage ?? 'idle'}`}>{sddStageLabel[sddSummary?.stage ?? 'idle'] ?? '未启动'}</span>
-      </div>
-      <div className="side-sdd-pills">
-        <span className={sddSummary?.constitutionText ? 'on' : ''}>宪法{sddSummary?.constitutionText ? ' ✓' : ''}</span>
-        <span className={sddSummary?.specText ? 'on' : ''}>Spec{sddSummary?.specCriteria?.length ? ` (${sddSummary.specCriteria.length})` : ''}</span>
-        <span className={sddSummary?.planText ? 'on' : ''}>双盲 Plan</span>
-        <span className={sddSummary?.tasksText ? 'on' : ''}>Tasks</span>
-      </div>
-    </button>
+    <div className="side-quick-cards">
+      <button type="button" className="side-sdd-card" onClick={() => setSddOpen(true)}>
+        <div className="side-sdd-top">
+          <span className="side-sdd-title"><GitCompareArrows size={13} />SDD · 双盲规范</span>
+          <span className={`side-sdd-stage stage-${sddSummary?.stage ?? 'idle'}`}>{sddStageLabel[sddSummary?.stage ?? 'idle'] ?? '未启动'}</span>
+        </div>
+        <div className="side-sdd-pills">
+          <span className={sddSummary?.constitutionText ? 'on' : ''}>宪法{sddSummary?.constitutionText ? ' ✓' : ''}</span>
+          <span className={sddSummary?.specText ? 'on' : ''}>Spec{sddSummary?.specCriteria?.length ? ` (${sddSummary.specCriteria.length})` : ''}</span>
+          <span className={sddSummary?.planText ? 'on' : ''}>双盲 Plan</span>
+          <span className={sddSummary?.tasksText ? 'on' : ''}>Tasks</span>
+        </div>
+      </button>
+      <button type="button" className="side-fanout-card" onClick={() => setFanoutOpen(true)} title="让 2–3 位成员在独立副本并行盲写代码，对比 Diff 后一键采纳 (Ctrl+Shift+F)">
+        <span className="side-fanout-ico"><Sparkles size={14} /></span>
+        <span className="side-fanout-text">
+          <strong>并行盲写比稿</strong>
+          <small>独立副本 · 横向 Diff 择优</small>
+        </span>
+        <kbd>⇧F</kbd>
+      </button>
+    </div>
   </div>;
   const dock = !data ? null : <FlowDock view={dockView} setView={setDockView} open={dockOpen} onToggle={setDockOpen} waiting={waiting} standing={standing}
     bodyRef={nextStepBody} action={fresh && !picking ? <button type="button" className="button small primary" disabled={busy || people.filter(ready).length < 2} title={people.filter(ready).length < 2 ? '至少需要两位已准备好的成员参加' : ''} onClick={() => { setPicking(true); setDockOpen(true); }}><Hand size={13} />选负责人，起草方案</button> : nextStep?<span className="flow-next-step" role="group" aria-label="项目下一步"><small>下一步</small><button type="button" className="button small primary" disabled={busy} onClick={nextStep.run}>{nextStep.label}</button></span>:undefined}>{items}</FlowDock>;
@@ -406,8 +448,8 @@ export function ProjectRoom({ snapshot, project, invoke, onOpenSession,onRoundta
       {flow!.dispatchMode !== 'running' && <li className="paused">已暂停派发</li>}</ol>}
     {onOpenReport && <ReportSwitcher entries={reports} onOpen={onOpenReport} />}
     {parentProject&&fresh&&<button type="button" className="button small quiet" title="管理立项资料副本" disabled={busy} onClick={()=>setMaterials(true)}><FolderOpen size={13}/>资料</button>}
-    <button type="button" className="button small secondary project-sdd-btn" disabled={busy} title="SDD 规范驱动与双盲提案立项（宪法 → Spec → 双盲 Plan → 自动打勾 Tasks）" onClick={()=>setSddOpen(true)}><GitCompareArrows size={13}/>SDD / 双盲</button>
-    <button type="button" className="button small quiet" title="只读查看 ROOM_BRIEF.md 与 HANDOFF.md" onClick={()=>void invoke<StudyRoomDocuments|null>('projectFlow.study.documents',{projectId:project.id}).then(result=>{if(result)setStudyDocs(result);else if(parentProject)setMissingStudy(project.id);else setError('当前未开启结构化任务房模式。');}).catch(reason=>setError((reason as Error).message))}><ScrollText size={13}/>门牌</button>
+    {parentProject&&<button type="button" className="button small quiet" title="只读查看 ROOM_BRIEF.md 与 HANDOFF.md" onClick={()=>void invoke<StudyRoomDocuments|null>('projectFlow.study.documents',{projectId:project.id}).then(result=>{if(result)setStudyDocs(result);else setMissingStudy(project.id);}).catch(reason=>setError((reason as Error).message))}><ScrollText size={13}/>门牌</button>}
+    <button type="button" className="button small quiet project-subbar-pill" title="命令面板 (Ctrl+K)" onClick={()=>window.dispatchEvent(new KeyboardEvent('keydown',{key:'k',ctrlKey:true,bubbles:true}))}><Sparkles size={12}/>命令 <kbd>⌘K</kbd></button>
     </div>
     {missingStudy===project.id&&parentProject&&<Modal title="初始化任务房" subtitle={project.name} onClose={()=>{if(!busy)setMissingStudy(undefined);}}>
       <div className="modal-body"><p>补齐 00–03 目录、房间门牌、交接日志和讨论白板。已存在的文件会保留。</p>{error&&<p role="alert">{error}</p>}</div>
@@ -415,6 +457,7 @@ export function ProjectRoom({ snapshot, project, invoke, onOpenSession,onRoundta
     </Modal>}
     {materials&&parentProject&&<ProjectMaterialsModal project={project} parent={parentProject} invoke={invoke} onClose={()=>setMaterials(false)}/>}
     {sddOpen&&<SddModal project={project} snapshot={snapshot} roster={roster} reviewLevel={fresh?newReviewLevel:reviewLevel(flow!)} invoke={invoke} onClose={()=>setSddOpen(false)} onLaunched={()=>void load()}/>}
+    {fanoutOpen&&<FanoutModal project={project} snapshot={snapshot} roster={roster} invoke={invoke} onClose={()=>setFanoutOpen(false)} onAdopted={()=>{setBoardView('code');}}/>}
     {studyDocs&&<Modal title={studyDocs.name+' · 房间文件'} subtitle="只读查看，不会改文件或触发派工。" onClose={()=>setStudyDocs(null)}><div className="modal-body study-room-documents"><details open><summary>ROOM_BRIEF.md · 门牌</summary><pre>{studyDocs.brief}</pre></details><details open><summary>HANDOFF.md · 交接</summary><pre>{studyDocs.handoff}</pre></details></div>{parentProject&&fresh&&<div className="modal-footer"><button className="button small secondary" type="button" disabled={busy} onClick={()=>void initializeRoom()}>补齐任务房结构</button></div>}</Modal>}
     {error && <p className="inline-notice error" role="alert">{error}<button type="button" className="icon-button" aria-label="关闭提示" title="关闭提示" onClick={() => setError('')}><X size={12} /></button></p>}
     {rounds.filter(round=>round.studyHandoffError).map(round=><p key={round.id} className="inline-notice error" role="status">等交接：{round.title} · {round.studyHandoffError} <button type="button" className="button small secondary" disabled={busy} onClick={()=>void invoke<{error?:string}>('projectFlow.study.handoff.retry',{projectId:project.id,roundId:round.id}).then(result=>{if(result.error)setError(result.error);void load();}).catch(reason=>setError((reason as Error).message))}>重新写入交接</button></p>)}
@@ -429,10 +472,17 @@ export function ProjectRoom({ snapshot, project, invoke, onOpenSession,onRoundta
       {activeDocument?<ProjectDocument selection={activeDocument} invoke={invoke} onClose={()=>setDocument(undefined)}/>:!boardOpen?<aside className="project-side-rail" aria-label="看板已收起"><button type="button" className="icon-button" aria-label="展开看板" title="展开看板" onClick={()=>toggleBoard(true)}><PanelRightOpen size={16}/></button><button type="button" className="project-side-rail-label" onClick={()=>toggleBoard(true)}>看板</button>{data.overview.needsUser>0&&<span className="project-side-rail-count" title={`${data.overview.needsUser} 项待你决定`}>{data.overview.needsUser}</span>}</aside>:
       <div className="project-side">
         <div className="project-side-bar">
-          <div className="segmented" role="tablist" aria-label="项目工作台视图">{([['work','当前工作'],['progress','历史记录']] as const).map(([id,text])=><button key={id} type="button" role="tab" aria-selected={boardView===id} className={boardView===id?'selected':''} onClick={()=>setBoardView(id)}>{text}</button>)}</div>
-          <span className="project-side-tools"><button type="button" className="icon-button" aria-label="收起看板" title="收起看板，让聊天更宽" onClick={()=>toggleBoard(false)}><PanelRightClose size={15}/></button></span>
+          <div className="segmented side-segmented-icons" role="tablist" aria-label="项目工作台视图">
+            <button type="button" role="tab" aria-selected={boardView==='work'} className={boardView==='work'?'selected':''} onClick={()=>setBoardView('work')}><LayoutList size={13}/><span>工作</span></button>
+            <button type="button" role="tab" aria-selected={boardView==='code'} className={boardView==='code'?'selected':''} onClick={()=>setBoardView('code')}><GitBranch size={13}/><span>代码</span></button>
+            <button type="button" role="tab" aria-selected={boardView==='progress'} className={boardView==='progress'?'selected':''} onClick={()=>setBoardView('progress')}><History size={13}/><span>历史</span></button>
+          </div>
+          <span className="project-side-tools">
+            <button type="button" className={`icon-button ${scriptsOpen && boardView==='code' ? 'active' : ''}`} aria-label="脚本运行器" title="项目脚本运行器 (Ctrl+J)" onClick={()=>{setBoardView('code');setScriptsOpen(v=>!v);}}><Terminal size={14}/></button>
+            <button type="button" className="icon-button" aria-label="收起看板" title="收起右侧栏 (Ctrl+B)" onClick={()=>toggleBoard(false)}><PanelRightClose size={15}/></button>
+          </span>
         </div>
-      {boardView==='progress'?<ProjectProgressView project={project} snapshot={snapshot} invoke={invoke}/>:<div className="side-workspace">{sideHeaderSummary}<Board focusedTask={focusedTask} invoke={invoke} rounds={rounds} tasks={tasks} data={data} snapshot={snapshot} busy={busy} blocked={blocked} resultUnknown={resultUnknown} onGiveUp={giveUp} onContinue={(op,evidence)=>resolveAttempt(op,'continue',evidence)} members={team.members.filter(member => flow?.memberIds.includes(member.id))} onLog={setLogTarget} onOpenSdd={() => setSddOpen(true)}
+      {boardView==='progress'?<ProjectProgressView project={project} snapshot={snapshot} invoke={invoke}/>:boardView==='code'?<WorkspaceCodePanel project={project} roomId={roomId} roster={roster} invoke={invoke} scriptsOpen={scriptsOpen} onToggleScripts={(open)=>setScriptsOpen(v=>open===undefined?!v:open)} onOpenDocument={(rel)=>setDocument({projectId:project.id,target:rel})} checkpointTrigger={checkpointTrigger}/>:<div className="side-workspace">{sideHeaderSummary}<Board focusedTask={focusedTask} invoke={invoke} rounds={rounds} tasks={tasks} data={data} snapshot={snapshot} busy={busy} blocked={blocked} resultUnknown={resultUnknown} onGiveUp={giveUp} onContinue={(op,evidence)=>resolveAttempt(op,'continue',evidence)} members={team.members.filter(member => flow?.memberIds.includes(member.id))} onLog={setLogTarget} onOpenSdd={() => setSddOpen(true)}
         onReassign={(task, memberId) => mutate('projectFlow.task.reassign', { taskId: task.id, expectedRevision: task.revision, memberId }, '已换人，新成员会从头接手这项任务。')} /></div>}
       </div>}
     </div>}
