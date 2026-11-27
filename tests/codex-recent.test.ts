@@ -238,4 +238,7 @@ test('natural language model switching overrides tier routing cleanly', () => {
 
   const astra = applyCostModeToConfig({ ...base, model: 'gpt-6.2-sol' }, { executor: 'codex', costMode: 'economy' }, classifyCostTier({ isCasualRoom: true, promptText: 'GPT 换 astra 看看' }));
   assert.equal(astra.model, 'gpt-6.2-astra');
+
+  const directAstra = applyCostModeToConfig({ ...base, model: 'gpt-6.2-sol' }, { executor: 'codex', costMode: 'economy' }, classifyCostTier({ isCasualRoom: true, isMeeting: true, promptText: '@ChatGPT astra做个全量检查' }));
+  assert.equal(directAstra.model, 'gpt-6.2-astra');
 });

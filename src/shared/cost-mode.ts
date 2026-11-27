@@ -87,40 +87,40 @@ export function parseExplicitModelOverride(
   // Gemini / Antigravity: 碳基米/carbon, 氖基米/neon, 氢基米/hydrogen, 氩基米/argon
   if (exec.startsWith('acp-') || exec.includes('gemini')) {
     const tierSuffix = effortHint ?? 'low';
-    if (/碳基米|(?:用|换|切|让|叫)\s*(?:gemini[\s-]*4[\s-]*)?carbon|\bgemini-4-carbon\b/i.test(cleaned)) {
+    if (/碳基米|(?<![A-Za-z0-9_-])(?:gemini[\s-]*4[\s-]*)?carbon(?![A-Za-z0-9_-])/i.test(cleaned)) {
       return { model: `gemini-4-carbon-${tierSuffix}`, effort: undefined };
     }
-    if (/氖基米|(?:用|换|切|让|叫)\s*(?:gemini[\s-]*4[\s-]*)?neon|\bgemini-4-neon\b/i.test(cleaned)) {
+    if (/氖基米|(?<![A-Za-z0-9_-])(?:gemini[\s-]*4[\s-]*)?neon(?![A-Za-z0-9_-])/i.test(cleaned)) {
       return { model: 'gemini-4-neon', effort: effortHint ?? 'low' };
     }
-    if (/氢基米|(?:用|换|切|让|叫)\s*(?:gemini[\s-]*4[\s-]*)?hydrogen|\bgemini-4-hydrogen\b/i.test(cleaned)) {
+    if (/氢基米|(?<![A-Za-z0-9_-])(?:gemini[\s-]*4[\s-]*)?hydrogen(?![A-Za-z0-9_-])/i.test(cleaned)) {
       return { model: `gemini-4-hydrogen-${tierSuffix}`, effort: undefined };
     }
-    if (/氩基米|(?:用|换|切|让|叫)\s*(?:gemini[\s-]*4[\s-]*)?argon|\bgemini-4-argon\b/i.test(cleaned)) {
+    if (/氩基米|(?<![A-Za-z0-9_-])(?:gemini[\s-]*4[\s-]*)?argon(?![A-Za-z0-9_-])/i.test(cleaned)) {
       return { model: `gemini-4-argon-${tierSuffix}`, effort: undefined };
     }
   }
 
   // Claude: opus / fable / sonnet / haiku
   if (exec === 'claude') {
-    if (/(?:用|换|切|改用|请|让|叫)\s*(?:claude[\s-]*)?fable|\bfable\s*5\.2\b/i.test(cleaned)) return { model: 'fable', effort: effortHint };
-    if (/(?:用|换|切|改用|请|让|叫)\s*(?:claude[\s-]*)?opus|\bopus\s*5\.5\b/i.test(cleaned)) return { model: 'opus', effort: effortHint };
-    if (/(?:用|换|切|改用|请|让|叫)\s*(?:claude[\s-]*)?sonnet|\bsonnet\s*5\.5\b/i.test(cleaned)) return { model: 'sonnet', effort: effortHint };
-    if (/(?:用|换|切|改用|请|让|叫)\s*(?:claude[\s-]*)?haiku|\bhaiku\s*5\.5\b/i.test(cleaned)) return { model: 'haiku', effort: effortHint };
+    if (/(?<![A-Za-z0-9_-])(?:claude[\s-]*)?fable(?![A-Za-z0-9_-])/i.test(cleaned)) return { model: 'fable', effort: effortHint };
+    if (/(?<![A-Za-z0-9_-])(?:claude[\s-]*)?opus(?![A-Za-z0-9_-])/i.test(cleaned)) return { model: 'opus', effort: effortHint };
+    if (/(?<![A-Za-z0-9_-])(?:claude[\s-]*)?sonnet(?![A-Za-z0-9_-])/i.test(cleaned)) return { model: 'sonnet', effort: effortHint };
+    if (/(?<![A-Za-z0-9_-])(?:claude[\s-]*)?haiku(?![A-Za-z0-9_-])/i.test(cleaned)) return { model: 'haiku', effort: effortHint };
   }
 
   // GPT / Codex: astra / sol / terra / luna
   if (exec === 'codex') {
-    if (/(?:用|换|切|改用|请|让|叫)\s*(?:gpt[\s-]*6\.2[\s-]*)?astra|\bgpt-?6\.2-?astra\b/i.test(cleaned)) return { model: 'gpt-6.2-astra', effort: effortHint };
-    if (/(?:用|换|切|改用|请|让|叫)\s*(?:gpt[\s-]*6\.2[\s-]*)?sol|\bgpt-?6\.2-?sol\b/i.test(cleaned)) return { model: 'gpt-6.2-sol', effort: effortHint };
-    if (/(?:用|换|切|改用|请|让|叫)\s*(?:gpt[\s-]*6\.1[\s-]*)?terra|\bgpt-?6\.1-?terra\b/i.test(cleaned)) return { model: 'gpt-6.1-terra', effort: effortHint };
-    if (/(?:用|换|切|改用|请|让|叫)\s*(?:gpt[\s-]*6[\s-]*)?luna|\bgpt-?6-?luna\b/i.test(cleaned)) return { model: 'gpt-6-luna', effort: effortHint };
+    if (/(?<![A-Za-z0-9_-])(?:gpt[\s-]*6\.2[\s-]*)?astra(?![A-Za-z0-9_-])/i.test(cleaned)) return { model: 'gpt-6.2-astra', effort: effortHint };
+    if (/(?<![A-Za-z0-9_-])(?:gpt[\s-]*6\.2[\s-]*)?sol(?![A-Za-z0-9_-])/i.test(cleaned)) return { model: 'gpt-6.2-sol', effort: effortHint };
+    if (/(?<![A-Za-z0-9_-])(?:gpt[\s-]*6\.1[\s-]*)?terra(?![A-Za-z0-9_-])/i.test(cleaned)) return { model: 'gpt-6.1-terra', effort: effortHint };
+    if (/(?<![A-Za-z0-9_-])(?:gpt[\s-]*6[\s-]*)?luna(?![A-Za-z0-9_-])/i.test(cleaned)) return { model: 'gpt-6-luna', effort: effortHint };
   }
 
   // DeepSeek / DSH: v4-pro / flash
   if (exec === 'dsh' || exec === 'deepseek') {
-    if (/\bdeepseek-v4-pro\b|(?:用|换|切|改用)\s*(?:deepseek[\s-]*)?(?:v4[\s-]*)?pro\b/i.test(cleaned)) return { model: 'deepseek-v4-pro', effort: undefined };
-    if (/\bdeepseek-flash\b|(?:用|换|切|改用)\s*(?:deepseek[\s-]*)?flash\b/i.test(cleaned)) return { model: 'deepseek-flash', effort: effortHint };
+    if (/\bdeepseek-v4-pro\b|\bv4-?pro\b|(?:用|换|切|改用|请|让|叫)\s*(?:deepseek[\s-]*)?(?:v4[\s-]*)?pro\b/i.test(cleaned)) return { model: 'deepseek-v4-pro', effort: undefined };
+    if (/\bdeepseek-flash\b|(?:用|换|切|改用|请|让|叫)\s*(?:deepseek[\s-]*)?flash\b/i.test(cleaned)) return { model: 'deepseek-flash', effort: effortHint };
   }
 
   return undefined;
