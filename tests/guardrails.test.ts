@@ -4,6 +4,7 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { RENDERER_METHODS } from '../src/shared/rpc-methods';
+import { SDD_RPC_METHODS, resolveSddRelDir } from '../src/shared/sdd';
 import { applyCostModeToConfig, classifyCostTier } from '../src/shared/cost-mode';
 import { roomNaturalMentions } from '../src/shared/room';
 
@@ -70,4 +71,13 @@ test('Guardrail: roomNaturalMentions and model switching stay aligned', () => {
   assert.deepEqual(roomNaturalMentions('哈基米帮我看看交互文案', roster), ['m-gem']);
   assert.deepEqual(roomNaturalMentions('大肥鱼来核一下', roster), ['m-dsh']);
   assert.deepEqual(roomNaturalMentions('别用 astra，直接用 sol 跑', roster), []);
+});
+
+test('Guardrail: SDD RPC methods are all in RENDERER_METHODS and SDD dir auto-adapts', () => {
+  const allowlist = new Set(RENDERER_METHODS);
+  for (const method of SDD_RPC_METHODS) {
+    assert.ok(allowlist.has(method), `SDD method ${method} missing from RENDERER_METHODS`);
+  }
+  assert.equal(resolveSddRelDir(true), '01_Drafts_and_Code/sdd');
+  assert.equal(resolveSddRelDir(false), '.fountain/sdd');
 });

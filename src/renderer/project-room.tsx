@@ -1,4 +1,5 @@
 import {joinClauses,plainFlowError,readableContent} from '../shared/content-presentation';
+import { GitCompareArrows } from 'lucide-react';
 import {workspaceLocation} from './workspace-location';
 import { memberUserSummary, reportForDisplay } from '../shared/report-presentation';
 import { RoundResults } from './round-results';
@@ -39,6 +40,7 @@ import { MemberConfigFields, MemberRunConfig } from './member-config';
 import { ReportSwitcher, type ReportEntry } from './report-switcher';
 import type {RoundtableSource} from '../shared/roundtable';
 import {useRoundtableNavigation} from './roundtable-navigation';
+import { SddModal } from './sdd-modal';
 import {JOINT_READS} from '../shared/joint-review';
 import type { ConfigSelection } from '../shared/executor-config';
 
@@ -92,6 +94,7 @@ export function ProjectRoom({ snapshot, project, invoke, onOpenSession,onRoundta
   const roomId = `project:${project.id}` as RoomId;
   const [data, setData] = useState<ProjectFlowSnapshot | null>(null), [error, setError] = useState('');
   const [studyDocs,setStudyDocs]=useState<StudyRoomDocuments|null>(null);
+  const [sddOpen, setSddOpen] = useState(false);
   const [missingStudy,setMissingStudy]=useState<string>();
   async function initializeRoom(){
     setBusy(true);
@@ -368,6 +371,7 @@ export function ProjectRoom({ snapshot, project, invoke, onOpenSession,onRoundta
       {flow!.dispatchMode !== 'running' && <li className="paused">已暂停派发</li>}</ol>}
     {onOpenReport && <ReportSwitcher entries={reports} onOpen={onOpenReport} />}
     {parentProject&&fresh&&<button type="button" className="button small secondary" disabled={busy} onClick={()=>setMaterials(true)}><FolderOpen size={14}/>立项资料</button>}
+    <button type="button" className="button small secondary" disabled={busy} title="SDD 规范驱动与双盲提案立项（主控 + 军师盲出 → 对照表拍板 → 拆解开工）" onClick={()=>setSddOpen(true)}><GitCompareArrows size={14}/>双盲 / SDD 立项</button>
     <button type="button" className="button small secondary" onClick={()=>void invoke<StudyRoomDocuments|null>('projectFlow.study.documents',{projectId:project.id}).then(result=>{if(result)setStudyDocs(result);else if(parentProject)setMissingStudy(project.id);else setError('当前未开启结构化任务房模式。');}).catch(reason=>setError((reason as Error).message))}><ScrollText size={14}/>房间门牌与交接</button>
     </div>
     {missingStudy===project.id&&parentProject&&<Modal title="初始化任务房" subtitle={project.name} onClose={()=>{if(!busy)setMissingStudy(undefined);}}>
@@ -375,6 +379,7 @@ export function ProjectRoom({ snapshot, project, invoke, onOpenSession,onRoundta
       <div className="modal-footer"><button type="button" className="button quiet" disabled={busy} onClick={()=>setMissingStudy(undefined)}>取消</button><button type="button" className="button primary" disabled={busy} onClick={()=>void initializeRoom()}>初始化任务房</button></div>
     </Modal>}
     {materials&&parentProject&&<ProjectMaterialsModal project={project} parent={parentProject} invoke={invoke} onClose={()=>setMaterials(false)}/>}
+    {sddOpen&&<SddModal project={project} snapshot={snapshot} roster={roster} reviewLevel={fresh?newReviewLevel:reviewLevel(flow!)} invoke={invoke} onClose={()=>setSddOpen(false)} onLaunched={()=>void load()}/>}
     {studyDocs&&<Modal title={studyDocs.name+' · 房间文件'} subtitle="只读查看，不会改文件或触发派工。" onClose={()=>setStudyDocs(null)}><div className="modal-body study-room-documents"><details open><summary>ROOM_BRIEF.md · 门牌</summary><pre>{studyDocs.brief}</pre></details><details open><summary>HANDOFF.md · 交接</summary><pre>{studyDocs.handoff}</pre></details></div>{parentProject&&fresh&&<div className="modal-footer"><button className="button small secondary" type="button" disabled={busy} onClick={()=>void initializeRoom()}>补齐任务房结构</button></div>}</Modal>}
     {error && <p className="inline-notice error" role="alert">{error}<button type="button" className="icon-button" aria-label="关闭提示" title="关闭提示" onClick={() => setError('')}><X size={12} /></button></p>}
     {rounds.filter(round=>round.studyHandoffError).map(round=><p key={round.id} className="inline-notice error" role="status">等交接：{round.title} · {round.studyHandoffError} <button type="button" className="button small secondary" disabled={busy} onClick={()=>void invoke<{error?:string}>('projectFlow.study.handoff.retry',{projectId:project.id,roundId:round.id}).then(result=>{if(result.error)setError(result.error);void load();}).catch(reason=>setError((reason as Error).message))}>重新写入交接</button></p>)}

@@ -2,6 +2,7 @@ import { ROUNDTABLE_READS, ROUNDTABLE_WRITES } from './roundtable';
 import { AUTOMATION_RPC_METHODS } from './automation';
 import { PROJECT_FLOW_METHODS } from './project-flow';
 import { PROJECT_TREE_METHODS } from './project-tree';
+import { SDD_RPC_METHODS } from './sdd';
 
 /** Every request the workbench window may send. The main process rejects any other name. */
 export const RENDERER_METHODS: readonly string[] = [
@@ -162,4 +163,5 @@ export const RENDERER_METHODS: readonly string[] = [
   ...AUTOMATION_RPC_METHODS,
   ...PROJECT_FLOW_METHODS,
   ...PROJECT_TREE_METHODS,
+  ...SDD_RPC_METHODS,
 ];

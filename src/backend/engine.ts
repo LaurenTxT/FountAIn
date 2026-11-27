@@ -113,6 +113,7 @@ import { ZcodeAdapter } from "./adapters/zcode";
 import type { CatalogLoginState } from "../shared/executor-catalog";
 import { Store } from "./store";
 import { RoomDiscussionController } from "./room-discussion";
+import { SddController } from "./sdd-flow";
 import { QqBridgeController, type QqInboundMessage, type QqReplyTarget } from "./qq-bridge";
 import { RoomContexts } from "./room-contexts";
 import type { RoomId } from "../shared/types";
@@ -387,6 +388,7 @@ export class Engine {
   private autoCompressCooldown = new Map<string, number>();
   private autoCompressTimers = new Map<string, NodeJS.Timeout>();
   private qqBridge!: QqBridgeController;
+  private sdd!: SddController;
   private projectRelayFocus = new Map<string, ProjectRelayTarget>();
   private crossRoomWaiters = new Map<
     RoomId,
@@ -801,6 +803,23 @@ export class Engine {
       onMessage: (msg) => this.handleQqMessage(msg),
       onChanged: () => this.broadcast(),
       resolveRoomName: (roomId) => this.resolveQqRoomName(roomId),
+    });
+    this.sdd = new SddController(this.store, {
+      changed: () => this.broadcast(),
+      runIsolatedReadOnly: async (projectId, member, title, prompt) => {
+        const project = this.require<Project>("projects", projectId);
+        const session = this.createSession(projectId, member.executor, title, false, member.id);
+        this.store.put("sessions", session.id, {
+          ...session,
+          workspace: project.directory,
+          workspaceKind: "original",
+          purpose: "flow-plan",
+        });
+        const sent = (await this.send(session.id, prompt, "message")) as { runId: string };
+        const result = await this.waitForReply(sent.runId, session.id);
+        return { text: result.text ?? "", status: result.status ?? "failed", error: result.error };
+      },
+      startProjectFlow: (params) => this.projectFlow.invoke("projectFlow.start", params),
     });
     if (!timing?.maintenanceOnly) {
       this.qqBridge.reconfigure(this.settings.qqBridge);
@@ -2749,6 +2768,45 @@ export class Engine {
       const result=new ComposerDrafts(this.store).save(params);
       if(result.released.length)this.releaseAttachments(result.released);
       return {saved:true};
+    }
+    if (method.startsWith("sdd.")) {
+      if (this.maintenance && method !== "sdd.get")
+        throw new Error("正在备份或恢复资料，请等完成后再操作。");
+      const projectId = String(params?.projectId ?? "");
+      switch (method) {
+        case "sdd.get":
+          return this.sdd.get(projectId);
+        case "sdd.spec.draft":
+          return this.sdd.draftSpec({
+            projectId,
+            requirement: String(params?.requirement ?? ""),
+            leadMemberId: String(params?.leadMemberId ?? ""),
+            advisorMemberId: params?.advisorMemberId ? String(params.advisorMemberId) : undefined,
+          });
+        case "sdd.spec.save":
+          return this.sdd.saveSpec({ projectId, specText: String(params?.specText ?? "") });
+        case "sdd.blind.start":
+          return this.sdd.startBlindProposals({
+            projectId,
+            requirement: params?.requirement !== undefined ? String(params.requirement) : undefined,
+            leadMemberId: String(params?.leadMemberId ?? ""),
+            advisorMemberId: params?.advisorMemberId ? String(params.advisorMemberId) : undefined,
+            specText: params?.specText !== undefined ? String(params.specText) : undefined,
+          });
+        case "sdd.plan.save":
+          return this.sdd.savePlan({ projectId, planText: String(params?.planText ?? "") });
+        case "sdd.approve":
+          return this.sdd.approveAndLaunch({
+            projectId,
+            userDecisionNote: params?.userDecisionNote ? String(params.userDecisionNote) : undefined,
+            memberIds: Array.isArray(params?.memberIds) ? params.memberIds.map(String) : [],
+            reviewLevel: params?.reviewLevel ? String(params.reviewLevel) : undefined,
+          });
+        case "sdd.reset":
+          return this.sdd.reset(projectId);
+        default:
+          throw new Error("不支持的 SDD 请求。");
+      }
     }
     // Finish obsolete view reads without recreating a deleted room or surfacing a false delete error.
     if (
