@@ -887,7 +887,10 @@ export function RoomView({ snapshot, invoke: rawInvoke, onOpenSession, onDocumen
         const effortLabel = run?.effectiveConfig?.effortStatus === 'reported' ? run.effectiveConfig.effort : run?.requestedConfig?.effort;
         const actual = [modelLabel, effortLabel].filter(Boolean).join(' · ');
         const silent = message.error ?? (unknown ? '成员程序结束了这一轮，但没有返回内容，结果待核对。可能是登录失效或连接中断，可在“设置与连接”检查这位成员。工作台不会自动重发。' : run?.error ?? '（没有说话）');
-        return <div key={message.id} className={`room-line member-${member?.id ?? 'claude'}${enter(message)}`} data-message-id={message.id}>
+        const attachedQuestions = !archived && !personal && !surface?.readOnly
+          ? pendingOwnerQuestions(discussion).filter(q => q.messageId === message.id)
+          : [];
+        return <Fragment key={message.id}><div className={`room-line member-${member?.id ?? 'claude'}${enter(message)}`} data-message-id={message.id}>
           {member ? (!archived && !personal ? <button type="button" className="room-avatar-mention" title={`点击 @${member.name}`} aria-label={`@${member.name}`} onClick={() => quickMention(member.name)}><Avatar member={member} size={36} mood={message.status === 'speaking' ? 'working' : undefined} /></button> : <Avatar member={member} size={36} mood={message.status === 'speaking' ? 'working' : undefined} />) : <span className="room-retired-avatar" aria-hidden="true">{[...name(message)][0]}</span>}
           <div className="room-bubble-wrap"><span className="room-meta"><strong>{name(message)}</strong><time title={run ? effectiveConfigText(run.requestedConfig, run.effectiveConfig) : undefined}>{time(message.at)}</time>{actual && <span className="room-model" title={run ? effectiveConfigText(run.requestedConfig, run.effectiveConfig) : '这一轮使用的模型与思考程度'}>{actual}</span>}{message.inReplyTo && <span className="room-reply-to">回复 {messages.find(m => m.id === message.inReplyTo)?.authorName ?? '较早的消息'}</span>}{message.kind === 'summary' && <em>会议总结</em>}{message.status === 'failed' && <em className="room-failed">{unknown ? '结果待核对' : run?.delivery==='prepared' ? '未发送' : '回复失败'}</em>}{message.status === 'stopped' && <em>已停止</em>}</span>
             <div className={`room-bubble ${message.status === 'speaking' && !text ? 'thinking' : ''} ${folded ? 'folded' : ''}`} onContextMenu={message.status === 'speaking' ? undefined : event => openMessageMenu(event, messageMenu(message, canReply))}>{text ? <Markdown text={text} onDocument={onDocument} /> : message.status === 'speaking' ? (() => {
@@ -922,8 +925,47 @@ export function RoomView({ snapshot, invoke: rawInvoke, onOpenSession, onDocumen
             </div>
             {personal?.messageActions?.(message,messages)}
           </div>
-        </div>;
+        </div>
+        {attachedQuestions.map(q => {
+          const qm = team.get(q.from);
+          return <div key={`q-${q.id}`} className={`room-line room-question-bubble-line member-${qm?.id ?? q.from}`}>
+            <span className="room-question-spacer" aria-hidden="true" />
+            <div className="room-bubble-wrap">
+              <div className="room-bubble room-question-bubble">
+                <div className="room-question-bubble-head">
+                  <span className="t3-dot t3-dot-needs" aria-hidden="true" />
+                  <strong>{qm?.name ?? q.from} 问你</strong>
+                </div>
+                <p className="room-question-bubble-text">{q.text}</p>
+                <div className="room-question-bubble-actions">
+                  <button type="button" className="button small primary" onClick={() => openAnswer(q.id)}>回答</button>
+                </div>
+              </div>
+            </div>
+          </div>;
+        })}
+        </Fragment>;
       })()}</Fragment>)}
+      {!archived && !personal && !surface?.readOnly && pendingOwnerQuestions(discussion)
+        .filter(q => !messages.some(m => m.id === q.messageId))
+        .map(q => {
+          const qm = team.get(q.from);
+          return <div key={`q-tail-${q.id}`} className={`room-line room-question-bubble-line member-${qm?.id ?? q.from}`}>
+            {qm ? <Avatar member={qm} size={36} /> : <span className="room-question-spacer" aria-hidden="true" />}
+            <div className="room-bubble-wrap">
+              <div className="room-bubble room-question-bubble">
+                <div className="room-question-bubble-head">
+                  <span className="t3-dot t3-dot-needs" aria-hidden="true" />
+                  <strong>{qm?.name ?? q.from} 问你</strong>
+                </div>
+                <p className="room-question-bubble-text">{q.text}</p>
+                <div className="room-question-bubble-actions">
+                  <button type="button" className="button small primary" onClick={() => openAnswer(q.id)}>回答</button>
+                </div>
+              </div>
+            </div>
+          </div>;
+        })}
       {compressing && <div className="room-system room-compressing-pill" role="status"><span className="room-thinking-dot tone-active" aria-hidden="true" /><span>{state.compressingAuto ? `管理员（${compressing.name}）正在自动压缩上下文…` : `管理员（${compressing.name}）正在压缩上下文…`}</span></div>}
       {personal?.dock}{archived && surface?.dock}
     </div>

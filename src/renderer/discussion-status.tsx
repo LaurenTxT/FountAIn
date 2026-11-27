@@ -84,10 +84,9 @@ export function RoomPresence({ discussion: d, state, invited, ready, locked, bus
         {!state.active && ['waiting_user','idle'].includes(d.phase) && Object.keys(d.skippedMembers??{}).length>0 && <button type="button" className="button small secondary" disabled={busy||Boolean(questions.length&&!d.interruption)} onClick={onResume}>{d.unknownRunId||d.unknownRunIds?.length?'核对后重新加入异常成员':'重新加入异常成员'}</button>}
       </div>}
     </div>
-    {d && (details.length > 0 || questions.length > 0 || nextStep) && <div className="room-presence-detail">
+    {d && (details.length > 0 || nextStep) && <div className="room-presence-detail">
       {nextStep&&<p className="room-next-step">{nextStep}</p>}
       {details.map(text => <p key={text}>{text}</p>)}
-      {questions.map(question => <p key={question.id} className="room-presence-question"><strong>{name(question.from)} 问你：</strong>{question.text} {onAnswer&&<button type="button" className="link-button" onClick={()=>onAnswer(question.id)}>回答</button>}</p>)}
     </div>}
   </section>;
 }
