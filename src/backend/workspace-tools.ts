@@ -249,6 +249,48 @@ export class WorkspaceToolsController {
     };
   }
 
+  async gitInit(projectId: string): Promise<{ branch: string; baselineCommit?: string }> {
+    const project = this.project(projectId);
+    const cwd = project.directory;
+    const probe = await runGit(cwd, ['rev-parse', '--is-inside-work-tree']);
+    if (probe.code !== 0 || probe.stdout.trim() !== 'true') {
+      const initRes = await runGit(cwd, ['init', '-b', 'main']);
+      if (initRes.code !== 0) {
+        const fallback = await runGit(cwd, ['init']);
+        if (fallback.code !== 0) throw new Error(fallback.stderr.trim() || 'git init 失败。');
+      }
+      const gitignore = path.join(cwd, '.gitignore');
+      if (!existsSync(gitignore)) {
+        await writeFile(
+          gitignore,
+          'node_modules/\n__pycache__/\n.venv/\nvenv/\n*.pyc\n.DS_Store\nThumbs.db\n',
+          'utf8',
+        );
+      }
+    }
+    const hasHead = (await runGit(cwd, ['rev-parse', '--verify', 'HEAD'])).code === 0;
+    let baselineCommit: string | undefined;
+    if (!hasHead) {
+      await runGit(cwd, ['add', '-A']);
+      const nameCheck = await runGit(cwd, ['config', 'user.name']);
+      const emailCheck = await runGit(cwd, ['config', 'user.email']);
+      const commitArgs = [
+        ...(nameCheck.stdout.trim() ? [] : ['-c', 'user.name=FountAIn Workspace']),
+        ...(emailCheck.stdout.trim() ? [] : ['-c', 'user.email=workspace@local']),
+        'commit',
+        '--allow-empty',
+        '-m',
+        'chore: initial baseline snapshot',
+      ];
+      const committed = await runGit(cwd, commitArgs);
+      if (committed.code === 0) {
+        baselineCommit = (await runGit(cwd, ['rev-parse', '--short', 'HEAD'])).stdout.trim();
+      }
+    }
+    const branch = (await runGit(cwd, ['rev-parse', '--abbrev-ref', 'HEAD'])).stdout.trim() || 'main';
+    return { branch, baselineCommit };
+  }
+
   async gitCommit(projectId: string, message: string, files?: string[]): Promise<{ commit: string }> {
     const project = this.project(projectId);
     const msg = message.trim();

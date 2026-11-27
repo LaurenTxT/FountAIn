@@ -9,6 +9,7 @@ export const WORKSPACE_TOOLS_READS = [
 ] as const;
 
 export const WORKSPACE_TOOLS_WRITES = [
+  'project.git.init',
   'project.git.commit',
   'project.git.revertFile',
   'project.git.checkout',

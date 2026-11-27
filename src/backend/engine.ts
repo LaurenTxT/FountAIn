@@ -2872,6 +2872,8 @@ export class Engine {
           return this.workspaceTools.gitStatus(projectId);
         case "project.git.diff":
           return this.workspaceTools.gitDiff(projectId, params?.relativePath ? String(params.relativePath) : undefined);
+        case "project.git.init":
+          return this.workspaceTools.gitInit(projectId);
         case "project.git.commit":
           return this.workspaceTools.gitCommit(
             projectId,

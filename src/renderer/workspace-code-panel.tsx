@@ -133,6 +133,7 @@ export function WorkspaceCodePanel({
   // Commit & branch controls
   const [commitMsg, setCommitMsg] = useState('');
   const [committing, setCommitting] = useState(false);
+  const [initializingGit, setInitializingGit] = useState(false);
   const [branchMenuOpen, setBranchMenuOpen] = useState(false);
   const [newBranchName, setNewBranchName] = useState('');
 
@@ -262,6 +263,23 @@ export function WorkspaceCodePanel({
       });
     } catch (err) {
       setError((err as Error).message);
+    }
+  }
+
+  async function handleInitGit() {
+    if (initializingGit) return;
+    setInitializingGit(true);
+    try {
+      await invoke(
+        'project.git.init',
+        { projectId: project.id },
+        '已初始化本地 Git 存档仓库并打好基线快照，现在可以使用 Diff、批注和检查点回滚了！',
+      );
+      await Promise.all([loadGit(), loadScripts(), loadCheckpoints()]);
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setInitializingGit(false);
     }
   }
 
@@ -744,9 +762,18 @@ export function WorkspaceCodePanel({
               </div>
             ) : !gitStatus.isRepo ? (
               <div className="wt-empty">
-                <FolderOpen size={22} />
+                <GitBranch size={22} />
                 <strong>当前目录未初始化 Git</strong>
-                <small>仍可在「文件」浏览源码，或在下方运行脚本。</small>
+                <small>初始化为本地 Git 仓库后，即可自动记录改动 Diff、写行级批注、创建安全检查点并随时回滚（仅存本地，不会推送）。</small>
+                <button
+                  type="button"
+                  className="button small primary"
+                  disabled={initializingGit}
+                  onClick={() => void handleInitGit()}
+                >
+                  {initializingGit ? <LoaderCircle size={13} className="spin" /> : <GitBranch size={13} />}
+                  一键初始化本地 Git 存档仓库
+                </button>
               </div>
             ) : !gitStatus.files.length ? (
               <div className="wt-empty">
@@ -856,7 +883,22 @@ export function WorkspaceCodePanel({
                 保存快照
               </button>
             </div>
-            {!checkpoints.length ? (
+            {!gitStatus?.isRepo ? (
+              <div className="wt-empty">
+                <History size={22} />
+                <strong>初始化本地 Git 后开启检查点</strong>
+                <small>检查点使用隐式 Git Ref 存档，随时可一键对比和回滚，不污染提交记录。</small>
+                <button
+                  type="button"
+                  className="button small primary"
+                  disabled={initializingGit}
+                  onClick={() => void handleInitGit()}
+                >
+                  {initializingGit ? <LoaderCircle size={13} className="spin" /> : <GitBranch size={13} />}
+                  一键初始化本地 Git 存档仓库
+                </button>
+              </div>
+            ) : !checkpoints.length ? (
               <div className="wt-empty">
                 <History size={22} />
                 <strong>暂无安全检查点</strong>
