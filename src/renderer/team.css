@@ -135,10 +135,9 @@
 .guest-chip-hand { position: absolute; right: -5px; bottom: -4px; width: 16px; height: 16px; padding: 2px; border-radius: 50%; border: 1px solid var(--warn); color: var(--warn); background: var(--warn-soft); }
 .guest-chip-tag { padding: 1px 7px; border-radius: 999px; background: color-mix(in srgb, var(--m) 14%, var(--surface)); color: var(--m-ink); font-size: var(--fs-xs); font-weight: 500; white-space: nowrap; }
 .guest-chip.speaking .guest-chip-tag { animation: glow 1.6s ease-in-out infinite; }
-.room-reply-to { color: var(--ink-3); }
-.room-model { color: var(--ink-3); font-size: var(--fs-xs); font-variant-numeric: tabular-nums; }
-.room-model::before { content: '·'; margin-right: 7px; }
-.room-reply-to::before { content: '·'; margin-right: 7px; }
+.room-reply-to { color: var(--ink-3); white-space: nowrap; max-width: 100%; overflow: hidden; text-overflow: ellipsis; font-size: var(--fs-xs); }
+.room-model { color: var(--ink-3); font-size: var(--fs-xs); font-variant-numeric: tabular-nums; white-space: nowrap; max-width: 100%; overflow: hidden; text-overflow: ellipsis; padding: 1px 6px; border-radius: 999px; background: var(--sunken); line-height: 1.4; }
+.room-reply-to::before { content: '↩ '; opacity: .75; }
 @media (max-width: 760px) { .room-presence { padding-inline: 12px; } .room-presence-detail { padding-left: 0; } }
 .room-messages { flex: 1; overflow-y: auto; padding: 18px max(24px, calc(50% - 440px)) 24px; display: flex; flex-direction: column; gap: 14px; }
 .room-empty { margin: auto; text-align: center; max-width: 520px; animation: rise .4s var(--ease) both; }
@@ -154,7 +153,8 @@
 .room-line.mine { align-self: flex-end; }
 .room-bubble-wrap { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
 .room-line.mine .room-bubble-wrap { align-items: flex-end; }
-.room-meta { display: flex; align-items: center; gap: 7px; font-size: var(--fs-sm); color: var(--ink-3); }
+.room-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 3px 7px; font-size: var(--fs-sm); color: var(--ink-3); min-width: 0; }
+.room-meta strong, .room-meta time { white-space: nowrap; flex-shrink: 0; }
 .room-meta strong { color: var(--m-ink, var(--ink)); font-size: var(--fs-md); }
 .room-line.mine .room-meta strong { color: var(--ink); }
 .room-meta em { font-style: normal; padding: 0 7px; border-radius: 999px; background: var(--sunken); }
