@@ -349,7 +349,10 @@ export class WorkspaceToolsController {
     if (existsSync(path.join(cwd, 'pyproject.toml')) || existsSync(path.join(cwd, 'pytest.ini'))) {
       items.push({ id: 'preset:pytest', name: 'pytest', command: 'pytest', source: 'preset' });
     }
-    items.push({ id: 'preset:git-status', name: 'git status', command: 'git status -s', source: 'preset' });
+    const isGit = (await runGit(cwd, ['rev-parse', '--is-inside-work-tree'])).code === 0;
+    if (isGit) {
+      items.push({ id: 'preset:git-status', name: 'git status', command: 'git status -s', source: 'preset' });
+    }
     return items;
   }
 
