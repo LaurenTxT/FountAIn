@@ -46,7 +46,8 @@ export function SetupChecklist({ snapshot, team, invoke, onSettings, onProject }
     setProbing(member.id);
     try { await invoke('provider.probe', { provider: member.executor as ProviderId }); } catch {} finally { setProbing(null); }
   }
-  if (done === total || dismissed === pending) return null;
+  const hasUsedApp = project && (snapshot.sessions.length > 0 || snapshot.room.messages.length > 0 || members.some(item => item.check.tone === 'ok'));
+  if (hasUsedApp || done === total || dismissed === pending) return null;
   return <section className="setup-checklist" aria-label="开工前检查">
     <div className="setup-head-row">
       <button type="button" className="setup-head" aria-expanded={open} onClick={() => setOpen(value => !value)}>
