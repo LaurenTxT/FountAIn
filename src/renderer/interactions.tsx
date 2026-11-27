@@ -197,7 +197,7 @@ export function QuickSwitcher({
 
   const results = useMemo(() => {
     const words = query.toLowerCase().split(/\s+/).filter(Boolean);
-    if (!words.length) return entries.slice(0, 30);
+    if (!words.length) return entries.filter(item => item.target.kind !== 'session').slice(0, 30);
     const matched = entries.filter(item => words.every(word => item.searchText.includes(word)));
     const msgMatches: SwitcherEntry[] = [];
     for (let i = snapshot.room.messages.length - 1; i >= 0 && msgMatches.length < 8; i--) {
