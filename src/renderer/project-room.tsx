@@ -392,25 +392,30 @@ export function ProjectRoom({ snapshot, project, invoke, onOpenSession,onRoundta
       })}
     </div>}
     <div className="side-quick-cards">
-      <button type="button" className="side-sdd-card" onClick={() => setSddOpen(true)}>
-        <div className="side-sdd-top">
-          <span className="side-sdd-title"><GitCompareArrows size={13} />SDD · 双盲规范</span>
-          <span className={`side-sdd-stage stage-${sddSummary?.stage ?? 'idle'}`}>{sddStageLabel[sddSummary?.stage ?? 'idle'] ?? '未启动'}</span>
-        </div>
-        <div className="side-sdd-pills">
-          <span className={sddSummary?.constitutionText ? 'on' : ''}>宪法{sddSummary?.constitutionText ? ' ✓' : ''}</span>
-          <span className={sddSummary?.specText ? 'on' : ''}>Spec{sddSummary?.specCriteria?.length ? ` (${sddSummary.specCriteria.length})` : ''}</span>
-          <span className={sddSummary?.planText ? 'on' : ''}>双盲 Plan</span>
-          <span className={sddSummary?.tasksText ? 'on' : ''}>Tasks</span>
-        </div>
-      </button>
-      <button type="button" className="side-fanout-card" onClick={() => setFanoutOpen(true)} title="让 2–3 位成员在独立副本并行盲写代码，对比 Diff 后一键采纳 (Ctrl+Shift+F)">
-        <span className="side-fanout-ico"><Sparkles size={14} /></span>
-        <span className="side-fanout-text">
-          <strong>并行盲写比稿</strong>
-          <small>独立副本 · 横向 Diff 择优</small>
+      <button type="button" className="side-action-card is-sdd" onClick={() => setSddOpen(true)}>
+        <span className="side-action-ico"><GitCompareArrows size={15} /></span>
+        <span className="side-action-body">
+          <span className="side-action-top">
+            <strong>SDD · 双盲规范</strong>
+            <span className={`side-sdd-stage stage-${sddSummary?.stage ?? 'idle'}`}>{sddStageLabel[sddSummary?.stage ?? 'idle'] ?? '未启动'}</span>
+          </span>
+          <span className="side-sdd-pills">
+            <span className={sddSummary?.constitutionText ? 'on' : ''}>宪法{sddSummary?.constitutionText ? ' ✓' : ''}</span>
+            <span className={sddSummary?.specText ? 'on' : ''}>Spec{sddSummary?.specCriteria?.length ? ` (${sddSummary.specCriteria.length})` : ''}</span>
+            <span className={sddSummary?.planText ? 'on' : ''}>Plan</span>
+            <span className={sddSummary?.tasksText ? 'on' : ''}>Tasks</span>
+          </span>
         </span>
-        <kbd>⇧F</kbd>
+      </button>
+      <button type="button" className="side-action-card is-fanout" onClick={() => setFanoutOpen(true)} title="让 2–3 位成员在独立副本并行盲写代码，对比 Diff 后一键采纳 (Ctrl+Shift+F)">
+        <span className="side-action-ico"><Sparkles size={15} /></span>
+        <span className="side-action-body">
+          <span className="side-action-top">
+            <strong>并行盲写比稿</strong>
+            <kbd>⇧F</kbd>
+          </span>
+          <small>独立副本写代码 · 横向 Diff 择优</small>
+        </span>
       </button>
     </div>
   </div>;
