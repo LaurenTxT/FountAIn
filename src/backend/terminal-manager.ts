@@ -1,6 +1,8 @@
 import { spawn, type ChildProcess } from 'node:child_process';
+import { randomUUID } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import os from 'node:os';
 import path from 'node:path';
 import type { MemberProfile, Project, ProviderInfo, RoomId, RoomMessage, Settings } from '../shared/types';
 import type {
@@ -24,6 +26,7 @@ function psSingleQuote(value: string): string {
 export interface TerminalHost {
   recentRoomMessages(roomId: RoomId, limit: number): RoomMessage[];
   resolveNodeExecutable(): string;
+  resolveMemberEnv(member: MemberProfile): Record<string, string>;
 }
 
 interface LiveTerminal {
@@ -286,16 +289,21 @@ export class TerminalManager {
       (settings?.paths as Record<string, string | undefined> | undefined)?.[member.executor] ||
       '';
     const nodeExe = this.host.resolveNodeExecutable();
+    const memberEnv = this.host.resolveMemberEnv(member);
     const handoffPrompt = handoffFile
       ? `请先阅读 ${handoffFile} 了解我们刚才在 FountAIn 会议室的讨论上下文，然后继续协助我。`
       : '';
+
+    const envLines = Object.entries(memberEnv).map(
+      ([k, v]) => `$env:${k} = ${psSingleQuote(v)}`,
+    );
 
     const bannerLines = [
       `Write-Host '================================================' -ForegroundColor DarkCyan`,
       `Write-Host ${psSingleQuote(`  FountAIn · ${member.name} 交互终端`)} -ForegroundColor Cyan`,
       handoffFile
         ? `Write-Host ${psSingleQuote(`  已继承聊天上下文 -> ${handoffFile}`)} -ForegroundColor Green`
-        : `Write-Host '  全新独立对话会话' -ForegroundColor DarkGray`,
+        : `Write-Host '  全新独立对话会话（已自动复用 FountAIn 登录状态）' -ForegroundColor DarkGray`,
       `Write-Host '================================================' -ForegroundColor DarkCyan`,
     ];
 
@@ -322,6 +330,9 @@ export class TerminalManager {
           `Write-Host ${psSingleQuote(`  提示：进入后可输入「${handoffPrompt}」`)} -ForegroundColor Yellow`,
         );
       }
+    } else if (/agy(?:\.exe)?$/i.test(configuredPath)) {
+      const base = execExpr || 'agy';
+      runLine = handoffPrompt ? `${base} -i ${psSingleQuote(handoffPrompt)}` : base;
     } else if (execExpr) {
       runLine = handoffPrompt ? `${execExpr} ${psSingleQuote(handoffPrompt)}` : execExpr;
     } else {
@@ -330,7 +341,7 @@ export class TerminalManager {
 
     return {
       displayCommand: runLine,
-      psScript: [...bannerLines, runLine].join('; '),
+      psScript: [...envLines, ...bannerLines, runLine].join('\r\n'),
     };
   }
 
@@ -365,8 +376,19 @@ export class TerminalManager {
       : this.resolveMemberLaunchCommand(member!, handoffFile);
 
     if (process.platform === 'win32') {
-      const encoded = Buffer.from(psScript, 'utf16le').toString('base64');
-      // Prefer Windows Terminal (wt.exe) for Orca-like tabbed native TUI experience
+      // Write a self-deleting temp launcher script (UTF-8 BOM) so:
+      // 1) wt.exe -w 0 preserves all FountAIn auth env vars (CLAUDE_CONFIG_DIR, DSH_HOME, CODEX_HOME, API key, proxy)
+      // 2) Secrets never appear on the command line or process list
+      const launcherFile = path.join(os.tmpdir(), `fountain-term-${randomUUID()}.ps1`);
+      const fullScript = [
+        'Remove-Item -LiteralPath $MyInvocation.MyCommand.Path -Force -ErrorAction SilentlyContinue',
+        '[Console]::InputEncoding = [System.Text.Encoding]::UTF8',
+        '[Console]::OutputEncoding = [System.Text.Encoding]::UTF8',
+        '$OutputEncoding = [System.Text.Encoding]::UTF8',
+        psScript,
+      ].join('\r\n');
+      await writeFile(launcherFile, '\uFEFF' + fullScript, { encoding: 'utf8', mode: 0o600 });
+
       const wtSpawned = await new Promise<boolean>((resolve) => {
         const child = spawn(
           'wt.exe',
@@ -381,8 +403,10 @@ export class TerminalManager {
             'powershell.exe',
             '-NoLogo',
             '-NoExit',
-            '-EncodedCommand',
-            encoded,
+            '-ExecutionPolicy',
+            'Bypass',
+            '-File',
+            launcherFile,
           ],
           { detached: true, stdio: 'ignore', windowsHide: false },
         );
@@ -400,7 +424,7 @@ export class TerminalManager {
       // Fallback to classic Windows PowerShell console window
       const fallback = spawn(
         'cmd.exe',
-        ['/c', 'start', title, 'powershell.exe', '-NoLogo', '-NoExit', '-EncodedCommand', encoded],
+        ['/c', 'start', title, 'powershell.exe', '-NoLogo', '-NoExit', '-ExecutionPolicy', 'Bypass', '-File', launcherFile],
         { cwd: project.directory, detached: true, stdio: 'ignore', windowsHide: true },
       );
       fallback.unref();

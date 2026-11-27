@@ -147,7 +147,7 @@ import {
 import { checkNetwork } from "./network";
 import { disposeOwned, stopOwned } from "./process-supervisor";
 import { CodexAdapter } from "./adapters/codex";
-import { ClaudeAdapter, invalidateClaudeChecks } from "./adapters/claude";
+import { ClaudeAdapter, claudeEnvironment, invalidateClaudeChecks } from "./adapters/claude";
 import { DshAdapter, resolveDshEntry } from "./adapters/dsh";
 import { DeepseekAdapter } from "./adapters/deepseek";
 import {
@@ -868,6 +868,43 @@ export class Engine {
         }
       },
       resolveNodeExecutable: () => portableNode(this.store.dataDirectory) ?? "node",
+      resolveMemberEnv: (member) => {
+        const base = buildEnvironment(this.settings);
+        const out: Record<string, string> = {};
+        for (const k of ["HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY"]) {
+          if (base[k]) out[k] = base[k]!;
+        }
+        if (member.executor === "claude") {
+          try {
+            const ce = claudeEnvironment(base);
+            for (const k of [
+              "CLAUDE_CONFIG_DIR",
+              "ANTHROPIC_BASE_URL",
+              "ANTHROPIC_API_KEY",
+              "ANTHROPIC_AUTH_TOKEN",
+              "CLAUDE_CODE_OAUTH_TOKEN",
+            ]) {
+              if (ce[k]) out[k] = ce[k]!;
+            }
+          } catch {
+            // Fallback to base env
+          }
+        } else if (member.executor === "codex") {
+          if (base.FOUNTAIN_CODEX_HOME) out.CODEX_HOME = base.FOUNTAIN_CODEX_HOME;
+        } else if (member.executor === "dsh") {
+          if (base.FOUNTAIN_DSH_HOME) out.DSH_HOME = base.FOUNTAIN_DSH_HOME;
+          out.DSH_TELEMETRY_DISABLED = "1";
+        } else if (isAcpId(member.executor)) {
+          const exec = this.store.get<AcpExecutor>("executors", member.executor);
+          if (exec) {
+            const hydrated = this.withSecrets(exec);
+            for (const [k, v] of Object.entries(hydrated.env ?? {})) {
+              if (typeof v === "string" && v) out[k] = v;
+            }
+          }
+        }
+        return out;
+      },
     });
     if (!timing?.maintenanceOnly) {
       this.qqBridge.reconfigure(this.settings.qqBridge);
