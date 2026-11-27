@@ -241,4 +241,21 @@ test('natural language model switching overrides tier routing cleanly', () => {
 
   const directAstra = applyCostModeToConfig({ ...base, model: 'gpt-6.2-sol' }, { executor: 'codex', costMode: 'economy' }, classifyCostTier({ isCasualRoom: true, isMeeting: true, promptText: '@ChatGPT astra做个全量检查' }));
   assert.equal(directAstra.model, 'gpt-6.2-astra');
+
+  // Comparison / multi-model discussion should NOT hijack model routing
+  const compareGpt = applyCostModeToConfig({ ...base, model: 'gpt-6.2-astra' }, { executor: 'codex', costMode: 'economy' }, classifyCostTier({ isCasualRoom: true, promptText: 'astra 和 sol 哪个写代码强？' }));
+  assert.equal(compareGpt.model, 'gpt-6.2-sol');
+
+  const compareClaude = applyCostModeToConfig(base, { executor: 'claude', costMode: 'economy' }, classifyCostTier({ isCasualRoom: true, promptText: 'fable 跟 opus 有啥区别？' }));
+  assert.equal(compareClaude.model, 'sonnet');
+
+  const compareGemini = applyCostModeToConfig({ ...base, model: 'gemini-4-carbon' }, { executor: 'acp-5d1dde7ed341', costMode: 'economy' }, classifyCostTier({ isCasualRoom: true, promptText: '对比一下碳基米和氖基米' }));
+  assert.equal(compareGemini.model, 'gemini-4-neon');
+
+  // Negation and past-vs-current transitions pick the right target
+  const negatedAstra = applyCostModeToConfig({ ...base, model: 'gpt-6.2-astra' }, { executor: 'codex', costMode: 'economy' }, classifyCostTier({ isCasualRoom: true, promptText: '别用 astra，用 sol 看看' }));
+  assert.equal(negatedAstra.model, 'gpt-6.2-sol');
+
+  const transitionClaude = applyCostModeToConfig(base, { executor: 'claude', costMode: 'economy' }, classifyCostTier({ isCasualRoom: true, promptText: '之前用 opus，这次换 fable 核实' }));
+  assert.equal(transitionClaude.model, 'fable');
 });

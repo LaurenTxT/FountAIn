@@ -62,68 +62,120 @@ function requestedEffortFromText(text: string): 'low' | 'medium' | 'high' | unde
  * Parse an explicit natural-language model request for a specific executor, e.g.
  * "碳基米你看看" -> gemini-4-carbon-low, "Claude 用 fable 写" -> fable, "GPT 切 astra" -> gpt-6.2-astra.
  */
+const NEGATED_MODEL_PREFIX = /(?:别|不要|不用|少用|别再用|不是|而非|而不是)\s*(?:用|换|切|改用|让|叫)?\s*$/i;
+const PAST_MODEL_PREFIX = /(?:之前|刚才|刚刚|上次|原来|原本|以前)\s*(?:用|是|跑的|用的)?\s*$/i;
+const EXPLICIT_SWITCH_PREFIX = /(?:改用|换成|换用|切到|切换成|切换到|切换|用|换|切|请|让|叫)\s*$/i;
+const COMPARISON_PHRASE = /(?:对比|比较|区别|差异|哪个好|哪个强|哪个更|哪款|怎么样|好用吗|强吗|评测|测评|值得吗)/u;
+const OVERRIDE_TRANSITION = /(?:换成|换用|改用|切到|切换成|切换到|这次|现在|直接用|就用)/u;
+
+interface ModelCandidateSpec {
+  model: string;
+  effort?: RequestedRunConfig['effort'];
+  regex: RegExp;
+}
+
+function collectModelHits(cleaned: string, specs: ModelCandidateSpec[]) {
+  const hits: { index: number; model: string; effort?: RequestedRunConfig['effort']; explicit: boolean }[] = [];
+  for (const spec of specs) {
+    const re = new RegExp(spec.regex.source, spec.regex.flags.includes('g') ? spec.regex.flags : `${spec.regex.flags}g`);
+    let m: RegExpExecArray | null;
+    while ((m = re.exec(cleaned))) {
+      const start = m.index;
+      const prefix = cleaned.slice(Math.max(0, start - 12), start);
+      if (NEGATED_MODEL_PREFIX.test(prefix)) continue;
+      const isPast = PAST_MODEL_PREFIX.test(prefix);
+      const explicit = !isPast && EXPLICIT_SWITCH_PREFIX.test(prefix);
+      if (isPast) continue;
+      hits.push({ index: start, model: spec.model, effort: spec.effort, explicit });
+    }
+  }
+  hits.sort((a, b) => a.index - b.index);
+  return hits;
+}
+
 export function parseExplicitModelOverride(
   executor: string,
   text?: string,
   modelOptions?: ModelOption[],
 ): { model?: string; effort?: RequestedRunConfig['effort'] } | undefined {
   if (!text) return undefined;
-  const cleaned = text.replace(/```[\s\S]*?```/g, ' ').trim();
+  const cleaned = text.replace(/```[\s\S]*?```/g, ' ').replace(/`[^`]*`/g, ' ').trim();
   if (!cleaned) return undefined;
   const effortHint = requestedEffortFromText(cleaned);
   const exec = executor.toLowerCase();
 
   // Exact model ID match from provider's reported modelOptions (when prefixed by 用/换/切/model)
   if (modelOptions?.length && /(?:用|换|切|改用|使用|model)/i.test(cleaned)) {
-    const sorted = [...modelOptions].sort((a, b) => b.id.length - a.id.length);
-    for (const opt of sorted) {
-      if (opt.id === 'default' || opt.id.length < 3) continue;
-      if (new RegExp(`(?<![A-Za-z0-9_-])${opt.id.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?![A-Za-z0-9_-])`, 'i').test(cleaned)) {
-        return { model: opt.id, effort: effortHint };
+    const optSpecs: ModelCandidateSpec[] = [...modelOptions]
+      .filter((opt) => opt.id !== 'default' && opt.id.length >= 3)
+      .sort((a, b) => b.id.length - a.id.length)
+      .map((opt) => ({
+        model: opt.id,
+        effort: effortHint,
+        regex: new RegExp(`(?<![A-Za-z0-9_-])${opt.id.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?![A-Za-z0-9_-])`, 'gi'),
+      }));
+    const optHits = collectModelHits(cleaned, optSpecs).filter((h) => h.explicit || /\bmodel\b/i.test(cleaned));
+    if (optHits.length) {
+      const distinct = new Set(optHits.map((h) => h.model)).size;
+      if (!(distinct > 1 && COMPARISON_PHRASE.test(cleaned) && !OVERRIDE_TRANSITION.test(cleaned))) {
+        const last = optHits[optHits.length - 1];
+        return { model: last.model, effort: last.effort };
       }
     }
   }
 
-  // Gemini / Antigravity: 碳基米/carbon, 氖基米/neon, 氢基米/hydrogen, 氩基米/argon
+  const specs: ModelCandidateSpec[] = [];
   if (exec.startsWith('acp-') || exec.includes('gemini')) {
     const tierSuffix = effortHint ?? 'low';
-    if (/碳基米|(?<![A-Za-z0-9_-])(?:gemini[\s-]*4[\s-]*)?carbon(?![A-Za-z0-9_-])/i.test(cleaned)) {
-      return { model: `gemini-4-carbon-${tierSuffix}`, effort: undefined };
-    }
-    if (/氖基米|(?<![A-Za-z0-9_-])(?:gemini[\s-]*4[\s-]*)?neon(?![A-Za-z0-9_-])/i.test(cleaned)) {
-      return { model: 'gemini-4-neon', effort: effortHint ?? 'low' };
-    }
-    if (/氢基米|(?<![A-Za-z0-9_-])(?:gemini[\s-]*4[\s-]*)?hydrogen(?![A-Za-z0-9_-])/i.test(cleaned)) {
-      return { model: `gemini-4-hydrogen-${tierSuffix}`, effort: undefined };
-    }
-    if (/氩基米|(?<![A-Za-z0-9_-])(?:gemini[\s-]*4[\s-]*)?argon(?![A-Za-z0-9_-])/i.test(cleaned)) {
-      return { model: `gemini-4-argon-${tierSuffix}`, effort: undefined };
-    }
+    specs.push(
+      { model: `gemini-4-carbon-${tierSuffix}`, effort: undefined, regex: /碳基米|(?<![A-Za-z0-9_-])(?:gemini[\s-]*4[\s-]*)?carbon(?![A-Za-z0-9_-])/gi },
+      { model: 'gemini-4-neon', effort: effortHint ?? 'low', regex: /氖基米|(?<![A-Za-z0-9_-])(?:gemini[\s-]*4[\s-]*)?neon(?![A-Za-z0-9_-])/gi },
+      { model: `gemini-4-hydrogen-${tierSuffix}`, effort: undefined, regex: /氢基米|(?<![A-Za-z0-9_-])(?:gemini[\s-]*4[\s-]*)?hydrogen(?![A-Za-z0-9_-])/gi },
+      { model: `gemini-4-argon-${tierSuffix}`, effort: undefined, regex: /氩基米|(?<![A-Za-z0-9_-])(?:gemini[\s-]*4[\s-]*)?argon(?![A-Za-z0-9_-])/gi },
+    );
+  } else if (exec === 'claude') {
+    specs.push(
+      { model: 'fable', effort: effortHint, regex: /(?<![A-Za-z0-9_-])(?:claude[\s-]*)?fable(?![A-Za-z0-9_-])/gi },
+      { model: 'opus', effort: effortHint, regex: /(?<![A-Za-z0-9_-])(?:claude[\s-]*)?opus(?![A-Za-z0-9_-])/gi },
+      { model: 'sonnet', effort: effortHint, regex: /(?<![A-Za-z0-9_-])(?:claude[\s-]*)?sonnet(?![A-Za-z0-9_-])/gi },
+      { model: 'haiku', effort: effortHint, regex: /(?<![A-Za-z0-9_-])(?:claude[\s-]*)?haiku(?![A-Za-z0-9_-])/gi },
+    );
+  } else if (exec === 'codex') {
+    specs.push(
+      { model: 'gpt-6.2-astra', effort: effortHint, regex: /(?<![A-Za-z0-9_-])(?:gpt[\s-]*6\.2[\s-]*)?astra(?![A-Za-z0-9_-])/gi },
+      { model: 'gpt-6.2-sol', effort: effortHint, regex: /(?<![A-Za-z0-9_-])(?:gpt[\s-]*6\.2[\s-]*)?sol(?![A-Za-z0-9_-])/gi },
+      { model: 'gpt-6.1-terra', effort: effortHint, regex: /(?<![A-Za-z0-9_-])(?:gpt[\s-]*6\.1[\s-]*)?terra(?![A-Za-z0-9_-])/gi },
+      { model: 'gpt-6-luna', effort: effortHint, regex: /(?<![A-Za-z0-9_-])(?:gpt[\s-]*6[\s-]*)?luna(?![A-Za-z0-9_-])/gi },
+    );
+  } else if (exec === 'dsh' || exec === 'deepseek') {
+    specs.push(
+      { model: 'deepseek-v4-pro', effort: undefined, regex: /\bdeepseek-v4-pro\b|\bv4-?pro\b|(?<=(?:用|换|切|改用|请|让|叫)\s*)(?:deepseek[\s-]*)?(?:v4[\s-]*)?pro\b/gi },
+      { model: 'deepseek-flash', effort: effortHint, regex: /\bdeepseek-flash\b|(?<=(?:用|换|切|改用|请|让|叫)\s*)(?:deepseek[\s-]*)?flash\b/gi },
+    );
   }
 
-  // Claude: opus / fable / sonnet / haiku
-  if (exec === 'claude') {
-    if (/(?<![A-Za-z0-9_-])(?:claude[\s-]*)?fable(?![A-Za-z0-9_-])/i.test(cleaned)) return { model: 'fable', effort: effortHint };
-    if (/(?<![A-Za-z0-9_-])(?:claude[\s-]*)?opus(?![A-Za-z0-9_-])/i.test(cleaned)) return { model: 'opus', effort: effortHint };
-    if (/(?<![A-Za-z0-9_-])(?:claude[\s-]*)?sonnet(?![A-Za-z0-9_-])/i.test(cleaned)) return { model: 'sonnet', effort: effortHint };
-    if (/(?<![A-Za-z0-9_-])(?:claude[\s-]*)?haiku(?![A-Za-z0-9_-])/i.test(cleaned)) return { model: 'haiku', effort: effortHint };
+  if (!specs.length) return undefined;
+  const hits = collectModelHits(cleaned, specs);
+  if (!hits.length) return undefined;
+
+  const explicitHits = hits.filter((h) => h.explicit);
+  if (explicitHits.length > 0) {
+    const distinctExplicit = new Set(explicitHits.map((h) => h.model)).size;
+    if (distinctExplicit > 1 && COMPARISON_PHRASE.test(cleaned) && !OVERRIDE_TRANSITION.test(cleaned)) {
+      return undefined;
+    }
+    const last = explicitHits[explicitHits.length - 1];
+    return { model: last.model, effort: last.effort };
   }
 
-  // GPT / Codex: astra / sol / terra / luna
-  if (exec === 'codex') {
-    if (/(?<![A-Za-z0-9_-])(?:gpt[\s-]*6\.2[\s-]*)?astra(?![A-Za-z0-9_-])/i.test(cleaned)) return { model: 'gpt-6.2-astra', effort: effortHint };
-    if (/(?<![A-Za-z0-9_-])(?:gpt[\s-]*6\.2[\s-]*)?sol(?![A-Za-z0-9_-])/i.test(cleaned)) return { model: 'gpt-6.2-sol', effort: effortHint };
-    if (/(?<![A-Za-z0-9_-])(?:gpt[\s-]*6\.1[\s-]*)?terra(?![A-Za-z0-9_-])/i.test(cleaned)) return { model: 'gpt-6.1-terra', effort: effortHint };
-    if (/(?<![A-Za-z0-9_-])(?:gpt[\s-]*6[\s-]*)?luna(?![A-Za-z0-9_-])/i.test(cleaned)) return { model: 'gpt-6-luna', effort: effortHint };
+  // Bare model mentions without an explicit switch verb:
+  // Do NOT switch when comparing/discussing multiple models or asking about model quality.
+  const distinctBare = new Set(hits.map((h) => h.model)).size;
+  if (distinctBare > 1 || COMPARISON_PHRASE.test(cleaned)) {
+    return undefined;
   }
-
-  // DeepSeek / DSH: v4-pro / flash
-  if (exec === 'dsh' || exec === 'deepseek') {
-    if (/\bdeepseek-v4-pro\b|\bv4-?pro\b|(?:用|换|切|改用|请|让|叫)\s*(?:deepseek[\s-]*)?(?:v4[\s-]*)?pro\b/i.test(cleaned)) return { model: 'deepseek-v4-pro', effort: undefined };
-    if (/\bdeepseek-flash\b|(?:用|换|切|改用|请|让|叫)\s*(?:deepseek[\s-]*)?flash\b/i.test(cleaned)) return { model: 'deepseek-flash', effort: effortHint };
-  }
-
-  return undefined;
+  const single = hits[0];
+  return { model: single.model, effort: single.effort };
 }
 
 function replacePreservingCase(input: string, from: RegExp, lowerReplacement: string, titleReplacement: string): string {
