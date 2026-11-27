@@ -469,7 +469,7 @@ export function ProjectRoom({ snapshot, project, invoke, onOpenSession,onRoundta
       </div>}
     </header>
     <div className="project-room-subbar">
-    {fresh&&people.length>0&&<label className="project-review-level">会议 Leader <select aria-label="会议 Leader" value={project.meetingLeaderId??''} onChange={event=>void invoke('project.update',{projectId:project.id,memberIds:roster,meetingLeaderId:event.target.value||null}).catch(reason=>setError((reason as Error).message))}><option value="">暂未指定</option>{people.map(member=><option key={member.id} value={member.id}>{member.name}</option>)}</select></label>}
+    {people.length>0&&<label className="project-review-level" title="项目常驻总负责人（固定不变，负责讨论控场与全局对接；每次立项或 SDD 可单独指定本轮负责人）">项目 Leader <select aria-label="项目 Leader" value={project.meetingLeaderId??''} onChange={event=>void invoke('project.update',{projectId:project.id,memberIds:roster,meetingLeaderId:event.target.value||null}).catch(reason=>setError((reason as Error).message))}><option value="">暂未指定</option>{people.map(member=><option key={member.id} value={member.id}>{member.name}</option>)}</select></label>}
     {live && <ol className="flow-steps" aria-label="流程进度">{STEPS.map((label, index) => <li key={label} className={index < step ? 'done' : index === step ? 'current' : ''} aria-current={index === step ? 'step' : undefined}>{index < step ? <Check size={11} /> : <span>{index + 1}</span>}{label}</li>)}
       {flow!.dispatchMode !== 'running' && <li className="paused">已暂停派发</li>}</ol>}
     {onOpenReport && <ReportSwitcher entries={reports} onOpen={onOpenReport} />}
