@@ -7,7 +7,6 @@ import {WORKBENCH_READS} from '../shared/project-workbench';
 import {PROGRESS_READS} from '../shared/project-progress';
 import {ProjectProgressView} from './project-progress';
 import './project-progress.css';
-import {ProjectRecordView} from './project-record';
 import {TaskAdditionView} from './task-addition';
 import type {TaskAddition} from '../shared/project-workbench';
 import { WorkLog } from './work-log';
@@ -86,7 +85,7 @@ export function ProjectRoom({ snapshot, project, invoke, onOpenSession,onRoundta
   const [materials,setMaterials] = useState(false);
   const [boardOpen,setBoardOpen]=useState(()=>{try{return localStorage.getItem('fountain.projectBoard')!=='closed';}catch{return true;}});
   const toggleBoard=(open:boolean)=>{setBoardOpen(open);try{localStorage.setItem('fountain.projectBoard',open?'open':'closed');}catch{}};
-  const [recordOpen,setRecordOpen]=useState(false),[includePreviousRecord,setIncludePreviousRecord]=useState(true),[addition,setAddition]=useState<{memberId:string;goal:string;task?:Task;proposal?:TaskAddition}|null>(null);
+  const [includePreviousRecord,setIncludePreviousRecord]=useState(true),[addition,setAddition]=useState<{memberId:string;goal:string;task?:Task;proposal?:TaskAddition}|null>(null);
   const [boardView,setBoardView]=useState<'work'|'progress'>('work');
   useEffect(()=>setBoardView('work'),[project.id]);
   const [sddOpen, setSddOpen] = useState(false);
@@ -431,14 +430,13 @@ export function ProjectRoom({ snapshot, project, invoke, onOpenSession,onRoundta
       <div className="project-side">
         <div className="project-side-bar">
           <div className="segmented" role="tablist" aria-label="项目工作台视图">{([['work','当前工作'],['progress','历史记录']] as const).map(([id,text])=><button key={id} type="button" role="tab" aria-selected={boardView===id} className={boardView===id?'selected':''} onClick={()=>setBoardView(id)}>{text}</button>)}</div>
-          <span className="project-side-tools">{flow&&<button type="button" className="icon-button" aria-label="查看项目记录" title="查看本段工作的项目记录" onClick={()=>setRecordOpen(true)}><ScrollText size={15}/></button>}<button type="button" className="icon-button" aria-label="收起看板" title="收起看板，让聊天更宽" onClick={()=>toggleBoard(false)}><PanelRightClose size={15}/></button></span>
+          <span className="project-side-tools"><button type="button" className="icon-button" aria-label="收起看板" title="收起看板，让聊天更宽" onClick={()=>toggleBoard(false)}><PanelRightClose size={15}/></button></span>
         </div>
       {boardView==='progress'?<ProjectProgressView project={project} snapshot={snapshot} invoke={invoke}/>:<div className="side-workspace">{sideHeaderSummary}<Board focusedTask={focusedTask} invoke={invoke} rounds={rounds} tasks={tasks} data={data} snapshot={snapshot} busy={busy} blocked={blocked} resultUnknown={resultUnknown} onGiveUp={giveUp} onContinue={(op,evidence)=>resolveAttempt(op,'continue',evidence)} members={team.members.filter(member => flow?.memberIds.includes(member.id))} onLog={setLogTarget} onOpenSdd={() => setSddOpen(true)}
         onReassign={(task, memberId) => mutate('projectFlow.task.reassign', { taskId: task.id, expectedRevision: task.revision, memberId }, '已换人，新成员会从头接手这项任务。')} /></div>}
       </div>}
     </div>}
     {logTarget&&<WorkLog key={project.id+logTarget.kind+logTarget.id} project={project} target={logTarget} invoke={invoke} onClose={()=>setLogTarget(null)}/>}
-    {recordOpen&&flow&&<ProjectRecordView project={project} flowId={flow.id} invoke={invoke} onClose={()=>setRecordOpen(false)}/>}
     {addition&&data&&<TaskAdditionView data={data} memberId={addition.memberId} initialGoal={addition.goal} supplementTask={addition.task} initialProposal={addition.proposal} invoke={invoke} onClose={()=>setAddition(null)} onDone={()=>void load()}/>}
     {config&&team.get(config.memberId)&&<Modal title={team.get(config.memberId)!.name+' 的项目配置'} subtitle="只在这个项目使用；人物卡默认设置不变。" onClose={()=>{if(!configBusy)setConfig(null);}}>
       <div className="modal-body"><MemberConfigFields snapshot={snapshot} member={team.get(config.memberId)!.card} value={config.value} invoke={invoke} onChange={value=>setConfig({...config,value})}/>
