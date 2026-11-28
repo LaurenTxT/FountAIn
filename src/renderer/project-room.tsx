@@ -31,7 +31,7 @@ import {ReviewDetails} from './review-details';
 import { Avatar, useTeam, type TeamMember } from './members';
 import { RoomView, type RoomFocus } from './room';
 import type { AttentionItem } from '../shared/attention';
-import { Markdown, inline as renderInlineMd, plainText } from './Markdown';
+import { Markdown, inline as renderInlineMd } from './Markdown';
 import { ProjectDocument, type DocumentSelection } from './project-document';
 import { useSidePanelWidth } from './side-panel-width';
 import { ProjectMaterialsModal } from './project-tree';
@@ -250,7 +250,7 @@ export function ProjectRoom({ snapshot, project, invoke, onOpenSession,onRoundta
     return roundTasks.flatMap(task => {
       const sub = latestSubmission(task.id);
       if (sub && ['review_passed', 'review_skipped', 'integrated', 'accepted', 'awaiting_review'].includes(task.status)) {
-        const text = plainText(sub.userSummary || sub.summary || '');
+        const text = (sub.userSummary || sub.summary || '').replace(/^\s*#{1,6}\s+(.+?)\s*#*$/gm, '【$1】').replace(/\s+/g, ' ').trim();
         const fileCount = sub.changedFileCount ?? sub.changes?.length ?? 0;
         return [{ id: task.id, memberId: task.memberId, done: true, title: task.title, text: text || `已完成「${task.title}」`, fileCount }];
       }
@@ -345,7 +345,7 @@ export function ProjectRoom({ snapshot, project, invoke, onOpenSession,onRoundta
         : <div className="dock-row dock-progress-item"><Pause size={15} /><p><strong>本轮整体检查已暂停</strong>（点击右侧「继续这段工作」即可恢复）</p></div>)}
       {progressBriefs.length > 0 && <div className="dock-progress-list">{progressBriefs.map(item => <div key={item.id} className={`dock-row dock-progress-item ${item.done ? 'done' : 'running'}`}>
         {item.done ? <CheckCircle2 size={15} /> : <LoaderCircle size={15} className="spin" />}
-        <p><MemberName id={item.memberId} />：{item.text}{item.done && item.fileCount > 0 ? <small className="dock-progress-meta">（改动 {item.fileCount} 个文件）</small> : null}</p>
+        <p><MemberName id={item.memberId} />：{renderInlineMd(item.text)}{item.done && item.fileCount > 0 ? <small className="dock-progress-meta">（改动 {item.fileCount} 个文件）</small> : null}</p>
       </div>)}</div>}
     </>}
   </>;
