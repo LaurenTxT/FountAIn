@@ -124,11 +124,17 @@ export interface FlowOverview { projectId:string; flowId:string; revision?:numbe
 export interface ProjectFlowSnapshot {quotaWaits?:QuotaWait[]}
 export interface ProjectFlowSnapshot {
   blockedOperations?: FlowOperation[];
-  roundNoteTargets?: { roundId: string; runId: string; memberId: string }[];
+  roundNoteTargets?: { roundId: string; runId: string; memberId: string; kind: string }[];
 }
-export function roundNoteTargetsOperation(op: Pick<FlowOperation, 'kind' | 'targetId'>, round: Pick<Round, 'integrationId' | 'requestedCheckId'>) {
-  return op.kind === 'requested-check' ? op.targetId === round.requestedCheckId
-    : ['integration-check', 'peer-review', 'round-report'].includes(op.kind) && op.targetId === round.integrationId;
+export function roundNoteTargetsOperation(
+  op: Pick<FlowOperation, 'kind' | 'targetId'>,
+  round: Pick<Round, 'id' | 'integrationId' | 'requestedCheckId'>,
+  reviewedTask?: Pick<Task, 'id' | 'roundId'>,
+) {
+  if (op.kind === 'requested-check') return op.targetId === round.requestedCheckId;
+  if (op.kind === 'review' || op.kind === 'adjudication')
+    return reviewedTask?.id === op.targetId && reviewedTask.roundId === round.id;
+  return ['integration-check', 'peer-review', 'round-report'].includes(op.kind) && op.targetId === round.integrationId;
 }
 export interface ProjectFlowSnapshot {taskAdditions?:TaskAddition[]}
 export interface OperationResult { runId:string; status:RunStatus; text:string }

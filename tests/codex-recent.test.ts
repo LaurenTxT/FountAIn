@@ -8,6 +8,7 @@ import { initializeStudyRoom } from '../src/backend/study-room';
 import { workspaceProfileInstructions } from '../src/backend/workspace-profile';
 import { parseDiscussionReply } from '../src/shared/discussion';
 import { validateReport } from '../src/shared/project-flow-protocol';
+import { roundNoteTargetsOperation } from '../src/shared/project-flow';
 import { applyCostModeToConfig, classifyCostTier, isLargeEngineeringProject, resolveEconomyModel } from '../src/shared/cost-mode';
 import { roomNaturalMentions } from '../src/shared/room';
 import { productionPackages } from '../scripts/runtime-dependencies.mjs';
@@ -272,4 +273,21 @@ test('round report task keys come from the workflow including generated fixes', 
   assert.deepEqual(report.completedTaskKeys, taskKeys);
   assert.equal(report.summary, 'Checks finished');
   assert.ok(report.replyNotes?.some(note => note.includes('任务编号')));
+});
+
+
+test('round supplements are scoped to the action and its owning round', () => {
+  const round = { id: 'round', integrationId: 'integration', requestedCheckId: 'requested' };
+  const task = { id: 'task', roundId: 'round' };
+  for (const kind of ['integration-check', 'peer-review', 'round-report']) {
+    assert.equal(roundNoteTargetsOperation({ kind, targetId: 'integration' }, round), true);
+    assert.equal(roundNoteTargetsOperation({ kind, targetId: 'old' }, round), false);
+  }
+  assert.equal(roundNoteTargetsOperation({ kind: 'requested-check', targetId: 'requested' }, round), true);
+  for (const kind of ['review', 'adjudication']) {
+    assert.equal(roundNoteTargetsOperation({ kind, targetId: 'task' }, round, task), true);
+    assert.equal(roundNoteTargetsOperation({ kind, targetId: 'task' }, round, { ...task, roundId: 'another-round' }), false);
+    assert.equal(roundNoteTargetsOperation({ kind, targetId: 'other-task' }, round, task), false);
+  }
+  assert.equal(roundNoteTargetsOperation({ kind: 'plan', targetId: 'integration' }, round), false);
 });

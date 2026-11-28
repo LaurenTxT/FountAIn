@@ -478,10 +478,12 @@ export class ProjectFlowView {
       blockedOperations,
       roundNoteTargets: allOperations.flatMap(op => {
         if (op.state !== "running" && op.state !== "prepared") return [];
-        const round = rounds.find(item => item.status === "checking" && roundNoteTargetsOperation(op, item));
+        const reviewedTask = op.kind === "review" || op.kind === "adjudication" ? tasks.find(task => task.id === op.targetId) : undefined;
+        const round = rounds.find(item => ["executing", "changes_requested", "checking"].includes(item.status) &&
+          roundNoteTargetsOperation(op, item, reviewedTask));
         const runId = op.correctionRunId ?? op.runId;
         const memberId = op.sessionId && this.store.get<Session>("sessions", op.sessionId)?.memberId;
-        return round && runId && memberId ? [{ roundId: round.id, runId, memberId }] : [];
+        return round && runId && memberId ? [{ roundId: round.id, runId, memberId, kind: op.kind }] : [];
       }),
       overview: {
         stage: this.currentStage(flow, current, tasks, decisions),

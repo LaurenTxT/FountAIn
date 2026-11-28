@@ -609,30 +609,44 @@ export function ProjectRoom({ snapshot, project, invoke, onOpenSession,onRoundta
     </div>
   </div>;
   const canStartPlanning = people.filter(ready).length >= 2;
+  function supplementTarget(memberId: string) {
+    if (flow?.status !== 'active') return { reason: '方案确认后才能补充任务。' };
+    const eligible = tasks.filter(task => task.memberId === memberId && action(task.allowedActions, 'projectFlow.task.supplement')?.enabled);
+    const working = eligible.filter(task => ['running', 'correcting'].includes(task.status));
+    if (working.length === 1) return { task: working[0] };
+    if (working.length > 1) return { reason: '该成员同时有多项任务，请打开对应任务卡补充要求。' };
+    const checks = (data?.roundNoteTargets ?? []).filter(item => item.memberId === memberId);
+    if (checks.length === 1) return { roundRun: checks[0] };
+    if (checks.length > 1) return { reason: '该成员同时有多项检查，请等当前检查结束或在对应任务卡补充。' };
+    if (eligible.length === 1) return { task: eligible[0] };
+    if (eligible.length > 1) return { reason: '该成员有多项待办，请打开对应任务卡补充要求。' };
+    return { reason: '该成员当前没有可补充的任务或检查。' };
+  }
+  function supplementPreview(memberId: string) {
+    const target = supplementTarget(memberId);
+    if (target.task) return { available: true, detail: `补充到「${target.task.title}」` };
+    if (target.roundRun) return { available: true, detail: `当前是${OPERATION_KIND[target.roundRun.kind] ?? '检查'}，要求会记入本轮供后续检查或汇报读取。` };
+    return { available: false, detail: target.reason };
+  }
   async function sendWorkRequest(memberId: string, goal: string, mode: 'add' | 'supplement') {
-    if (!flow || flow.status !== 'active') {
-      setError('先确认方案后再安排或补充任务。');
-      return false;
-    }
     if (mode === 'add') {
+      if (flow?.status !== 'active') {
+        setError('先确认方案后再安排任务。');
+        return false;
+      }
       setAddition({ memberId, goal });
       return true;
     }
-    const workingTask = tasks.find(task => task.memberId === memberId && ['running', 'correcting'].includes(task.status));
-    if (!workingTask && currentRound?.status === 'checking') {
-      const roundRun = data?.roundNoteTargets?.find(item => item.memberId === memberId && item.roundId === currentRound.id);
-      if (roundRun) return mutate('projectFlow.round.addNote', {
-        roundId: roundRun.roundId, runId: roundRun.runId, memberId, note: goal,
-      }, '已记入本轮，下一次检查或汇报会读取这条要求。');
+    const { task, roundRun, reason } = supplementTarget(memberId);
+    if (roundRun) return mutate('projectFlow.round.addNote', {
+      roundId: roundRun.roundId, runId: roundRun.runId, memberId, note: goal,
+    }, '已记入本轮，下一次检查或汇报会读取这条要求。');
+    if (task) {
+      setAddition({ memberId, goal, task });
+      return true;
     }
-    const task = workingTask ?? tasks.find(item => item.memberId === memberId &&
-      ['pending', 'ready', 'queued', 'awaiting_review'].includes(item.status));
-    if (!task) {
-      setError('该成员当前没有可补充的任务或整轮检查。');
-      return false;
-    }
-    setAddition({ memberId, goal, task });
-    return true;
+    setError(reason ?? '任务状态已变化，请刷新后重试。');
+    return false;
   }
   function openPlanning() {
     if (fresh && !picking) setPicking(true);
@@ -709,7 +723,7 @@ export function ProjectRoom({ snapshot, project, invoke, onOpenSession,onRoundta
     {snapshot.workLogFailures?.filter(r=>r.projectId===project.id).map(r=><p key={r.roundId} className="task-meta bad" role="status">成果已经验收，工作日志保存失败。<button className="link-button" onClick={()=>setLogTarget({kind:'round',id:r.roundId})}>查看日志并重试</button></p>)}
     {!data ? <div className="project-room-loading"><LoaderCircle size={16} className="spin" />正在打开会议室…</div> : <div className={`project-room-grid ${boardOpen||activeDocument?'panel-resizable':'board-collapsed'}`} style={panelWidth.style}>
       <RoomView snapshot={snapshot} invoke={invoke} roomId={roomId} focus={roomFocus} onDocument={target => setDocument({projectId: project.id, target})} onOpenSession={(_, sessionId) => setLogTarget({kind:'session',id:sessionId})}
-        project={{ roster, onRoster: changeRoster, renderFlow, dock, onTaskRequest:sendWorkRequest, onConfigureMember:memberId=>{setConfig({memberId,value:project.memberConfigs?.[memberId]??{},revision:project.memberConfigRevision??0});setConfigError('');},
+        project={{ roster, onRoster: changeRoster, renderFlow, dock, onTaskRequest:sendWorkRequest, supplementPreview, onConfigureMember:memberId=>{setConfig({memberId,value:project.memberConfigs?.[memberId]??{},revision:project.memberConfigRevision??0});setConfigError('');},
           flowNextStep: Boolean(dock && ((fresh && !picking) || nextStep)),
           empty: <div className="room-empty project-room-empty"><div className="room-empty-team">{people.map(member => <Avatar key={member.id} member={member} size={48} />)}</div><h2>这次想一起做什么？</h2><p>先在这里说说目标、范围和要求，大家会一起讨论。讨论清楚后，在输入框上方选负责人起草方案。</p></div> }} />
       {(boardOpen||activeDocument)&&panelWidth.separator}

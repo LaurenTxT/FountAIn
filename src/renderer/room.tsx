@@ -112,6 +112,7 @@ export interface ProjectRoomChat {
   roster: string[]; onRoster: (memberIds: string[]) => void;
   onConfigureMember?: (memberId:string)=>void;
   onTaskRequest?:(memberId:string,goal:string,mode:'add'|'supplement')=>Promise<boolean>;
+  supplementPreview?: (memberId: string) => { available: boolean; detail: string };
   /** The flow dock already shows a next step, so the discussion layer does not suggest another one. */
   flowNextStep?:boolean;
   /** A live card for a plan, decision or round-report message, or undefined to show the message as text. */
@@ -285,9 +286,18 @@ export function RoomView({ snapshot, invoke: rawInvoke, onOpenSession, onDocumen
   const acknowledge=()=>{const token=room.readToken;if(personal&&token&&pinned.current&&!archived&&acknowledged.current!==token){acknowledged.current=token;void invoke('room.read',{readToken:token}).catch(()=>{acknowledged.current=undefined;});}};
   useEffect(()=>{acknowledge();},[room.readToken,archived]);
   const [mention, setMention] = useState<{ start: number; end: number; query: string } | null>(null), [mentionIndex, setMentionIndex] = useState(0);
-  const mentionedWorker=project&&usable.find(m=>draft.includes('@'+m.name)||draft.includes('＠'+m.name));
   const candidates = mention ? usable.filter(member => member.name.toLowerCase().startsWith(mention.query.toLowerCase())) : [];
   const named = roomMentions(draft, team.members);
+  const mentionedWorker = project && named.ids.length === 1 && !named.ambiguous.length
+    ? usable.find(member => member.id === named.ids[0]) : undefined;
+  const workRequestMode = Boolean(!relayDraft && project?.onTaskRequest && workIntent !== 'ask');
+  const supplement = mentionedWorker && project?.supplementPreview?.(mentionedWorker.id);
+  const workRequestBlock = workRequestMode
+    ? !mentionedWorker ? '请只点名一位本房间可用成员。'
+      : attach.items.length ? '任务要求入口只接收文字。请先移除附件，或用会议消息发送附件。'
+      : workIntent === 'supplement' && supplement && !supplement.available ? supplement.detail : ''
+    : '';
+
   const participants = named.ids.length ? named.ids.map(id => usable.find(member => member.id === id)).filter((member): member is TeamMember => Boolean(member)) : usable;
 
   useEffect(() => { if (global&&!personal) try { localStorage.setItem(INVITED_KEY, JSON.stringify(ownInvited)); } catch {} }, [ownInvited, global, Boolean(personal)]);
@@ -550,11 +560,25 @@ export function RoomView({ snapshot, invoke: rawInvoke, onOpenSession, onDocumen
     try { await invoke('room.midTurn.cancel', { id }); } catch {}
   }
   async function send(text = draft) {
-    if (midTurnMode) return sendMidTurn('queue', text);
     const body = text.trim();
     if(ownerQuestions.length||discussion?.interruption)return;
     const sentVersion=composer.version,submitted={...composer.value,text};
-    if(!isRelay(body)&&project?.onTaskRequest&&mentionedWorker&&workIntent!=='ask'){if(await project.onTaskRequest(mentionedWorker.id,body.replace('@'+mentionedWorker.name,'').replace('＠'+mentionedWorker.name,'').trim(),workIntent)){composer.sent(submitted,sentVersion);setMention(null);}return;}
+    if (workRequestMode) {
+      if (workRequestBlock || !mentionedWorker || !project?.onTaskRequest || workIntent === 'ask' || sending || busy || archived || historyOnly || !snapshot.backendReady) return;
+      const marker = '@' + mentionedWorker.name.toLowerCase();
+      const offset = body.replaceAll('＠', '@').toLowerCase().indexOf(marker);
+      const goal = (offset < 0 ? body : body.slice(0, offset) + body.slice(offset + marker.length)).trim();
+      if (!goal) return;
+      setSending(true);
+      try {
+        if (await project.onTaskRequest(mentionedWorker.id, goal, workIntent)) {
+          composer.sent(submitted,sentVersion);
+          setMention(null);
+        }
+      } finally { setSending(false); }
+      return;
+    }
+    if (midTurnMode) return sendMidTurn('queue', text);
     if ((!body && !attach.items.length) || sending || busy || compressing || (state.active && state.mode !== 'discuss') || archived || historyOnly || personalLoading || noTopic) return;
     setSending(true); pinned.current = true; setDividerAt(undefined);
     try { await invoke('room.send', { text: body, memberIds: usable.map(member => member.id), mode: 'discuss', style, maxMinutes: 0, handRaise: mode === 'meeting' && handRaise,hostPick, replyTo, ...(attach.items.length ? { attachments: attach.items } : {}) }); composer.sent(submitted,sentVersion); setMention(null); } catch {} finally { setSending(false); }
@@ -1017,12 +1041,13 @@ export function RoomView({ snapshot, invoke: rawInvoke, onOpenSession, onDocumen
           {Object.entries(discussion.handRound.ballots).some(([,b])=>b.status==='failed'||b.status==='invalid')&&<p className="panel-muted">{Object.entries(discussion.handRound.ballots).filter(([,b])=>b.status==='failed'||b.status==='invalid').map(([id])=>team.get(id)?.name??'成员').join('、')} 的举手未完成，可查看活动记录。</p>}
           <div className="room-host-actions">{discussion.members.filter(id=>discussion.handRound!.ballots[id]?.status==='done'&&(discussion.handRound!.ballots[id].want??0)>0).map(id=><button type="button" className="button small secondary" key={id} disabled={busy||!snapshot.backendReady||!ready(team.get(id)?.executor??'')} onClick={()=>void chooseHand('member',id)}>请 {team.get(id)?.name??'成员'} 发言 · {discussion.handRound!.ballots[id].want}/3</button>)}<button type="button" className="button small quiet" disabled={busy||!snapshot.backendReady||!Object.values(discussion.handRound.ballots).some(b=>b.status==='done'&&(b.want??0)>0)} onClick={()=>void chooseHand('auto')}>按举手自动选</button><button type="button" className="button small quiet" disabled={busy||!snapshot.backendReady} onClick={()=>void chooseHand('skip')}>都不用补充，下一轮</button></div>
         </section>}
-        {!relayDraft&&mentionedWorker&&project?.onTaskRequest&&<label className="room-work-intent">@{mentionedWorker.name}<select aria-label="点名用途" value={workIntent} onChange={e=>setWorkIntent(e.target.value as typeof workIntent)}><option value="ask">只是问问</option><option value="add">安排新任务</option><option value="supplement">补充到 TA 当前的任务</option></select></label>}
+        {!relayDraft&&mentionedWorker&&project?.onTaskRequest&&<label className="room-work-intent">@{mentionedWorker.name}<select aria-label="点名用途" value={workIntent} onChange={e=>setWorkIntent(e.target.value as typeof workIntent)}><option value="ask">只是问问</option><option value="add">安排新任务</option><option value="supplement" disabled={supplement?.available === false}>补充到任务或检查</option></select></label>}
+        {(workRequestBlock || workIntent === 'supplement' && supplement?.detail) && <p role="status" className="panel-muted">{workRequestBlock || supplement?.detail}</p>}
         {candidates.length > 0 && <div className="room-mentions" role="listbox" id="room-mentions" aria-label="点名成员">{candidates.map((member, index) => <button type="button" role="option" id={`room-mention-${index}`} key={member.id} aria-selected={index === mentionIndex % candidates.length} className={index === mentionIndex % candidates.length ? 'selected' : ''} onMouseDown={event => event.preventDefault()} onClick={() => chooseMention(member)}><Avatar member={member} size={24} ring={false} /><span>@{member.name}</span></button>)}</div>}
         <textarea ref={textarea} value={draft} onPaste={attach.onPaste} aria-label={personal?personal.kind==='desk'?'在工位里说话':'在汇报里说话':project ? '在会议室里说话' : '在聊天室里说话'} aria-autocomplete="list" aria-controls={candidates.length ? 'room-mentions' : undefined} aria-activedescendant={candidates.length ? `room-mention-${mentionIndex % candidates.length}` : undefined} placeholder={midTurnMode && activeSpeaker ? `${activeSpeaker.name} 正在输出… Enter 排队等 TA 说完再发，Ctrl+Enter 立即发给 TA 处理` : personal?'写下问题或要求… Enter 发送，Shift + Enter 换行':mode === 'meeting' ? '写下会议议题或随时补充… Enter 发送，Shift + Enter 换行，@ 谁就只请谁回答' : '说点什么… Enter 发送，Shift + Enter 换行，@ 可指定优先接话者'} onChange={event => { const next = event.target.value; if (replyTo && draft.length > 0 && next.length === 0) setReplyTo(undefined); setDraft(next); if(!personal)updateMention(next, event.target.selectionStart); }} onClick={event => {if(!personal)updateMention(event.currentTarget.value, event.currentTarget.selectionStart);}} onKeyDown={event => {
           if (candidates.length && ['ArrowDown', 'ArrowUp'].includes(event.key)) { event.preventDefault(); setMentionIndex(index => (index + (event.key === 'ArrowDown' ? 1 : -1) + candidates.length) % candidates.length); }
           else if (candidates.length && event.key === 'Enter' && !event.nativeEvent.isComposing) { event.preventDefault(); chooseMention(candidates[mentionIndex % candidates.length]); }
-          else if (midTurnMode && event.key === 'Enter' && (event.ctrlKey || event.metaKey) && !event.nativeEvent.isComposing) { event.preventDefault(); void sendMidTurn('immediate'); }
+          else if (!workRequestMode && midTurnMode && event.key === 'Enter' && (event.ctrlKey || event.metaKey) && !event.nativeEvent.isComposing) { event.preventDefault(); void sendMidTurn('immediate'); }
           else if (isSendKey(event)) { event.preventDefault(); void send(); }
           else if (event.key === 'Backspace' && replyTo && !draft) { setReplyTo(undefined); }
           else if (event.key === 'Escape') { if (candidates.length) setMention(null); else if (replyTo) setReplyTo(undefined); }
@@ -1046,8 +1071,8 @@ export function RoomView({ snapshot, invoke: rawInvoke, onOpenSession, onDocumen
           <span className="composer-hint" title={relayEnabled ? '跨项目：@项目/成员 问题；@成员 切到 项目；/back 返回' : personal ? undefined : roomHint}>{personal?personal.kind==='desk'?personalSession?.restoredHistoryOnly?'只读历史':personalSession&&!personalSession.writeMode?'只读查看':personalSession?.workspaceKind==='original'?'直接读写':'任务副本':'只读汇报':(state.active ? (typingInChat ? '输入中，AI 让行' : speaking ? `${speaking.name} 输出中…` : roomHint) : named.unknown.length ? `未识别：${named.unknown.join('、')}` : named.ids.length ? (mode==='meeting'?'只请被点名人回答':`优先 ${participants.map(m=>m.name).join('、')}`) : '')}{composer.hasDraft?' · 草稿':''}</span>
           {!personal&&(discussion&&discussion.phase!=='idle'?discussion.style!=='chat':mode==='meeting')&&<button type="button" className={`button small ${discussion?.phase==='waiting_user'&&!discussion.questions.some(q=>q.to==='user'&&pendingDiscussionQuestion(q))?'primary':'secondary'} composer-minutes`} aria-label="整理会议纪要" title="整理会议纪要并结束本轮会议" disabled={!snapshot.backendReady||stopping||minutesBusy||historyOnly||Boolean(ownerQuestions.length||discussion?.interruption)||!hasMeetingRemarks(discussion,messages)||discussion?.phase==='summarizing'||!minutesMembers.length} onClick={()=>void openMinutes()}><FileStack size={14}/>纪要</button>}
           {(stopping||surface?.active||state.active||compressing||state.generatingImage||discussion&&['talking','raising','awaiting-host','closing','summarizing'].includes(discussion.phase))&&<button type="button" className="button small stop-button" aria-label="中止当前对话" disabled={!snapshot.backendReady||stopping} onClick={()=>{setStopping(true);void invoke('room.stop').catch(()=>{}).finally(()=>setStopping(false));}}><StopCircle size={14}/>中止</button>}
-          {midTurnMode && activeSpeaker && <button type="button" className="button small secondary room-midturn-immediate" disabled={(!draft.trim() && !attach.items.length) || sending || busy || !snapshot.backendReady || !composer.ready} onClick={() => void sendMidTurn('immediate')} title={`不等待输出结束，立刻插队/联同当前内容发给 ${activeSpeaker.name} 处理（Ctrl+Enter）`}>立即发给 {activeSpeaker.name}</button>}
-          <button type="button" className="send-button room-send" aria-label={midTurnMode && activeSpeaker ? `排队等 ${activeSpeaker.name} 说完再发` : personal?personal.kind==='desk'?'发送到工位':'发送到汇报':mode === 'meeting' && !(discussion && discussion.phase !== 'idle') ? '开始会议' : '发送到聊天室'} title={midTurnMode && activeSpeaker ? `等 ${activeSpeaker.name} 说完后自动一对一发送（Enter）` : undefined} disabled={(!draft.trim() && !attach.items.length) || sending || busy || Boolean(ownerQuestions.length||discussion?.interruption) || (!midTurnMode && state.active && state.mode !== 'discuss') || Boolean(compressing) || (!midTurnMode && !usable.length && !discussion && !relayDraft)  || !snapshot.backendReady || historyOnly || personalLoading || noTopic || !composer.ready} onClick={() => void send()}>{sending ? <LoaderCircle size={15} className="spin" /> : <Send size={15} />}</button>
+          {!workRequestMode && midTurnMode && activeSpeaker && <button type="button" className="button small secondary room-midturn-immediate" disabled={(!draft.trim() && !attach.items.length) || sending || busy || !snapshot.backendReady || !composer.ready} onClick={() => void sendMidTurn('immediate')} title={`不等待输出结束，立刻插队/联同当前内容发给 ${activeSpeaker.name} 处理（Ctrl+Enter）`}>立即发给 {activeSpeaker.name}</button>}
+          <button type="button" className="send-button room-send" aria-label={workRequestMode ? '发送任务要求' : midTurnMode && activeSpeaker ? `排队等 ${activeSpeaker.name} 说完再发` : personal?personal.kind==='desk'?'发送到工位':'发送到汇报':mode === 'meeting' && !(discussion && discussion.phase !== 'idle') ? '开始会议' : '发送到聊天室'} title={midTurnMode && activeSpeaker ? `等 ${activeSpeaker.name} 说完后自动一对一发送（Enter）` : undefined} disabled={Boolean(workRequestBlock) || (!draft.trim() && !attach.items.length) || sending || busy || Boolean(ownerQuestions.length||discussion?.interruption) || (!midTurnMode && state.active && state.mode !== 'discuss') || Boolean(compressing) || (!midTurnMode && !usable.length && !discussion && !relayDraft)  || !snapshot.backendReady || historyOnly || personalLoading || noTopic || !composer.ready} onClick={() => void send()}>{sending ? <LoaderCircle size={15} className="spin" /> : <Send size={15} />}</button>
         </div>
       </div>
     </div>; })()}
