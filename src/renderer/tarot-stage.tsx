@@ -172,7 +172,6 @@ export function TarotStage({
         aria-hidden="true"
         style={{ '--aura-color': frontMember?.color || 'var(--accent)' } as CSSProperties}
       />
-      <div className="tarot-orbit-ring" aria-hidden="true" />
 
       <div className="tarot-viewport" role="list">
         {members.map((member, index) => {
@@ -187,9 +186,9 @@ export function TarotStage({
           const scale = 0.62 + depth * 0.42;
           const rotY = -sin * 34;
           const blur = isFront && depth > 0.96 ? 0 : Math.pow(1 - depth, 1.5) * 5.2;
-          const opacity = 0.36 + Math.pow(depth, 1.15) * 0.64;
-          const brightness = 0.64 + depth * 0.38;
-          const zIndex = Math.round(depth * 100) + (isFront ? 5 : 0);
+          const opacity = isFront ? 1 : 0.36 + Math.pow(depth, 1.15) * 0.6;
+          const brightness = isFront ? 1.02 : 0.64 + depth * 0.36;
+          const zIndex = Math.round(depth * 100) + (isFront ? 20 : 0);
 
           const info = providers.find((item) => item.id === member.executor);
           const mood = moods[member.id];
@@ -199,7 +198,7 @@ export function TarotStage({
               : providerSummary(info);
 
           const cardStyle: CSSProperties = {
-            transform: `translate3d(${x.toFixed(1)}px, ${y.toFixed(1)}px, 0) scale(${scale.toFixed(3)}) rotateY(${rotY.toFixed(1)}deg)`,
+            transform: `translate3d(${x.toFixed(1)}px, ${y.toFixed(1)}px, 0) perspective(1400px) scale(${scale.toFixed(3)}) rotateY(${rotY.toFixed(1)}deg)`,
             opacity: Number(opacity.toFixed(3)),
             filter: `blur(${blur.toFixed(2)}px) brightness(${brightness.toFixed(2)})`,
             zIndex,
@@ -228,7 +227,6 @@ export function TarotStage({
               />
               <div className="tarot-frame" aria-hidden="true">
                 <span className="tarot-numeral">{ROMAN[index] ?? String(index + 1)}</span>
-                <span className="tarot-corner tl">✦</span>
                 <span className="tarot-corner tr">✦</span>
                 <span className="tarot-corner bl">✦</span>
                 <span className="tarot-corner br">✦</span>
