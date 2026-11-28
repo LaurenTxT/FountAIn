@@ -9,7 +9,7 @@ import type {WorkLogPage} from '../shared/work-log';
 import {RoomView} from './room';
 import {useTeam} from './members';
 import {label} from './project-progress';
-import {Markdown} from './Markdown';
+import {Markdown, inline as renderInlineMd} from './Markdown';
 import {ProjectDocument,type DocumentSelection} from './project-document';
 import {useSidePanelWidth} from './side-panel-width';
 import {WorkLog,WorkLogEntryView} from './work-log';
@@ -29,7 +29,7 @@ function ReportCard({report,invoke,onLog,historical=false}:{report:MemberReport;
     <div className="member-report-summary">{report.summary.length?report.summary.map((s,i)=><Markdown key={i} text={readableContent(s)}/>):<p>任务已安排，还没有交成果。</p>}</div>
     {report.tasks.map(t=><div className="member-report-task" key={t.id}><p><strong>{t.title}</strong><span className="result-tag">{label(t.status)}</span></p>{t.files.length>0&&<p className="round-files">{t.files.map(f=><span key={f} className="round-file">{f}</span>)}</p>}<button type="button" className="link-button" onClick={()=>onLog(t.id)}>查看这项任务的工作日志</button></div>)}
 
-    {!!report.remaining.length&&<section><h3>还没解决的</h3><ul>{report.remaining.map(s=><li key={s}>{s}</li>)}</ul></section>}
+    {!!report.remaining.length&&<section><h3>还没解决的</h3><ul>{report.remaining.map(s=><li key={s}>{renderInlineMd(s)}</li>)}</ul></section>}
     {!!report.next.length&&<section><h3>接下来</h3><ul>{report.next.map(s=><li key={s}>{s}</li>)}</ul></section>}
     {report.acceptances.map(a=><p key={a.id} className="task-meta">验收：{a.actor==='user'?'你':'负责人'}{label(a.status)}{a.opinion?' · '+a.opinion:''}</p>)}
     {!historical&&report.integrationId&&<RoundResults projectId={report.projectId} roundId={report.roundId} integrationId={report.integrationId} paths={report.role==='author'?report.tasks.flatMap(t=>t.files):undefined} scopeLabel={report.role==='author'?'参与任务的整合版本':report.role==='reviewer'?'检查过的本轮成果':'本轮整合成果'} invoke={invoke}/>}
