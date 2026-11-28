@@ -77,6 +77,20 @@ export function readStudyRoom(directory: string, root?: string): StudyRoomDocume
   };
 }
 
+function singleLineMarkdown(value: string, maxLen: number): string {
+  const flat = value
+    .replace(/^\s*#{1,6}\s+(.+?)\s*#*$/gm, '【$1】')
+    .replace(/[\r\n]+/g, ' ')
+    .replace(/\s{2,}/g, ' ')
+    .trim();
+  if (flat.length <= maxLen) return flat;
+  let cut = flat.slice(0, maxLen).replace(/[\s*_`$]+$/, '');
+  if ((cut.match(/\*\*/g)?.length ?? 0) % 2 === 1) cut = cut.replace(/\*\*[^*]*$/, '');
+  if ((cut.match(/`/g)?.length ?? 0) % 2 === 1) cut = cut.replace(/`[^`]*$/, '');
+  if ((cut.match(/\$/g)?.length ?? 0) % 2 === 1) cut = cut.replace(/\$[^$]*$/, '');
+  return `${cut.trimEnd()}…`;
+}
+
 export function appendStudyHandoff(directory: string, record: {
   roundId: string; acceptedBy: 'lead' | 'user'; title: string; summary: string;
   verification: string; deliverables: string[]; remainingIssues: string[]; fingerprint: string; hasNext: boolean;
@@ -85,7 +99,7 @@ export function appendStudyHandoff(directory: string, record: {
   if (!room) return false;
   if (!/^[a-z0-9-]{1,80}$/i.test(record.roundId)) throw new Error('交接记录编号无效。');
   const marker = `<!-- fountain-round:${record.roundId} -->`;
-  const single = (value: string) => value.replace(/[\r\n]+/g, ' ').trim().slice(0, 1200);
+  const single = (value: string) => singleLineMarkdown(value, 1200);
   const date = new Intl.DateTimeFormat('sv-SE', { timeZone: 'Asia/Shanghai', dateStyle: 'short', timeStyle: 'short' }).format();
   const entry = Buffer.from([
     '', '', `### [${date}] FountAIn - ${single(record.title)}`,
@@ -111,7 +125,7 @@ export function updateStudyRoomBrief(directory: string, record: {
   const room = studyRoomPath(directory, root);
   if (!room) return false;
   const file = path.join(room, 'ROOM_BRIEF.md');
-  const single = (value: string) => value.replace(/[\r\n]+/g, ' ').trim().slice(0, 600);
+  const single = (value: string) => singleLineMarkdown(value, 600);
   const date = new Intl.DateTimeFormat('sv-SE', { timeZone: 'Asia/Shanghai', dateStyle: 'short', timeStyle: 'short' }).format();
   const startTag = '<!-- fountain-status-start -->';
   const endTag = '<!-- fountain-status-end -->';

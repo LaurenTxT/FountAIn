@@ -31,7 +31,7 @@ import {ReviewDetails} from './review-details';
 import { Avatar, useTeam, type TeamMember } from './members';
 import { RoomView, type RoomFocus } from './room';
 import type { AttentionItem } from '../shared/attention';
-import { Markdown, inline as renderInlineMd } from './Markdown';
+import { Markdown, inline as renderInlineMd, plainText } from './Markdown';
 import { ProjectDocument, type DocumentSelection } from './project-document';
 import { useSidePanelWidth } from './side-panel-width';
 import { ProjectMaterialsModal } from './project-tree';
@@ -250,7 +250,7 @@ export function ProjectRoom({ snapshot, project, invoke, onOpenSession,onRoundta
     return roundTasks.flatMap(task => {
       const sub = latestSubmission(task.id);
       if (sub && ['review_passed', 'review_skipped', 'integrated', 'accepted', 'awaiting_review'].includes(task.status)) {
-        const text = (sub.userSummary || sub.summary || '').replace(/\s+/g, ' ').trim();
+        const text = plainText(sub.userSummary || sub.summary || '');
         const fileCount = sub.changedFileCount ?? sub.changes?.length ?? 0;
         return [{ id: task.id, memberId: task.memberId, done: true, title: task.title, text: text || `已完成「${task.title}」`, fileCount }];
       }
