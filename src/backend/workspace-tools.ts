@@ -826,31 +826,6 @@ export class WorkspaceToolsController {
       members[0];
     if (!inferredMember) throw new Error('找不到可指派的成员。');
 
-    // Read today's log file tail for concrete error context
-    let logTail = '';
-    try {
-      const today = new Date().toISOString().slice(0, 10);
-      const logFile = path.join(this.host.dataDirectory(), 'logs', `${today}.jsonl`);
-      if (existsSync(logFile)) {
-        const raw = await readFile(logFile, 'utf8');
-        const errLines = raw
-          .split(/\r?\n/)
-          .filter((line) => Boolean(matchedRun && line.includes(matchedRun.id)))
-          .slice(-6)
-          .map((line) => {
-            try {
-              const obj = JSON.parse(line) as { at?: string; provider?: string; text?: string };
-              return `[${obj.at ?? ''}] (${obj.provider ?? ''}) ${String(obj.text ?? '').slice(0, 300)}`;
-            } catch {
-              return line.slice(0, 300);
-            }
-          });
-        if (errLines.length) logTail = errLines.join('\n');
-      }
-    } catch {
-      // Optional diagnostic context
-    }
-
     const summary =
       params.errorSummary?.trim() ||
       matchedRun?.error ||
@@ -867,7 +842,6 @@ export class WorkspaceToolsController {
       `- **来源项目**：${sourceProject?.name ?? targetProject.name}`,
       `- **问题摘要**：${summary}`,
       matchedRun ? `- **关联运行**：\`${matchedRun.id}\`（状态：${matchedRun.status}）` : '',
-      logTail ? `\n**最近报错日志**：\n\`\`\`\n${logTail}\n\`\`\`` : '',
       '',
       isSoftwareRepo
         ? '请你直接在本仓库（FountAIn 源码）中定位根因并提出/实施最小改动修复，改完后必须跑完 `typecheck`、单元测试和 `build` 验证全绿，再向用户汇报改动与验证结果（由用户确认后重启生效）。'

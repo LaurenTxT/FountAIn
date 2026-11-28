@@ -342,6 +342,7 @@ export function ProjectRoom({ snapshot, project, invoke, onOpenSession,onRoundta
               { label: '排查并修复软件 Bug', run: memberId => dispatchRepair(memberId, 'software', flow!.blockedReasons[0] ?? stuckTasks[0]?.blockedReason ?? 'FountAIn 运行异常') },
             ]} />
           </>}
+        <small>会议诊断只在聊天里回复，阻塞由正式任务或复核决定处理。</small>
         <small>{blocked.length ? '旧运行须先确认已结束。换人会保留历史记录，新成员从本轮起点接手；流程暂停时请点「继续」。' : '流程暂停时请在处理后点「继续」。'}</small>
         </div></div>}
       {live && waitingTasks.map(task => <div key={task.id} className="meeting-alert-item" data-flow-next="replacement">
