@@ -1,3 +1,4 @@
+import { MemberSelect } from './member-select';
 import { useState } from 'react';
 import { Archive, ChevronRight, Download, Eraser, Eye, FileStack, LoaderCircle, MessageSquarePlus, Pencil, Sparkles, Trash2, X } from 'lucide-react';
 import type { RoomThread, Snapshot } from '../shared/types';
@@ -18,7 +19,7 @@ export function useSummarizer(usable: TeamMember[]) {
 
 function SummarizerSelect({ usable, member, onChange }: { usable: TeamMember[]; member?: TeamMember; onChange: (id: string) => void }) {
   if (!usable.length) return <span className="summarizer muted">没有可以整理摘要的成员</span>;
-  return <label className="summarizer">由<select aria-label="由谁来压缩" value={member?.id} onChange={event => onChange(event.target.value)}>{usable.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select>整理摘要</label>;
+  return <label className="summarizer">由<MemberSelect aria-label="由谁来压缩" value={member?.id} onChange={event => onChange(event.target.value)}>{usable.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</MemberSelect>整理摘要</label>;
 }
 
 export function SummaryNote({ thread }: { thread: RoomThread }) {

@@ -1,0 +1,58 @@
+.member-select,
+.member-select::picker(select) {
+  appearance: base-select;
+}
+
+.member-select {
+  min-inline-size: 58px;
+}
+
+.member-select::picker(select) {
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-md);
+  background: var(--surface);
+  color: var(--ink);
+  box-shadow: var(--shadow-lg);
+}
+
+.member-select selectedcontent,
+.member-select option {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.member-select option {
+  min-block-size: 32px;
+  padding: 4px 10px;
+}
+
+.member-select option:hover,
+.member-select option:focus-visible {
+  background: var(--surface-2);
+}
+
+.member-select-mark {
+  display: inline-grid;
+  place-items: center;
+  flex: none;
+  width: 23px;
+  height: 23px;
+  border-radius: 6px;
+  background: #fff;
+}
+
+.member-select-mark img {
+  display: block;
+  width: 17px;
+  height: 17px;
+}
+
+.member-select-name {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}

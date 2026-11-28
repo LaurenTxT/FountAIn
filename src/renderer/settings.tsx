@@ -1,3 +1,4 @@
+import { MemberSelect } from './member-select';
 import type { HudSnapshot } from '../shared/desktop-hud';
 import { connectionLabel } from '../shared/executor-connection';
 import {ProviderLogin} from './provider-login';
@@ -435,10 +436,10 @@ function QqBridgeSection({ snapshot, settings, setSettings, invoke, notify, onSa
         </label>
         <label className="field compact">
           固定回复成员（可选）
-          <select value={cfg.fixedMemberId ?? ''} onChange={event => update({ fixedMemberId: event.target.value || undefined })}>
+          <MemberSelect value={cfg.fixedMemberId ?? ''} onChange={event => update({ fixedMemberId: event.target.value || undefined })}>
             <option value="">跟随房间全部成员</option>
             {snapshot.members.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
-          </select>
+          </MemberSelect>
           <small>选定单一成员后，QQ 对话只由该成员自然回复（不带名字前缀）。</small>
         </label>
         <label className="field compact">

@@ -1,3 +1,4 @@
+import { MemberSelect } from './member-select';
 import {readableContent} from '../shared/content-presentation';
 import { applyCostModeToConfig, classifyCostTier } from '../shared/cost-mode';
 import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type MutableRefObject, type ReactNode } from 'react';
@@ -1131,7 +1132,7 @@ export function RoomView({ snapshot, invoke: rawInvoke, onOpenSession, onDocumen
               </div>
             </div>}
           </> : <>
-            <label className="field">谁先回答<select value={questionDialog.memberId} disabled={questionBusy} onChange={e=>setQuestionDialog({...questionDialog,memberId:e.target.value})}><option value="">所有可用参会成员</option>{questionMembers.map(member=><option key={member.id} value={member.id}>{member.name}</option>)}</select></label>
+            <label className="field">谁先回答<MemberSelect value={questionDialog.memberId} disabled={questionBusy} onChange={e=>setQuestionDialog({...questionDialog,memberId:e.target.value})}><option value="">所有可用参会成员</option>{questionMembers.map(member=><option key={member.id} value={member.id}>{member.name}</option>)}</MemberSelect></label>
             <label className="field">引用发言<select value={questionDialog.quote?.id??''} disabled={questionBusy} onChange={event=>setQuestionDialog({...questionDialog,quote:quoteOptions.find(item=>item.id===event.target.value)})}>
               <option value="">不引用</option>
               {quoteOptions.map(item=><option value={item.id} key={item.id}>{name(item)}：{item.text.replace(/\s+/g,' ').slice(0,65)}</option>)}
@@ -1159,18 +1160,18 @@ export function RoomView({ snapshot, invoke: rawInvoke, onOpenSession, onDocumen
       <div className="modal-body">
         <label><input type="checkbox" checked={autoCompressDialog.enabled} disabled={savingAutoCompress} onChange={event=>setAutoCompressDialog({...autoCompressDialog,enabled:event.target.checked})}/>自动压缩上下文</label>
         <label className="field">自动压缩管理员
-          <select value={autoCompressDialog.memberId} disabled={savingAutoCompress} onChange={event=>setAutoCompressDialog({...autoCompressDialog,memberId:event.target.value})}>
+          <MemberSelect value={autoCompressDialog.memberId} disabled={savingAutoCompress} onChange={event=>setAutoCompressDialog({...autoCompressDialog,memberId:event.target.value})}>
             <option value="">自动选择</option>
             {autoCompressDialog.memberId&&!team.get(autoCompressDialog.memberId)&&<option value={autoCompressDialog.memberId}>原管理员已移除</option>}
             {team.members.map(member=><option key={member.id} value={member.id}>{member.name}{ready(member.executor)?'':'（暂不可用）'}</option>)}
-          </select>
+          </MemberSelect>
         </label>
         <p className="panel-muted">指定成员忙碌、休息或额度耗尽时，自动压缩会等待该成员可用。</p>
         {autoCompressError&&<p role="alert">{autoCompressError}</p>}
       </div>
       <div className="modal-footer"><button type="button" className="button quiet" disabled={savingAutoCompress} onClick={()=>setAutoCompressDialog(undefined)}>取消</button><button type="button" className="button primary" disabled={savingAutoCompress||Boolean(autoCompressDialog.memberId&&!team.get(autoCompressDialog.memberId))} onClick={()=>void saveAutoCompress()}>保存</button></div>
     </Modal>}
-    {minutesDialog&&<Modal title="整理会议纪要" subtitle="依据目前已保存的发言整理结论、分歧和下一步；写完后结束本次会议。" onClose={()=>{if(!minutesBusy)setMinutesDialog(undefined);}}><div className="modal-body"><label className="field">整理纪要的成员<select aria-label="纪要成员" value={minutesDialog.memberId} disabled={minutesBusy} onChange={e=>setMinutesDialog({...minutesDialog,memberId:e.target.value})}>{minutesMembers.map(m=><option key={m.id} value={m.id}>{m.name}</option>)}</select></label>{minutesDialog.interrupt&&<p>正在进行的发言会先中止，已保存的发言保留。</p>}<p>预计 1 次调用。</p>{minutesError&&<p role="alert">{minutesError}</p>}</div><div className="modal-footer"><button className="button quiet" disabled={minutesBusy} onClick={()=>setMinutesDialog(undefined)}>取消</button><button className="button primary" disabled={minutesBusy||!minutesDialog.memberId} onClick={()=>void confirmMinutes()}>{minutesBusy?'正在处理…':'确认整理'}</button></div></Modal>}
+    {minutesDialog&&<Modal title="整理会议纪要" subtitle="依据目前已保存的发言整理结论、分歧和下一步；写完后结束本次会议。" onClose={()=>{if(!minutesBusy)setMinutesDialog(undefined);}}><div className="modal-body"><label className="field">整理纪要的成员<MemberSelect aria-label="纪要成员" value={minutesDialog.memberId} disabled={minutesBusy} onChange={e=>setMinutesDialog({...minutesDialog,memberId:e.target.value})}>{minutesMembers.map(m=><option key={m.id} value={m.id}>{m.name}</option>)}</MemberSelect></label>{minutesDialog.interrupt&&<p>正在进行的发言会先中止，已保存的发言保留。</p>}<p>预计 1 次调用。</p>{minutesError&&<p role="alert">{minutesError}</p>}</div><div className="modal-footer"><button className="button quiet" disabled={minutesBusy} onClick={()=>setMinutesDialog(undefined)}>取消</button><button className="button primary" disabled={minutesBusy||!minutesDialog.memberId} onClick={()=>void confirmMinutes()}>{minutesBusy?'正在处理…':'确认整理'}</button></div></Modal>}
     <ContextMenu menu={menu} onClose={() => setMenu(null)} />
     {imageDialog&&<ImageGenerationDialog snapshot={snapshot} invoke={invoke} text={imageDialog.text} attachments={imageDialog.attachments} onClose={()=>setImageDialog(null)} onSent={()=>{setImageDialog(null);composer.clear(imageDialog.draftVersion);pinned.current=true;}}/>}
     {proposing && thread?.summary?.proposals?.length ? <MemoryProposalDialog snapshot={snapshot} thread={thread} invoke={invoke} onClose={() => setProposing(false)} /> : null}
