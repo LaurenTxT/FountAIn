@@ -242,7 +242,6 @@ export class ProjectFlowController {
   private jobs = new Set<Promise<void>>();
   private pumping = false;
   private repump = false;
-  private peerSelfHealUsed = new Set<string>();
   private closed = false;
   private requests = new Map<string, Promise<unknown>>();
   private busyTargets = new Set<string>();
@@ -1015,7 +1014,14 @@ export class ProjectFlowController {
           "该成员额度已耗尽，未开始新阶段。",
         );
       await this.checkRequirements(op);
-      let result = await this.host.run(op.sessionId!, prompt, op.id);
+      const continuation = this.store.list<FlowOperation>("flow_operations").find(previous =>
+        previous.flowId === op.flowId && previous.continuedByOperationId === op.id,
+      );
+      const evidence = (continuation?.result as { evidence?: unknown } | undefined)?.evidence;
+      const continuationNote = typeof evidence === "string" && evidence.trim()
+        ? "\n【用户选择接着做时的要求】\n" + evidence.trim() + "\n沿用已有核验，优先处理这条要求。若仍须核实必要条件，只补最小范围；需要改变正式验收标准时，请交给用户决定。"
+        : "";
+      let result = await this.host.run(op.sessionId!, prompt + continuationNote, op.id);
       if (result.status === "rate_limited") {
         const task = this.store.get<Task>("flow_tasks", op.targetId);
         const integration = this.store.get<Integration>("flow_integrations", op.targetId);
@@ -5720,6 +5726,7 @@ export class ProjectFlowController {
                 integration.version,
               ),
               executionActivity: roundActivityMaterial(this.store, round),
+              ownerRoundNotes: roundMeetingMaterial(this.store, round).pendingUserMessages,
               criteria: split.required,
               deferredUserCriteria: split.deferred,
               judgedCriteria: split.judged,
@@ -5732,7 +5739,7 @@ export class ProjectFlowController {
                 findings: integration.findings,
               },
               instruction:
-                "在一次性副本检查整轮成果，不能修改负责人整合版本。【两级审查纪律】仅将有明确复现路径、会导致错误/丢数据/越权/崩溃的缺陷标为 blocking；风格与边缘假设一律标 optional 不挡通过。不确定就记录 inconclusive，用户验收留到汇报之后。",
+                "在一次性副本检查整轮成果，不能修改负责人整合版本。【两级审查纪律】仅将有明确复现路径、会导致错误/丢数据/越权/崩溃的缺陷标为 blocking；风格与边缘假设一律标 optional 不挡通过。先读 ownerRoundNotes 并沿用已有核验，避免重复跑检查；核实仍不足时只说明具体缺项。不确定就记录 inconclusive，用户验收留到汇报之后。",
             },
           ),
           this.checkedReview(op, split.required, previous),
@@ -5775,16 +5782,6 @@ export class ProjectFlowController {
       });
       if (assessment.outcome === "inconclusive") {
         const reasonText = assessment.reasons.join("；") || "需要进一步验证。";
-        const healKey = `${round.id}:${saved.id}`;
-        const canSelfHeal =
-          !this.peerSelfHealUsed.has(healKey) &&
-          /命令缺少实际完成记录|复核缺少验证依据|未能核实|旧问题核对缺少依据/.test(reasonText);
-        if (canSelfHeal) {
-          this.peerSelfHealUsed.add(healKey);
-          this.host.changed();
-          await this.peerReviewRound(round, saved, tasks);
-          return;
-        }
         this.update("flow_integrations", saved, { status: "blocked" });
         this.update("flow_rounds", round, { status: "blocked" });
         this.reviewDecision(
