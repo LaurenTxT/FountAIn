@@ -4,10 +4,13 @@
 }
 
 .member-select {
-  min-inline-size: 58px;
+  min-inline-size: 56px;
 }
 
 .member-select::picker(select) {
+  min-inline-size: 96px;
+  margin-block: 4px;
+  padding: 4px;
   border: 1px solid var(--line-strong);
   border-radius: var(--r-md);
   background: var(--surface);
@@ -16,19 +19,33 @@
 }
 
 .member-select selectedcontent,
-.member-select option {
+.member-select-choice {
   display: flex;
   align-items: center;
-  gap: 6px;
+  min-width: 0;
+  gap: 7px;
 }
 
 .member-select option {
-  min-block-size: 32px;
-  padding: 4px 10px;
+  position: relative;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  min-block-size: 34px;
+  padding: 4px 22px;
+  border-radius: var(--r-sm);
+  font-size: var(--fs-sm);
+}
+
+.member-select option::checkmark {
+  position: absolute;
+  inset-inline-start: 6px;
+  color: var(--ink-2);
 }
 
 .member-select option:hover,
-.member-select option:focus-visible {
+.member-select option:focus-visible,
+.member-select option:checked {
   background: var(--surface-2);
 }
 
@@ -36,16 +53,27 @@
   display: inline-grid;
   place-items: center;
   flex: none;
-  width: 23px;
-  height: 23px;
-  border-radius: 6px;
-  background: #fff;
-}
-
-.member-select-mark img {
-  display: block;
   width: 17px;
   height: 17px;
+  object-fit: contain;
+}
+
+.member-select-mark.mono {
+  background: currentColor;
+  mask-position: center;
+  mask-size: contain;
+  mask-repeat: no-repeat;
+}
+
+.member-select-mark.initial {
+  font-size: var(--fs-sm);
+  font-weight: 650;
+}
+
+.member-select-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .member-select-name {

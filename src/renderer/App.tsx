@@ -208,7 +208,7 @@ export default function App() {
     return () => window.clearTimeout(timer);
   }, [toast]);
   const hudUsage = useHudSnapshot(snapshot.backendReady);
-  const team: Team = useMemo(() => makeTeam(snapshot.members,snapshot.removedMembers), [snapshot.members,snapshot.removedMembers]);
+  const team: Team = useMemo(() => makeTeam(snapshot.members,snapshot.removedMembers,snapshot.executors), [snapshot.members,snapshot.removedMembers,snapshot.executors]);
   // The chat room lives in a hidden project; project lists and pickers only show real work.
   const loungeId = snapshot.projects.find(project => project.kind === 'lounge')?.id;
   const workProjects = useMemo(() => snapshot.projects.filter(project => !project.kind), [snapshot.projects]);

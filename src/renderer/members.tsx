@@ -1,5 +1,5 @@
 import { createContext, useContext, useState, type CSSProperties, type SyntheticEvent } from 'react';
-import type { MemberProfile, PermissionMember, PortraitTemplateId, ProviderInfo, RunSummary, Session } from '../shared/types';
+import type { AcpExecutor, MemberProfile, PermissionMember, PortraitTemplateId, ProviderInfo, RunSummary, Session } from '../shared/types';
 import { BUILTIN_MEMBERS, PORTRAIT_SCALE, PORTRAIT_TEMPLATES, PROVIDER_NAMES } from '../shared/defaults';
 import claudiaArt from './assets/members/claudia.webp';
 import gptiaArt from './assets/members/gptia.webp';
@@ -53,10 +53,10 @@ export interface TeamMember {
   avatarImage?: string; avatarFace?: { x: number; y: number; zoom: number };
   face: { x: number; y: number; zoom: number };
   userTitle?: string; persona?: string; memory?: string; model?: string; effort?: string;
-  builtIn: boolean; card: MemberProfile;
+  builtIn: boolean; card: MemberProfile; catalogId?: AcpExecutor['catalogId'];
 }
 
-export function buildTeam(profiles: MemberProfile[]): TeamMember[] {
+export function buildTeam(profiles: MemberProfile[], executors: AcpExecutor[] = []): TeamMember[] {
   return profiles.map(card => {
     const artKey = inferArtKey(card);
     const builtIn = artKey ? BUILTIN_ART[artKey] : undefined;
@@ -69,7 +69,7 @@ export function buildTeam(profiles: MemberProfile[]): TeamMember[] {
       art, aspect: card.portrait ? undefined : builtIn?.aspect, avatarImage: card.avatar ? assetUrl(card.avatar) : undefined, avatarFace: card.avatar ? card.avatarFace : undefined,
       face: card.face ?? (card.portrait ? { x: 0.5, y: 0.15, zoom: 3 } : builtIn?.face ?? { x: 0.5, y: 0.15, zoom: 3 }),
       userTitle: card.userTitle, persona: card.persona, memory: card.memory, model: card.model, effort: card.effort,
-      builtIn: Boolean(card.builtIn), card,
+      builtIn: Boolean(card.builtIn), card, catalogId: executors.find(executor => executor.id === card.executor)?.catalogId,
     };
   });
 }
@@ -93,9 +93,9 @@ const defaultArtwork = buildTeam(BUILTIN_MEMBERS);
 function displayFallback(id?:string):TeamMember {
   return defaultArtwork.find(member=>member.id===id)??buildTeam([{id:id??'unknown',executor:'claude',name:id??'成员'}])[0];
 }
-export function makeTeam(profiles: MemberProfile[], removedProfiles: MemberProfile[] = []): Team {
-  const members = buildTeam(profiles);
-  const historical = buildTeam(removedProfiles);
+export function makeTeam(profiles: MemberProfile[], removedProfiles: MemberProfile[] = [], executors: AcpExecutor[] = []): Team {
+  const members = buildTeam(profiles, executors);
+  const historical = buildTeam(removedProfiles, executors);
   const get = (id: string | undefined) => members.find(member => member.id === id) ?? historical.find(member => member.id === id) ?? (id === 'gemini' ? GEMINI_SEAT : undefined);
   const ofSession: Team['ofSession'] = session => {
     if(!session)return members[0]??displayFallback();
