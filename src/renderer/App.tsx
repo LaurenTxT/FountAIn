@@ -31,6 +31,7 @@ import { needsMembers, saveProjectMembers } from './project-members';
 import { RoomView } from './room';
 import { RoomBackdrop } from './room-backdrop';
 import { LaunchSplash } from './launch-splash';
+import { TarotStage } from './tarot-stage';
 import {RoundtableView,type RoundtableRequest} from './roundtable';
 import {RoundtableNavigation} from './roundtable-navigation';
 import { SetupChecklist } from './setup';
@@ -707,20 +708,7 @@ function Welcome({ project, snapshot, team, moods, invoke, onProject, onSettings
     </div>
     {!snapshot.providers.some(info=>info.path||info.runtimeReady)&&!Object.values(snapshot.settings.paths).some(Boolean)&&!(snapshot.executors??[]).length&&<section className="catalog-first-use"><strong>开始使用：选择成员 → 下载官方程序 → 登录</strong><p>FountAIn 已带好下载所需的运行环境。选择想用的成员，由工作台下载并配置，再通过厂商官方页面或 API Key 登录。</p><button className="button primary" onClick={()=>onSettingsTab('members','catalog')}>选择并下载执行端</button></section>}
     <SetupChecklist snapshot={snapshot} team={team} invoke={invoke} onSettings={onSettingsTab} onProject={onProject} />
-    <div className={`team-stage ${visible.length > 4 ? 'many' : ''}`} style={{ '--stage-cols': Math.max(1, Math.min(visible.length, 4)) } as CSSProperties} role="list" aria-label="团队成员">
-      {visible.map((member, index) => {
-        const info = snapshot.providers.find(item => item.id === member.executor), mood = moods[member.id];
-        return <div role="listitem" className={`stage-card member-${member.id} ${mood ? `mood-${mood}` : ''}`} key={member.id} style={{ animationDelay: `${index * 90}ms` }}>
-          <button type="button" className="stage-card-hit" aria-haspopup="dialog" aria-label={`查看 ${member.name} 的人物卡片`} onClick={event => onCard(member.id, event.currentTarget.parentElement ?? event.currentTarget)} />
-          <Portrait member={member} className="stage-portrait" />
-          <div className="stage-caption">
-            <strong>{member.name}</strong><small>{member.product}</small>
-            <span className="stage-status">{mood === 'resting' || mood === 'working' || mood === 'waiting' ? MOOD_TEXT[mood] : providerSummary(info)}</span>
-            <p>{member.motto ? `「${member.motto}」` : '　'}</p>
-          </div>
-        </div>;
-      })}
-    </div>
+    <TarotStage members={visible} providers={snapshot.providers} moods={moods} onCard={onCard} />
     <div className="welcome-footer">
       <div className="welcome-decode" aria-label="FountAIn 品牌释义">
         <span><em>Fount</em> 发现</span>
