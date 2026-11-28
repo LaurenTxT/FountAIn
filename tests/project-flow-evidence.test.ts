@@ -36,3 +36,16 @@ test('ambiguous, unfinished and failed executions cannot pass a summarized comma
   const failed = bindFlowEvidence([claim], invocation('a', 'report.txt', 1), ['review'])[0];
   assert.equal(commandEvidenceProblem(failed), 'exit-code-mismatch');
 });
+
+
+test('script evidence can refer to the final command of a native tool call', () => {
+  const [start, done] = invocation('a', 'report.txt');
+  const command = `cd "$TEMP" && cat > check.py <<'EOF'\nprint("ok")\nEOF\npython -I check.py`;
+  const native = { ...start, data: { id: 'a', type: 'tool_use', input: { command } } };
+  const claim = evidence('python -I check.py（脚本：检查链接）');
+  const linked = bindFlowEvidence([claim], [native, done], ['review'])[0];
+  assert.deepEqual(linked.eventIds, ['a-end']);
+  assert.equal(commandEvidenceProblem(linked), undefined);
+  assert.equal(bindFlowEvidence([claim], [native], ['review'])[0].source, 'reported');
+  assert.equal(bindFlowEvidence([evidence('python -I other.py（脚本：检查链接）')], [native, done], ['review'])[0].source, 'reported');
+});

@@ -6860,6 +6860,7 @@ export class ProjectFlowController {
       throw new FlowError("INVALID_REQUEST", "请从当前决策选项中选择。");
     let selected: string[] = [];
     let reusedReview = false;
+    let reusedIntegration = false;
     if (decision.additionId) {
       const proposal = this.need<TaskAddition>(
         "flow_task_additions",
@@ -7264,6 +7265,8 @@ export class ProjectFlowController {
             status: "checking",
             peerReviewerMemberId: reviewer,
           });
+        } else if (choice === "重新检查" && this.prepareSavedIntegrationReview(integration)) {
+          reusedIntegration = true;
         } else {
           const lead =
             choice === "换负责人检查"
@@ -7317,7 +7320,7 @@ export class ProjectFlowController {
         ...(p.memberId ? { memberId: String(p.memberId) } : {}),
       },
     });
-    if (handoffRepair || reusedReview) {
+    if (handoffRepair || reusedReview || reusedIntegration) {
       const current = this.flow(flow.id);
       const hasUnresolvedRuns = this.store.list<FlowOperation>("flow_operations").some(
         op => op.flowId === flow.id && op.state === "blocked" && op.recovery !== "completed",
@@ -7329,8 +7332,26 @@ export class ProjectFlowController {
       if (current.dispatchMode === "paused" && !current.blockedReasons.length && !hasUnresolvedRuns && !hasOpenDecisions) {
         this.update("project_flows", current, { dispatchMode: "running" });
         this.restoreCompleted(this.flow(flow.id));
+      } else if (reusedIntegration && current.dispatchMode === "running") {
+        this.restoreCompleted(current);
       }
     }
+  }
+  private prepareSavedIntegrationReview(integration: Integration) {
+    if (integration.outcome !== "inconclusive" || integration.verdict !== "pass" ||
+      !integration.checkRunId || !integration.outcomeReasons?.length ||
+      integration.outcomeReasons.some(reason => !reason.startsWith("命令缺少实际完成记录：")))
+      return false;
+    const operation = this.store.list<FlowOperation>("flow_operations").find(op =>
+      op.targetId === integration.id && op.kind === "integration-check" && op.state === "done" &&
+      (op.correctionRunId ?? op.runId) === integration.checkRunId,
+    );
+    if (!operation || !finishedFlowReply(this.store, operation)) return false;
+    const runIds = [...new Set([integration.checkRunId, operation.runId].filter((id): id is string => Boolean(id)))];
+    const bound = bindFlowEvidence(integration.checkEvidence, this.store.eventsForRuns(runIds), runIds);
+    if (bound.some(item => commandEvidenceProblem(item))) return false;
+    this.update("flow_operations", operation, { state: "blocked", recovery: "completed" });
+    return true;
   }
   private recheckSavedReviewEvidence(task: Task) {
     const review = this.store.list<Review>("flow_reviews").filter(

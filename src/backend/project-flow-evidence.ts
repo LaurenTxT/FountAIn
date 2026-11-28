@@ -97,6 +97,29 @@ function summarizedHeredocStart(evidence: Evidence, events: TimelineEvent[]) {
   return identified.length === 1 ? identified : [];
 }
 
+/** A completed shell tool call may generate a script and run it on its last line. */
+function summarizedPythonStart(evidence: Evidence, events: TimelineEvent[]) {
+  const reported = evidence.command && commandForMatching(evidence.command).trim();
+  const match = reported && /^(python(?:3|\.exe)?\s+(?:-I\s+)?[\w./\\-]+\.py)(?:\s*[（(](?:脚本|说明|校验|输出|script|note)\s*[：:][^\r\n]*[）)])?$/i.exec(reported);
+  if (!match) return [];
+  const expected = normalizedCommandBody(match[1]);
+  const matches = events.filter(event => {
+    const native = eventCommand(event);
+    if (!native) return false;
+    if (normalizedCommandBody(native) === expected) return true;
+    const lines = commandForMatching(native).trimEnd().split(/\r?\n/);
+    const shellHeader = lines[0]?.match(/(?:^|&&\s*)cat\s+>\s*([\w./\\-]+\.py)\s+<<\s*(['"]?)([A-Za-z_]\w*)\2\s*$/);
+    return lines.length >= 4 && shellHeader && lines.at(-2) === shellHeader[3] &&
+      expected.endsWith(' ' + shellHeader[1].replace(/\\/g, '/')) &&
+      normalizedCommandBody(lines.at(-1)!) === expected;
+  });
+  const referenced = matches.filter(start => events.some(end =>
+    completes(start, end) && (evidence.eventIds.includes(start.id) || evidence.eventIds.includes(end.id)),
+  ));
+  if (referenced.length) return referenced.length === 1 ? referenced : [];
+  return matches.length === 1 ? matches : [];
+}
+
 /** Command completion and the member's exit-code claim are independent observations. */
 export function bindFlowEvidence(evidence:Evidence[],allEvents:TimelineEvent[],runIds:string[]):Evidence[]{
   const events=allEvents.filter(e=>runIds.includes(e.runId)&&e.fidelity==='native'&&['tool','output'].includes(e.kind));
@@ -106,7 +129,9 @@ export function bindFlowEvidence(evidence:Evidence[],allEvents:TimelineEvent[],r
     const norm=typeof e.command==='string'?normalizedCommandBody(e.command):undefined;
     const exactStarts=events.filter(event=>{const native=eventCommand(event);return typeof native==='string'&&command!==undefined&&commandForMatching(native)===command;});
     const normalizedStarts=exactStarts.length?exactStarts:events.filter(event=>{const native=eventCommand(event);return typeof native==='string'&&norm!==undefined&&norm.length>0&&normalizedCommandBody(native)===norm;});
-    const starts = normalizedStarts.length ? normalizedStarts : summarizedHeredocStart(e, events);
+    const heredocStarts = normalizedStarts.length ? [] : summarizedHeredocStart(e, events);
+    const starts = normalizedStarts.length ? normalizedStarts
+      : heredocStarts.length ? heredocStarts : summarizedPythonStart(e, events);
     const completed=events.filter(end=>starts.some(start=>completes(start,end)));
     // Prefer a recorded matching invocation; otherwise keep a completion whose code is unavailable.
     const matching=e.exitCode===undefined?completed:completed.filter(event=>exitCode(event)===e.exitCode&&!(e.exitCode===0&&failed(event)));
