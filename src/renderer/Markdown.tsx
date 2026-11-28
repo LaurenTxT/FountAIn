@@ -61,7 +61,70 @@ export function parseBlocks(source: string): Block[] {
   return blocks;
 }
 
-const INLINE = /(`+)([^`]+?)\1|\*\*([^*]+?)\*\*|__([^_]+?)__|~~([^~]+?)~~|\*([^*\s][^*]*?)\*|!\[([^\]]*)\]\(([^)\s]+)\)|\[([^\]]+)\]\((<[^<>\r\n]+>|[^)\s]+)\)/g;
+const LATEX_SYMBOLS: Record<string, string> = {
+  le: '≤', leq: '≤', ge: '≥', geq: '≥', ne: '≠', neq: '≠', approx: '≈', equiv: '≡', sim: '∼',
+  to: '→', rightarrow: '→', leftarrow: '←', Rightarrow: '⇒', Leftarrow: '⇐', iff: '⇔', Leftrightarrow: '⇔', mapsto: '↦',
+  in: '∈', notin: '∉', subset: '⊂', subseteq: '⊆', supset: '⊃', supseteq: '⊇', cup: '∪', cap: '∩', setminus: '∖',
+  emptyset: '∅', varnothing: '∅', forall: '∀', exists: '∃', neg: '¬', lnot: '¬', land: '∧', lor: '∨',
+  times: '×', cdot: '·', pm: '±', mp: '∓', div: '÷', infty: '∞', partial: '∂', nabla: '∇',
+  sum: '∑', prod: '∏', int: '∫', sqrt: '√', langle: '⟨', rangle: '⟩', lceil: '⌈', rceil: '⌉', lfloor: '⌊', rfloor: '⌋',
+  dots: '…', ldots: '…', cdots: '⋯', vdots: '⋮', mid: '∣',
+  alpha: 'α', beta: 'β', gamma: 'γ', delta: 'δ', epsilon: 'ε', varepsilon: 'ε', zeta: 'ζ', eta: 'η',
+  theta: 'θ', lambda: 'λ', mu: 'μ', nu: 'ν', xi: 'ξ', pi: 'π', rho: 'ρ', sigma: 'σ', tau: 'τ',
+  phi: 'φ', varphi: 'φ', chi: 'χ', psi: 'ψ', omega: 'ω',
+  Gamma: 'Γ', Delta: 'Δ', Theta: 'Θ', Lambda: 'Λ', Xi: 'Ξ', Pi: 'Π', Sigma: 'Σ', Phi: 'Φ', Psi: 'Ψ', Omega: 'Ω',
+  mathbb: '',
+};
+
+function renderLatexNodes(expr: string, keyPrefix: string): ReactNode[] {
+  const s = expr
+    .replace(/\\(?:text|mathrm|operatorname|mathbf|mathit|mathsf|mathtt|mathcal|mathbb)\{([^{}]*)\}/g, '$1')
+    .replace(/\\frac\{([^{}]*)\}\{([^{}]*)\}/g, '($1)/($2)')
+    .replace(/\\([a-zA-Z]+)/g, (full, cmd: string) => (cmd in LATEX_SYMBOLS ? LATEX_SYMBOLS[cmd] : full))
+    .replace(/\\([{}_^%$&#])/g, '$1')
+    .replace(/\\[,;:! ]/g, ' ');
+
+  const out: ReactNode[] = [];
+  let i = 0;
+  let buf = '';
+  let k = 0;
+  const flush = () => { if (buf) { out.push(buf); buf = ''; } };
+
+  while (i < s.length) {
+    const ch = s[i];
+    if ((ch === '_' || ch === '^') && i + 1 < s.length) {
+      flush();
+      const tag = ch === '_' ? 'sub' : 'sup';
+      let content = '';
+      if (s[i + 1] === '{') {
+        let depth = 1;
+        let j = i + 2;
+        while (j < s.length && depth > 0) {
+          if (s[j] === '{') depth++;
+          else if (s[j] === '}') depth--;
+          if (depth > 0) content += s[j];
+          j++;
+        }
+        i = j;
+      } else {
+        content = s[i + 1];
+        i += 2;
+      }
+      out.push(createElement(tag, { key: `${keyPrefix}-${k++}` }, ...renderLatexNodes(content, `${keyPrefix}-${k}`)));
+      continue;
+    }
+    if (ch === '{' || ch === '}') {
+      i++;
+      continue;
+    }
+    buf += ch;
+    i++;
+  }
+  flush();
+  return out;
+}
+
+const INLINE = /(`+)([^`]+?)\1|\$\$([^$\n]+?)\$\$|\$([^$\n]+?)\$|\*\*([^*]+?)\*\*|__([^_]+?)__|~~([^~]+?)~~|\*([^*\s][^*]*?)\*|!\[([^\]]*)\]\(([^)\s]+)\)|\[([^\]]+)\]\((<[^<>\r\n]+>|[^)\s]+)\)/g;
 type DocumentLink = (target: string) => void;
 export function inline(text: string, key = 'i', onDocument?: DocumentLink): ReactNode[] {
   // A fresh pattern per call: nested emphasis recurses, and a shared global regex would lose its place.
@@ -71,21 +134,28 @@ export function inline(text: string, key = 'i', onDocument?: DocumentLink): Reac
     if (match.index > last) nodes.push(text.slice(last, match.index));
     const id = `${key}-${count++}`;
     if (match[2] !== undefined) nodes.push(<code key={id}>{match[2]}</code>);
-    else if (match[3] !== undefined || match[4] !== undefined) nodes.push(<strong key={id}>{inline(match[3] ?? match[4], id, onDocument)}</strong>);
-    else if (match[5] !== undefined) nodes.push(<del key={id}>{inline(match[5], id, onDocument)}</del>);
-    else if (match[6] !== undefined) nodes.push(<em key={id}>{inline(match[6], id, onDocument)}</em>);
-    else if (match[8] !== undefined) {
-      const target = match[8];
+    else if (match[3] !== undefined) nodes.push(<span key={id} className="md-math md-math-display">{renderLatexNodes(match[3].trim(), id)}</span>);
+    else if (match[4] !== undefined) {
+      const inner = match[4];
+      // Avoid hijacking plain currency amounts like "$100" when there is no math operator/symbol
+      if (/^\d+(?:[.,]\d+)?$/.test(inner.trim())) nodes.push(match[0]);
+      else nodes.push(<span key={id} className="md-math">{renderLatexNodes(inner.trim(), id)}</span>);
+    }
+    else if (match[5] !== undefined || match[6] !== undefined) nodes.push(<strong key={id}>{inline(match[5] ?? match[6], id, onDocument)}</strong>);
+    else if (match[7] !== undefined) nodes.push(<del key={id}>{inline(match[7], id, onDocument)}</del>);
+    else if (match[8] !== undefined) nodes.push(<em key={id}>{inline(match[8], id, onDocument)}</em>);
+    else if (match[10] !== undefined) {
+      const target = match[10];
       const local = projectFileLink(target);
-      const label = match[7]?.trim() || target.split(/[\\/]/).pop() || '图片';
+      const label = match[9]?.trim() || target.split(/[\\/]/).pop() || '图片';
       nodes.push(onDocument && local
         ? <button type="button" className="md-image-chip md-document-link" key={id} title={local} onClick={() => onDocument(target)}>🖼️ {label}</button>
         : <span className="md-image-chip" key={id} title={target}>🖼️ {label}</span>);
     }
-    else if (match[9] !== undefined) {
-      const target = match[10];
+    else if (match[11] !== undefined) {
+      const target = match[12];
       const local = projectFileLink(target);
-      const label = inline(match[9], id);
+      const label = inline(match[11], id);
       nodes.push(onDocument && local
         ? <button type="button" className="md-link md-document-link" key={id} title={local} onClick={() => onDocument(target)}>{label}</button>
         : <span className="md-link" key={id} title={target}>{label}</span>);
