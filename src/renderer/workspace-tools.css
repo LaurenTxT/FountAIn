@@ -698,24 +698,28 @@
 }
 
 /* ── Orca Annotated Diff Modal ── */
-.wt-diff-modal {
+.modal.wt-diff-modal {
   width: min(980px, 92vw);
   max-height: 86vh;
 }
 .wt-diff-body {
   padding: 0 !important;
-  overflow: auto;
+  overflow-y: auto;
+  overflow-x: hidden;
 }
 .wt-diff-table {
+  width: 100%;
+  min-width: 0;
   font-family: var(--mono, ui-monospace, monospace);
   font-size: 12px;
-  line-height: 1.5;
+  line-height: 1.55;
 }
 .wt-diff-line {
   display: grid;
-  grid-template-columns: 44px 44px 18px 1fr 26px;
+  grid-template-columns: 34px 34px 16px minmax(0, 1fr) 22px;
   align-items: start;
-  padding: 1px 8px;
+  padding: 2px 10px 2px 6px;
+  min-width: 0;
 }
 .wt-diff-line.clickable { cursor: pointer; }
 .wt-diff-line.clickable:hover { background: color-mix(in srgb, var(--accent) 10%, transparent); }
@@ -741,7 +745,12 @@
 .wt-sign { text-align: center; user-select: none; font-weight: 700; }
 .wt-diff-row.kind-add .wt-sign { color: #22c55e; }
 .wt-diff-row.kind-del .wt-sign { color: #ef4444; }
-.wt-code { white-space: pre-wrap; word-break: break-all; }
+.wt-code {
+  min-width: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
 .wt-add-ann {
   opacity: 0;
   color: var(--accent);
@@ -794,7 +803,7 @@
 .wt-diff-footer-right { display: flex; align-items: center; gap: 8px; }
 
 /* ── Orca Parallel Fan-out Modal ── */
-.fanout-modal-dialog {
+.modal.fanout-modal-dialog {
   width: min(940px, 92vw);
   max-height: 86vh;
 }
