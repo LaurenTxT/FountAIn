@@ -620,11 +620,9 @@ export function ProjectRoom({ snapshot, project, invoke, onOpenSession,onRoundta
     }
     const workingTask = tasks.find(task => task.memberId === memberId && ['running', 'correcting'].includes(task.status));
     if (!workingTask && currentRound?.status === 'checking') {
-      const roundRun = activeFlowRuns.find(item => item.memberId === memberId &&
-        snapshot.sessions.some(session => session.id === snapshot.runs.find(run => run.id === item.id)?.sessionId &&
-          session.flowId === flow.id && session.purpose === 'flow-integration'));
+      const roundRun = data?.roundNoteTargets?.find(item => item.memberId === memberId && item.roundId === currentRound.id);
       if (roundRun) return mutate('projectFlow.round.addNote', {
-        roundId: currentRound.id, runId: roundRun.id, memberId, note: goal,
+        roundId: roundRun.roundId, runId: roundRun.runId, memberId, note: goal,
       }, '已记入本轮，下一次检查或汇报会读取这条要求。');
     }
     const task = workingTask ?? tasks.find(item => item.memberId === memberId &&

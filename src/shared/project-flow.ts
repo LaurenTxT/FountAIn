@@ -122,7 +122,14 @@ export interface FlowStage {kind:'planning'|'executing'|'reviewing'|'integrating
 export interface ProjectFlowSnapshot { projectId:string; revision:number; flow:ProjectFlow|null; plan:Plan|null; plans:PlanSummary[]; rounds:Round[]; tasks:Task[]; submissions:Submission[]; reviews:Review[]; integrations:Integration[]; acceptances:Acceptance[]; decisions:Decision[]; jointReviews:JointReview[]; overview:{working:number;remaining:number;needsUser:number;stage?:FlowStage}; allowedActions:AllowedAction[] }
 export interface FlowOverview { projectId:string; flowId:string; revision?:number; status:ProjectFlow['status']; dispatchMode:ProjectFlow['dispatchMode']; working:number; remaining:number; needsUser:number; busy?:number }
 export interface ProjectFlowSnapshot {quotaWaits?:QuotaWait[]}
-export interface ProjectFlowSnapshot {blockedOperations?:FlowOperation[]}
+export interface ProjectFlowSnapshot {
+  blockedOperations?: FlowOperation[];
+  roundNoteTargets?: { roundId: string; runId: string; memberId: string }[];
+}
+export function roundNoteTargetsOperation(op: Pick<FlowOperation, 'kind' | 'targetId'>, round: Pick<Round, 'integrationId' | 'requestedCheckId'>) {
+  return op.kind === 'requested-check' ? op.targetId === round.requestedCheckId
+    : ['integration-check', 'peer-review', 'round-report'].includes(op.kind) && op.targetId === round.integrationId;
+}
 export interface ProjectFlowSnapshot {taskAdditions?:TaskAddition[]}
 export interface OperationResult { runId:string; status:RunStatus; text:string }
 export type FlowArtifactFiles = Omit<Artifact,'path'>[];

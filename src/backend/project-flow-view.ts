@@ -3,6 +3,7 @@ import { SUPPLEMENTABLE } from "./project-flow-supplements";
 import {
   roundLead,
   roundReviewLevel,
+  roundNoteTargetsOperation,
   QUOTA_STAGE_LABELS,
   type FlowRecord,
   type ProjectFlow,
@@ -25,6 +26,7 @@ import {
 } from "../shared/project-flow";
 import type { TaskAddition } from "../shared/project-workbench";
 import type { JointReview } from "../shared/joint-review";
+import type { Session } from "../shared/types";
 export function roundOperationBusy(store: Store, targetId: string, busyTargets: Set<string>) {
   const integration = store.get<Integration>("flow_integrations", targetId);
   return Boolean(integration && (busyTargets.has(integration.roundId) || busyTargets.has(integration.id) ||
@@ -474,6 +476,13 @@ export class ProjectFlowView {
       requestedChecks: list<RequestedRoundCheck>("flow_requested_checks"),
       jointReviews,
       blockedOperations,
+      roundNoteTargets: allOperations.flatMap(op => {
+        if (op.state !== "running" && op.state !== "prepared") return [];
+        const round = rounds.find(item => item.status === "checking" && roundNoteTargetsOperation(op, item));
+        const runId = op.correctionRunId ?? op.runId;
+        const memberId = op.sessionId && this.store.get<Session>("sessions", op.sessionId)?.memberId;
+        return round && runId && memberId ? [{ roundId: round.id, runId, memberId }] : [];
+      }),
       overview: {
         stage: this.currentStage(flow, current, tasks, decisions),
         working:
