@@ -72,7 +72,9 @@ export async function configureAcp(options:{
         if(report.model&&options.decodeModel)report.model=options.decodeModel(report.model);
         options.record?.(report);
         const actual=report[key],expected=key==='model'&&options.decodeModel?options.decodeModel(value):requested;
-        if(actual&&actual!==expected)throw new Error('执行端报告的实际配置与选择不同');
+        const normalizeModelAlias=(id:string)=>id.replace(/-(?:low|medium|high|xhigh|max)$/i,'');
+        const matched=actual===expected||(key==='model'&&actual&&normalizeModelAlias(actual)===normalizeModelAlias(expected));
+        if(actual&&!matched)throw new Error('执行端报告的实际配置与选择不同');
         state={...state,...reported};
       }
     }catch(error){options.record?.({[key]:undefined,[status]:'rejected',source:'acp.configuration'});throw new Error(`执行端没有接受所选${key==='model'?'模型':'思考程度'}「${requested}」，任务尚未发送：${(error as Error).message}`);}

@@ -260,11 +260,11 @@ export function resolveTierModel(
   if (executor === 'dsh' || executor === 'deepseek') return 'deepseek-v4-pro';
   if (lower.includes('neon')) {
     const upgraded = replacePreservingCase(raw, /neon/gi, 'carbon', 'Carbon');
-    return overrides?.escalated && upgraded === 'gemini-4-carbon-low' ? 'gemini-4-carbon-medium' : upgraded;
+    return upgraded.replace(/-(?:low|medium|high|xhigh|max)$/i, '');
   }
   if (executor.startsWith('acp-')) {
-    if (!raw) return overrides?.escalated ? 'gemini-4-carbon-medium' : 'gemini-4-carbon-low';
-    if (overrides?.escalated && lower === 'gemini-4-carbon-low') return 'gemini-4-carbon-medium';
+    if (!raw) return 'gemini-4-carbon';
+    if (lower.startsWith('gemini-4-carbon-')) return 'gemini-4-carbon';
   }
   return raw || undefined;
 }
