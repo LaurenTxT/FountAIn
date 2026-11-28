@@ -71,7 +71,7 @@ const STEPS = ['讨论', '定负责人', '方案', '执行', '验收', '完成']
 /** Reads never trigger a full workbench refresh; the room reloads itself when the flow overview moves. */
 export const PROJECT_FLOW_READS = [...JOINT_READS,...PROGRESS_READS,...WORKBENCH_READS,...RESULT_READS,...LOG_READS, 'project.openPath','projectFlow.get', 'projectFlow.detail', 'projectFlow.history', 'projectFlow.artifact.files', 'projectFlow.artifact.read', 'projectFlow.artifact.diff'];
 const REJECT_DEFAULT = '用户驳回了这一轮成品，请负责人复查并安排修正。';
-const OPERATION_KIND: Record<string, string> = { plan: '起草方案', task: '做任务', review: '复核', 'integration-check': '整合检查', 'round-report': '写本轮汇报', rearrange: '重新安排', 'supplement-delivery': '补充要求',adjudication:'裁定复核异议','next-round':'下一轮调整建议','requested-check':'按你的要求检查整轮' };
+const OPERATION_KIND: Record<string, string> = { plan: '起草方案', task: '做任务', review: '复核', 'peer-review': '独立复核', 'integration-check': '整合检查', 'round-report': '写本轮汇报', rearrange: '重新安排', 'supplement-delivery': '补充要求',adjudication:'裁定复核异议','next-round':'下一轮调整建议','requested-check':'按你的要求检查整轮' };
 
 const requestId = () => crypto.randomUUID();
 const action = (list: AllowedAction[] | undefined, name: string) => list?.find(item => item.name === name);
@@ -349,6 +349,9 @@ export function ProjectRoom({ snapshot, project, invoke, onOpenSession,onRoundta
       {live && (blocked.length > 0 || flow!.blockedReasons.length > 0 || stuckTasks.length > 0) && <div data-flow-next="blocked" className="meeting-alert" role="alert"><AlertTriangle size={15} /><div><strong>流程暂停了，需要你先看一下</strong>
         {blocked.length ? blocked.map(op => {
           const task = data.tasks.find(item => item.id === op.targetId);
+          const operationName = OPERATION_KIND[op.kind] ?? '当前操作';
+          const resolution = action(op.allowedActions, 'projectFlow.unknown.resolve');
+          const canResolve = resolution?.enabled !== false;
           const integration = ["integration-check", "peer-review", "round-report"].includes(op.kind)
             ? data.integrations.find(item => item.id === op.targetId)
             : undefined;
@@ -364,15 +367,16 @@ export function ProjectRoom({ snapshot, project, invoke, onOpenSession,onRoundta
             flow!.memberIds.includes(member.id) && member.id !== previousMember &&
             (op.kind !== "peer-review" || member.id !== roundLead(flow!, round))) : [];
           return <div key={op.id} className="meeting-alert-item">
-          <p><strong>{OPERATION_KIND[op.kind] ?? op.kind}{task ? `：${task.title}` : ''}</strong>　{plainFlowError(op.error)}</p>
-          {reusableReport && <button type="button" className="button small primary" disabled={busy} onClick={() => void mutate('projectFlow.unknown.resolve', {
+          <p><strong>{operationName}{task ? `：${task.title}` : ''}</strong>　{plainFlowError(op.error)}</p>
+          {!canResolve && <p className="task-meta" role="status">{resolution?.reason}</p>}
+          {reusableReport && <button type="button" className="button small primary" disabled={busy || !canResolve} onClick={() => void mutate('projectFlow.unknown.resolve', {
             operationId: op.id, expectedRevision: op.revision, choice: 'reconcile', evidence: '使用当前轮任务编号重新核对已保存的回复。',
           }, flow!.dispatchMode === 'running' ? '正在核对已保存的回复。' : '已标记复用回复，点击「继续」后核对。')}>复用已保存回复</button>}
-          <GiveUp task={op.kind === 'task'} unknown={resultUnknown(op)} supplement={op.kind === 'supplement-delivery'} busy={busy} onContinue={op.kind!=='supplement-delivery'?evidence=>resolveAttempt(op,'continue',evidence):undefined} onConfirm={evidence => giveUp(op, evidence)} />
+          <GiveUp task={op.kind === 'task'} unknown={resultUnknown(op)} supplement={op.kind === 'supplement-delivery'} busy={busy || !canResolve} onContinue={op.kind!=='supplement-delivery'?evidence=>resolveAttempt(op,'continue',evidence):undefined} onConfirm={evidence => giveUp(op, evidence)} />
           {task && <button type="button" className="link-button" onClick={() => setLogTarget({kind:'task',id:task.id})}>查看任务日志</button>}
           {task && op.kind === 'task' && <FlowMemberPicker key={op.revision} members={replacementMembers(task)} busy={busy} actions={[{ label: '结束旧尝试并换人', run: memberId => reassign(task, memberId, op) }]} />}
-          {round && <FlowMemberPicker key={op.revision} members={candidates} busy={busy} actions={[{
-            label: `换人接手${OPERATION_KIND[op.kind]}`,
+          {round && <FlowMemberPicker key={op.revision} members={candidates} busy={busy || !canResolve} actions={[{
+            label: `换人接手${operationName}`,
             run: memberId => mutate('projectFlow.unknown.resolve', {
               operationId: op.id, expectedRevision: op.revision, expectedRoundRevision: round.revision,
               choice: 'abandon', memberId, evidence: '用户确认结束旧尝试，沿用当前整合版本换人接手。',

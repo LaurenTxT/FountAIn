@@ -25,6 +25,14 @@ import {
 } from "../shared/project-flow";
 import type { TaskAddition } from "../shared/project-workbench";
 import type { JointReview } from "../shared/joint-review";
+export function roundOperationBusy(store: Store, targetId: string, busyTargets: Set<string>) {
+  const integration = store.get<Integration>("flow_integrations", targetId);
+  return Boolean(integration && (busyTargets.has(integration.roundId) || busyTargets.has(integration.id) ||
+    store.list<FlowOperation>("flow_operations").some(op =>
+      op.targetId === integration.id && ["prepared", "running"].includes(op.state),
+    )));
+}
+
 const finished = new Set([
   "review_passed",
   "review_skipped",
@@ -209,14 +217,17 @@ export class ProjectFlowView {
           reason: "仅中断的验收写入需要核对。",
         },
       ];
-    if (entity === "flow_operations")
+    if (entity === "flow_operations") {
+      const op = item as unknown as FlowOperation;
+      const roundBusy = roundOperationBusy(this.store, op.targetId, this.host.busyTargets);
       allowedActions = [
         {
           name: "projectFlow.unknown.resolve",
-          enabled: (item as unknown as FlowOperation).state === "blocked",
-          reason: "只核对阻塞的操作，不自动重发。",
+          enabled: op.state === "blocked" && !roundBusy,
+          reason: roundBusy ? "本轮已有成员在处理，请等当前运行结束再处理这条中断记录。" : "只核对阻塞的操作，不自动重发。",
         },
       ];
+    }
     if (entity === "flow_submissions" || entity === "flow_integrations")
       allowedActions = [
         "projectFlow.artifact.files",

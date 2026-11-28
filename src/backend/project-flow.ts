@@ -4,7 +4,7 @@ import { pendingDiscussionQuestion } from "../shared/discussion";
 import { appendStudyHandoff, readStudyRoom, studyPlanningMaterial, updateStudyRoomBrief } from "./study-room";
 import { redact } from "./security";
 import { FlowValidation } from "./project-flow-validation";
-import { ProjectFlowView } from "./project-flow-view";
+import { ProjectFlowView, roundOperationBusy } from "./project-flow-view";
 import { payloadObject } from "../shared/project-flow-protocol";
 import { AMBIGUOUS_FIELDS, retainCommandProvenance } from "../shared/flow-format";
 import { recordFormatCorrection } from "./format-corrections";
@@ -2960,6 +2960,8 @@ export class ProjectFlowController {
           "UNKNOWN_RESULT",
           "旧运行尚未确认停止；请先处理成员问题，或停止并核对旧运行。",
         );
+      if (roundOperationBusy(this.store, op.targetId, this.busyTargets))
+        throw new FlowError("TASK_ACTIVE", "本轮已有成员在处理，请等当前运行结束再处理这条中断记录。");
       const evidence = text(p.evidence ?? "", true);
       const replacing = p.memberId !== undefined;
       if (replacing && (p.choice !== "abandon" ||
@@ -2974,8 +2976,7 @@ export class ProjectFlowController {
         const round = this.need<Round>("flow_rounds", integration.roundId);
         this.check(round, { expectedRevision: p.expectedRoundRevision });
         if (flow.status !== "active" || round.flowId !== flow.id ||
-          round.planId !== flow.activePlanId || round.integrationId !== integration.id ||
-          this.busyTargets.has(round.id) || this.busyTargets.has(integration.id))
+          round.planId !== flow.activePlanId || round.integrationId !== integration.id)
           throw new FlowError("STALE_VERSION", "整合任务已变化，请刷新后再选接手成员。");
         const lead = this.lead(round);
         const prior = run && this.store.get<Session>("sessions", run.sessionId);
@@ -3812,6 +3813,9 @@ export class ProjectFlowController {
                     o.kind === "integration-check" &&
                     o.state === "done",
                 );
+          if (integration && this.store.list<FlowOperation>("flow_operations").some(op =>
+            op.targetId === integration.id && op.state === "blocked",
+          )) continue;
           const lead = this.lead(round),
             requested = round.requestedCheckId
               ? this.store.get<RequestedRoundCheck>(
