@@ -449,36 +449,33 @@ export class ProjectFlowController {
       ],
     });
   }
+  private peerCandidates(flow: ProjectFlow, lead: string) {
+    const resting = this.store.roomState(flow.roomId as RoomId).restingMemberIds ?? [];
+    return flow.memberIds.filter(id => id !== lead && !resting.includes(id) && this.host.available(id, true));
+  }
   private availablePeer(round: Round) {
-    const flow = this.flow(round.flowId),
-      lead = this.lead(round),
-      member =
-        round.peerReviewerMemberId ??
-        flow.memberIds.find(
-          (id) => id !== lead && this.host.available(id, true),
-        );
-    if (!member || this.quotaFor(flow, member)) return member;
-    const eligible = flow.memberIds.filter(
-      (id) =>
-        id !== lead &&
-        id !== member &&
-        this.host.available(id, true) &&
-        this.quotaFor(flow, id),
-    );
-    if (!eligible.length) return member;
+    const flow = this.flow(round.flowId);
+    const lead = this.lead(round);
+    const assigned = round.peerReviewerMemberId;
+    const candidates = this.peerCandidates(flow, lead);
+    if (assigned && candidates.includes(assigned) && this.quotaFor(flow, assigned)) return assigned;
+    const eligible = candidates.filter(id => this.quotaFor(flow, id));
+    if (!eligible.length) return candidates.includes(assigned ?? "") ? assigned : candidates[0];
     const selected = this.reviewer(flow, lead, undefined, eligible);
-    this.update("flow_rounds", round, {
-      peerReviewerMemberId: selected,
-      peerReviewerChanges: [
-        ...(round.peerReviewerChanges ?? []),
-        {
-          previousMemberId: member,
-          memberId: selected,
-          reason: "原整轮复核人额度不足，自动换给有额度的其他成员。",
-          at: at(),
-        },
-      ],
-    });
+    if (assigned && selected !== assigned) {
+      this.update("flow_rounds", round, {
+        peerReviewerMemberId: selected,
+        peerReviewerChanges: [
+          ...(round.peerReviewerChanges ?? []),
+          {
+            previousMemberId: assigned,
+            memberId: selected,
+            reason: assigned === lead ? "原复核人已接手本轮负责人，需由另一成员独立复核。" : "原整轮复核人暂不可用，改由其他成员复核。",
+            at: at(),
+          },
+        ],
+      });
+    }
     return selected;
   }
   private resolveQuotaWait(wait: QuotaWait) {
@@ -3677,9 +3674,38 @@ export class ProjectFlowController {
     });
     this.host.changed();
   }
+  private resumePassedChecksAfterPeerConflict(flow: ProjectFlow) {
+    const operations = this.store.list<FlowOperation>("flow_operations").filter(op => op.flowId === flow.id);
+    for (const op of operations) {
+      if (op.kind !== "integration-check" || op.state !== "blocked" || op.recovery === "completed" ||
+        op.error !== "整轮他人复核需要一名可用的其他成员。") continue;
+      const integration = this.store.get<Integration>("flow_integrations", op.targetId);
+      if (integration?.outcome !== "pass" || !integration.version || !integration.checkRunId ||
+        integration.checkRunId !== (op.correctionRunId ?? op.runId)) continue;
+      const round = this.store.get<Round>("flow_rounds", integration.roundId);
+      if (!round || round.planId !== flow.activePlanId || round.integrationId !== integration.id ||
+        round.status !== "blocked" || !round.requiresPeerReview ||
+        roundOperationBusy(this.store, integration.id, this.busyTargets) ||
+        !this.peerCandidates(flow, this.lead(round)).length ||
+        !finishedFlowReply(this.store, op) || this.openRoundDecision(round.id)) continue;
+      const reasonStillOpen = operations.some(other =>
+        other.id !== op.id && other.state === "blocked" && other.error === op.error &&
+        this.store.get<FlowOperation>("flow_operations", other.id)?.state === "blocked");
+      this.store.transaction(() => {
+        this.update("flow_operations", op, { state: "done", result: { reusedPassedCheck: true } });
+        this.update("flow_rounds", round, { status: "checking" });
+        if (!reasonStillOpen) {
+          const latest = this.flow(flow.id);
+          this.update("project_flows", latest, { blockedReasons: latest.blockedReasons.filter(reason => reason !== op.error) });
+        }
+      });
+      this.host.changed();
+    }
+  }
   private async pump() {
     for (const saved of this.store.list<ProjectFlow>("project_flows").filter(flow => flow.status === "active")) {
       this.clearSupersededIntegrationInterruptions(saved);
+      this.resumePassedChecksAfterPeerConflict(this.flow(saved.id));
       const flow = this.flow(saved.id);
       if (flow.dispatchMode !== "running") continue;
       this.reconcileQuotaWaits(flow);
