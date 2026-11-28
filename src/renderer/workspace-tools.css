@@ -1316,3 +1316,36 @@
 .wt-xterm-host .xterm-viewport {
   overflow-y: auto !important;
 }
+
+/* ── PlanCard Markdown Readability ── */
+.plan-card-header-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+.plan-md-body {
+  font-size: 13px;
+  line-height: 1.65;
+  color: var(--ink);
+  margin-top: 8px;
+}
+.plan-md-body h2,
+.plan-md-body h3,
+.plan-md-body h4 {
+  margin: 12px 0 6px;
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--ink);
+}
+.plan-md-body p {
+  margin: 6px 0;
+}
+.plan-md-body ul,
+.plan-md-body ol {
+  margin: 6px 0;
+  padding-left: 18px;
+}
+.plan-md-body li {
+  margin: 3px 0;
+}

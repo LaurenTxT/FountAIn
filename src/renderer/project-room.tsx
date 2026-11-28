@@ -778,6 +778,27 @@ function PlanChanges({ plan, invoke }: { plan: Plan; invoke: Invoke }) {
   if (!changes) return null;
   return <div className="plan-changes" aria-label={`和第 ${changes.version} 版相比`}><h4>和第 {changes.version} 版相比</h4>{changes.items.length ? <ul>{changes.items.map(item => <li key={item}>{item}</li>)}</ul> : <p>内容没有变化。</p>}</div>;
 }
+function normalizePlanMarkdown(raw: string): string {
+  if (!raw) return '';
+  let text = raw.replace(/\r\n/g, '\n').trim();
+  // Restore collapsed headings (e.g. "...。 ### 标题" -> "...。\n\n### 标题")
+  text = text.replace(/([^\n])\s+(#{2,4}\s+)/g, '$1\n\n$2');
+  // Restore collapsed bullet points (e.g. "： - **xxx**" or "； - **xxx**")
+  text = text.replace(/([：:；;。])\s+-\s+(?=\*\*|`|\S)/g, '$1\n- ');
+  // Restore numbered sections like "1. **xxx**" when glued after a sentence
+  text = text.replace(/([。；;])\s+(\d+\.\s+\*\*)/g, '$1\n\n$2');
+  return text;
+}
+
+function planHeadline(objective: string, version: number): string {
+  const first = objective
+    .replace(/\r\n/g, '\n')
+    .split('\n')
+    .map(l => l.replace(/^#+\s*/, '').replace(/\*\*/g, '').replace(/`/g, '').trim())
+    .find(Boolean) ?? `方案第 ${version} 版`;
+  return first.length > 72 ? `${first.slice(0, 72)}…` : first;
+}
+
 function PlanCard({ plan, invoke, lead, rounds, busy, onConfirm, onRevise,defaultLevel,onRoundLevel }: { plan: Plan; invoke: Invoke; lead: string; rounds: Round[]; busy: boolean;defaultLevel:ReviewLevel;onRoundLevel:(round:Round,level:ReviewLevel)=>Promise<boolean>; onConfirm: (choices: Record<string, boolean>,peerChoices:Record<string,boolean>,levels:Record<string,ReviewLevel>,mode:NonNullable<Plan['studyContinuation']>,waitForFirstRoundStart:boolean) => Promise<boolean>; onRevise: (instruction: string) => Promise<boolean> }) {
   const toRoundtable=useRoundtableNavigation();
   const [revision, setRevision] = useState<string | null>(null);
@@ -796,9 +817,13 @@ function PlanCard({ plan, invoke, lead, rounds, busy, onConfirm, onRevise,defaul
   const label = <span className={`plan-status status-${plan.status}`}>方案第 {plan.version} 版 · {waiting ? '等你确认' : plan.status === 'confirmed' ? '已确认' : plan.status === 'superseded' ? '已被新版替代' : '草稿'}</span>;
   return <MemberLine id={lead} label={label}>
     <article className={`meeting-card plan-card ${waiting ? 'waiting' : ''}`} aria-label={`方案第 ${plan.version} 版`}>
-      <button type="button" className="plan-card-title" aria-expanded={open} onClick={() => setOpen(value => !value)}>{open ? <ChevronDown size={14} /> : <ChevronRight size={14} />}<strong>{plan.objective}</strong></button>{toRoundtable&&<button className="link-button" onClick={()=>toRoundtable({projectId:plan.projectId,planId:plan.id})}>送去圆桌评审方案</button>}
+      <div className="plan-card-header-row">
+        <button type="button" className="plan-card-title" aria-expanded={open} onClick={() => setOpen(value => !value)}>{open ? <ChevronDown size={14} /> : <ChevronRight size={14} />}<strong>{planHeadline(plan.objective, plan.version)}</strong></button>
+        {toRoundtable&&<button className="link-button" onClick={()=>toRoundtable({projectId:plan.projectId,planId:plan.id})}>送去圆桌评审方案</button>}
+      </div>
       {open && <>
-        <p className="plan-scope">{plan.scope}</p>
+        <div className="plan-md-body"><Markdown text={normalizePlanMarkdown(plan.objective)} /></div>
+        {plan.scope && <div className="plan-scope plan-md-body"><Markdown text={normalizePlanMarkdown(plan.scope)} /></div>}
         {waiting && <div className="plan-scope">
           <label>推进方式 <select value={mode} aria-label="task workspace 推进方式" disabled={busy} onChange={event=>{setMode(event.target.value==='authorized'?'authorized':'manual');setChoices({});}}><option value="manual">逐轮手动确认</option><option value="authorized">按授权自动推进</option></select></label>
           <p>{automatic ? `方案确认后，只有证据齐全且下一轮完全按原计划时才自动接棒，每版最多 ${STUDY_AUTO_ROUND_LIMIT} 次。范围变化、未解决问题和最终验收仍等你。` : '每轮进入下一轮前等你确认。最终验收始终由你决定。'}</p>
