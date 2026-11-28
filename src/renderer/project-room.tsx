@@ -191,12 +191,39 @@ export function ProjectRoom({ snapshot, project, invoke, onOpenSession,onRoundta
   const awaitingRound = rounds.find(round => round.status === 'awaiting_acceptance' && round.requiresUserAcceptance);
   // Stuck tasks with no blocked attempt to give up: 继续 retries them (the backend decides which; this only decides what to show).
   const stuckTasks = tasks.filter(task => task.status === 'blocked' && !(data?.decisions ?? []).some(d => d.status === 'open' && d.taskId === task.id));
+  const roomOverview = snapshot.rooms?.find(room => room.roomId === roomId);
+  const quotaWaits = data?.quotaWaits ?? [];
+  const availableMembers = team.members.filter(member => ready(member) &&
+    !roomOverview?.state.restingMemberIds?.includes(member.id) &&
+    !roomOverview?.skippedMemberIds?.includes(member.id) &&
+    !quotaWaits.some(wait => wait.memberId === member.id));
+  const repairMembers = availableMembers.filter(member => snapshot.providers.find(info => info.id === member.executor)?.capabilities.write);
+  const replacementMembers = (task: Task) => repairMembers.filter(member => member.id !== task.memberId && flow?.memberIds.includes(member.id));
+  const waitingTasks = tasks.filter(task =>
+    action(task.allowedActions, 'projectFlow.task.reassign')?.enabled &&
+    (stuckTasks.some(stuck => stuck.id === task.id) || roomOverview?.state.restingMemberIds?.includes(task.memberId) || roomOverview?.skippedMemberIds?.includes(task.memberId) ||
+      quotaWaits.some(wait => wait.stage === 'task' && wait.targetId === task.id)));
   const canRetry = Boolean(flow && (flow.blockedReasons.length || stuckTasks.length));
   const step = fresh ? (picking ? 1 : 0) : flow!.status === 'completed' ? 6 : flow!.status === 'cancelled' ? -1 : flow!.status !== 'active' ? 2 : awaitingRound ? 4 : 3;
 
   const resolveAttempt=(op:FlowOperation,choice:'abandon'|'continue',evidence:string)=>mutate('projectFlow.unknown.resolve',{operationId:op.id,expectedRevision:op.revision,choice,evidence},choice==='continue'?'已记录接着做：沿用原会话和工作副本。':'已放弃这次尝试，历史记录保留。');
   const giveUp = (op: FlowOperation, evidence: string) => resolveAttempt(op,'abandon',evidence);
   const resultUnknown = (op: FlowOperation) => { const run = snapshot.runs.find(item => item.id === (op.correctionRunId ?? op.runId)); return Boolean(run && (run.status === 'unknown' || run.delivery === 'unknown') || data?.tasks.some(task => task.supplements?.some(item => item.status === 'unknown' && item.deliveryOperationId === op.id))); };
+  const reassign = (task: Task, memberId: string, op?: FlowOperation) => op
+    ? mutate('projectFlow.unknown.resolve', { operationId: op.id, expectedRevision: op.revision, expectedTaskRevision: task.revision, choice: 'abandon', memberId, evidence: '用户确认结束旧尝试并换人接手。' }, '旧尝试已结束，新成员已接手。流程暂停时请点「继续」。')
+    : mutate('projectFlow.task.reassign', { taskId: task.id, expectedRevision: task.revision, memberId }, '新成员已接手。流程暂停时请点「继续」。');
+  async function dispatchRepair(memberId: string, scope: 'software' | 'project', errorSummary: string, op?: FlowOperation) {
+    setBusy(true);
+    try {
+      await invoke('project.selfHeal.dispatch', { projectId: project.id, memberId, runId: op?.correctionRunId ?? op?.runId, scope, errorSummary: plainFlowError(errorSummary) }, '已向所选成员发送排障工单。');
+      return true;
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause));
+      return false;
+    } finally {
+      setBusy(false);
+    }
+  }
   async function mutate(method: string, params: Record<string, unknown>, success?: string) {
     setBusy(true);
     try { await invoke(method, { requestId: requestId(), ...params }, success); await load(); return true; } catch { await load(); return false; } finally { setBusy(false); }
@@ -287,48 +314,27 @@ export function ProjectRoom({ snapshot, project, invoke, onOpenSession,onRoundta
       {live && (blocked.length > 0 || flow!.blockedReasons.length > 0 || stuckTasks.length > 0) && <div data-flow-next="blocked" className="meeting-alert" role="alert"><AlertTriangle size={15} /><div><strong>流程暂停了，需要你先看一下</strong>
         {blocked.length ? blocked.map(op => { const task = data.tasks.find(item => item.id === op.targetId); return <div key={op.id} className="meeting-alert-item">
           <p><strong>{OPERATION_KIND[op.kind] ?? op.kind}{task ? `：${task.title}` : ''}</strong>　{plainFlowError(op.error)}</p>
-          <GiveUp task={op.kind === 'task'} unknown={resultUnknown(op)} supplement={op.kind === 'supplement-delivery'} busy={busy} onContinue={op.kind!=='supplement-delivery'?evidence=>resolveAttempt(op,'continue',evidence):undefined} onConfirm={evidence => giveUp(op, evidence)} /></div>; })
-          : [...new Set([...flow!.blockedReasons, ...stuckTasks.map(task => task.blockedReason ?? `${task.title} 卡住了`)])].map(reason => <p key={reason}>{plainFlowError(reason)}</p>)}
-        <small>{blocked.length ? '结果未知的运行不会自动重发。处理完卡住的尝试后，点右上角的“继续”。' : '无法下结论请使用下方决策卡，任务成果保留；尚未开始就失败的任务可点“继续”重试。'}</small>
-        <div className="meeting-alert-actions" style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 8 }}>
-          <button
-            type="button"
-            className="button small"
-            disabled={busy}
-            onClick={() => {
-              const firstBlocked = blocked[0];
-              const firstStuck = stuckTasks[0];
-              const errSummary = firstBlocked?.error ?? flow!.blockedReasons[0] ?? firstStuck?.blockedReason ?? '流程暂停需要排查';
-              const offenderId = data.tasks.find(t => t.id === firstBlocked?.targetId)?.memberId ?? firstStuck?.memberId;
-              void invoke('project.selfHeal.dispatch', {
-                projectId: project.id,
-                memberId: offenderId,
-                runId: firstBlocked?.runId,
-                errorSummary: plainFlowError(errSummary),
-                scope: 'project',
-              }).then(() => { setDockOpen(false); }).catch(e => setError(e instanceof Error ? e.message : String(e)));
-            }}
-          ><Wrench size={13} />让当事成员自修</button>
-          <button
-            type="button"
-            className="button small quiet"
-            disabled={busy}
-            onClick={() => {
-              const firstBlocked = blocked[0];
-              const firstStuck = stuckTasks[0];
-              const errSummary = firstBlocked?.error ?? flow!.blockedReasons[0] ?? firstStuck?.blockedReason ?? 'FountAIn 运行异常';
-              const offenderId = data.tasks.find(t => t.id === firstBlocked?.targetId)?.memberId ?? firstStuck?.memberId;
-              void invoke('project.selfHeal.dispatch', {
-                projectId: project.id,
-                memberId: offenderId,
-                runId: firstBlocked?.runId,
-                errorSummary: plainFlowError(errSummary),
-                scope: 'software',
-              }).then(() => { setDockOpen(false); }).catch(e => setError(e instanceof Error ? e.message : String(e)));
-            }}
-          ><Wrench size={13} />交给成员修软件 Bug</button>
-        </div></div></div>}
-      {live && (data.quotaWaits ?? []).map(wait => <div key={wait.id} className="dock-row"><LoaderCircle size={15} className="spin" /><p>等待 <MemberName id={wait.memberId} /> 额度恢复 · {QUOTA_STAGE_LABELS[wait.stage]} · 从 {time(wait.startedAt)} 开始；满 10 分钟会请你决定继续等还是换人。</p></div>)}
+          <GiveUp task={op.kind === 'task'} unknown={resultUnknown(op)} supplement={op.kind === 'supplement-delivery'} busy={busy} onContinue={op.kind!=='supplement-delivery'?evidence=>resolveAttempt(op,'continue',evidence):undefined} onConfirm={evidence => giveUp(op, evidence)} />
+          {task && op.kind === 'task' && <FlowMemberPicker key={op.revision} members={replacementMembers(task)} busy={busy} actions={[{ label: '结束旧尝试并换人', run: memberId => reassign(task, memberId, op) }]} />}
+          <FlowMemberPicker members={repairMembers} busy={busy} actions={[
+            { label: '排查并修复项目问题', run: memberId => dispatchRepair(memberId, 'project', op.error ?? '流程暂停需要排查', op) },
+            { label: '排查并修复软件 Bug', run: memberId => dispatchRepair(memberId, 'software', op.error ?? 'FountAIn 运行异常', op) },
+          ]} />
+        </div>; })
+          : <>
+            {[...new Set([...flow!.blockedReasons, ...stuckTasks.map(task => task.blockedReason ?? `${task.title} 卡住了`)])].map(reason => <p key={reason}>{plainFlowError(reason)}</p>)}
+            <FlowMemberPicker members={repairMembers} busy={busy} actions={[
+              { label: '排查并修复项目问题', run: memberId => dispatchRepair(memberId, 'project', flow!.blockedReasons[0] ?? stuckTasks[0]?.blockedReason ?? '流程暂停需要排查') },
+              { label: '排查并修复软件 Bug', run: memberId => dispatchRepair(memberId, 'software', flow!.blockedReasons[0] ?? stuckTasks[0]?.blockedReason ?? 'FountAIn 运行异常') },
+            ]} />
+          </>}
+        <small>{blocked.length ? '旧运行须先确认已结束。换人会保留历史记录，新成员从本轮起点接手；流程暂停时请点「继续」。' : '流程暂停时请在处理后点「继续」。'}</small>
+        </div></div>}
+      {live && waitingTasks.map(task => <div key={task.id} className="meeting-alert-item" data-flow-next="replacement">
+        <p><MemberName id={task.memberId} /> 暂时无法处理「{task.title}」</p>
+        <FlowMemberPicker members={replacementMembers(task)} busy={busy} actions={[{ label: '换人接手', run: memberId => reassign(task, memberId) }]} />
+      </div>)}
+      {live && quotaWaits.map(wait => <div key={wait.id} className="dock-row"><LoaderCircle size={15} className="spin" /><p>等待 <MemberName id={wait.memberId} /> 额度恢复 · {QUOTA_STAGE_LABELS[wait.stage]} · 从 {time(wait.startedAt)} 开始。</p></div>)}
       {live && openDecisions.map(decision => {
         const leadId = roundLead(flow!, currentRound);
         const leadName = team.get(leadId)?.name ?? '负责人';
@@ -398,6 +404,7 @@ export function ProjectRoom({ snapshot, project, invoke, onOpenSession,onRoundta
       if (live && flow!.waitingForFirstRoundStart) waiting.push('启动第一轮');
       if (live && plan?.status === 'awaiting_confirmation' && !revisingPlan) waiting.push(`确认方案第 ${plan.version} 版`);
       if (live && (blocked.length > 0 || flow!.blockedReasons.length > 0 || stuckTasks.length > 0)) waiting.push('流程暂停了，需要你先看一下');
+      if (live && waitingTasks.length) waiting.push(`有 ${waitingTasks.length} 项任务可以换人接手`);
       if (live) for (const wait of data.quotaWaits ?? []) standing.push(`等待 ${team.get(wait.memberId)?.name ?? '成员'} 额度恢复`);
       if (live) for (const decision of openDecisions) waiting.push(roundOf(decision.roundId) + decision.title);
       if (live) for (const round of rounds.filter(actionable)) waiting.push(`第 ${round.index + 1} 轮成品待验收`);
@@ -428,6 +435,7 @@ export function ProjectRoom({ snapshot, project, invoke, onOpenSession,onRoundta
   }
   const nextStep=live&&blocked.length?{label:'核对中断结果',run:()=>revealStep('[data-flow-next="blocked"]')}
     :live&&plan?.status==='awaiting_confirmation'?{label:'查看并确认方案',run:()=>revealStep('[data-flow-next="plan"]')}
+    :live&&waitingTasks.length?{label:'选择成员接手',run:()=>revealStep('[data-flow-next="replacement"]')}
     :live&&openDecisions.length?{label:'处理当前决定',run:()=>revealStep('[data-flow-next="decision"]')}
     :roundToAccept?{label:'查看成品并验收',run:openAcceptance}
     :live&&flow!.dispatchMode!=='running'&&allowed(data!.allowedActions,'projectFlow.resume')?{label:flow!.waitingForFirstRoundStart?'启动第一轮':'继续这段工作',run:()=>void mutate('projectFlow.resume',{flowId:flow!.id,expectedRevision:flow!.revision},'已继续派发。')}:undefined;
@@ -601,8 +609,8 @@ export function ProjectRoom({ snapshot, project, invoke, onOpenSession,onRoundta
             <button type="button" className="icon-button" aria-label="收起看板" title="收起右侧栏 (Ctrl+B)" onClick={()=>toggleBoard(false)}><PanelRightClose size={15}/></button>
           </span>
         </div>
-      {boardView==='progress'?<ProjectProgressView project={project} snapshot={snapshot} invoke={invoke}/>:boardView==='terminal'?<WorkspaceTerminalPanel project={project} roomId={roomId} roster={roster} invoke={invoke} focusTerminalId={focusTerminalId}/>:boardView==='code'?<WorkspaceCodePanel project={project} roomId={roomId} roster={roster} invoke={invoke} scriptsOpen={false} onToggleScripts={()=>setBoardView('terminal')} onOpenDocument={(rel, edit)=>setDocument({projectId:project.id,target:rel,edit})} checkpointTrigger={checkpointTrigger}/>:<div className="side-workspace">{sideHeaderSummary}<Board focusedTask={focusedTask} invoke={invoke} rounds={rounds} tasks={tasks} data={data} snapshot={snapshot} busy={busy} blocked={blocked} resultUnknown={resultUnknown} onGiveUp={giveUp} onContinue={(op,evidence)=>resolveAttempt(op,'continue',evidence)} members={team.members.filter(member => flow?.memberIds.includes(member.id))} onLog={setLogTarget} onOpenSdd={() => setSddOpen(true)}
-        onReassign={(task, memberId) => mutate('projectFlow.task.reassign', { taskId: task.id, expectedRevision: task.revision, memberId }, '已换人，新成员会从头接手这项任务。')} /></div>}
+      {boardView==='progress'?<ProjectProgressView project={project} snapshot={snapshot} invoke={invoke}/>:boardView==='terminal'?<WorkspaceTerminalPanel project={project} roomId={roomId} roster={roster} invoke={invoke} focusTerminalId={focusTerminalId}/>:boardView==='code'?<WorkspaceCodePanel project={project} roomId={roomId} roster={roster} invoke={invoke} scriptsOpen={false} onToggleScripts={()=>setBoardView('terminal')} onOpenDocument={(rel, edit)=>setDocument({projectId:project.id,target:rel,edit})} checkpointTrigger={checkpointTrigger}/>:<div className="side-workspace">{sideHeaderSummary}<Board focusedTask={focusedTask} invoke={invoke} rounds={rounds} tasks={tasks} data={data} snapshot={snapshot} busy={busy} blocked={blocked} resultUnknown={resultUnknown} onGiveUp={giveUp} onContinue={(op,evidence)=>resolveAttempt(op,'continue',evidence)} members={repairMembers.filter(member => flow?.memberIds.includes(member.id))} onLog={setLogTarget} onOpenSdd={() => setSddOpen(true)}
+        onReassign={reassign} /></div>}
       </div>}
     </div>}
     {logTarget&&<WorkLog key={project.id+logTarget.kind+logTarget.id} project={project} target={logTarget} invoke={invoke} onClose={()=>setLogTarget(null)}/>}
@@ -1049,6 +1057,22 @@ function DecisionCard({ decision, tasks, rounds, busy, leadName, onAskLead, onAn
       return <button key={option} type="button" className={`button small ${allows||option==='按原计划开始'||option==='按调整开始' ? 'primary' : 'secondary'}`} disabled={busy || allows && !picked.length || requiresMember(option)&&!memberId || option==='提交逐条裁定'&&disputes.some(d=>!rulings[d.finding.id]) || !allowed(decision.allowedActions, 'projectFlow.decision.answer')} onClick={() => void onAnswer(allows ? { choice: option, ...(picked.length === eligible.length ? { allowAllEligible: true } : { selectedTaskIds: picked }) } : { choice: option,opinion,...(requiresMember(option)?{memberId}:{}),...(option==='提交逐条裁定'?{rulings:disputes.map(d=>({findingId:d.finding.id,verdict:rulings[d.finding.id],reason:opinion||'用户逐条裁定'}))}:{}) })}>{option}{allows && picked.length !== eligible.length ? `（${picked.length} 项）` : ''}</button>;
     })}{onAskLead && <button type="button" className="button small secondary" disabled={busy} title="在会议室里让负责人用大白话解释当前卡点并给出选择建议" onClick={() => void onAskLead(decision)}>问问 {leadName || '负责人'}</button>}</div>
   </section>;
+}
+
+function FlowMemberPicker({ members, busy, actions }: {
+  members: TeamMember[];
+  busy: boolean;
+  actions: { label: string; run: (memberId: string) => Promise<boolean> }[];
+}) {
+  const [memberId, setMemberId] = useState('');
+  const selected = members.some(member => member.id === memberId) ? memberId : '';
+  return <div className="round-actions">
+    <select aria-label={actions.length === 1 ? actions[0].label : '选择修复成员'} value={selected} disabled={busy || !members.length} onChange={event => setMemberId(event.target.value)}>
+      <option value="">{members.length ? '选择成员…' : '暂无可用成员'}</option>
+      {members.map(member => <option key={member.id} value={member.id}>{member.name}</option>)}
+    </select>
+    {actions.map(({ label, run }) => <button key={label} type="button" className="button small secondary" disabled={busy || !selected} onClick={() => void run(selected).then(ok => { if (ok) setMemberId(''); })}>{label}</button>)}
+  </div>;
 }
 
 type BoardProps = { invoke:Invoke; rounds: Round[]; tasks: Task[]; data: ProjectFlowSnapshot; snapshot: Snapshot; members: TeamMember[]; busy: boolean; blocked: FlowOperation[]; resultUnknown: (op: FlowOperation) => boolean; onGiveUp: (op: FlowOperation, evidence: string) => Promise<boolean>; onContinue:(op:FlowOperation,evidence:string)=>Promise<boolean>;onLog: (target:LogTarget) => void; onReassign: (task: Task, memberId: string) => Promise<boolean> };

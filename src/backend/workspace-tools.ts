@@ -788,6 +788,8 @@ export class WorkspaceToolsController {
     }
 
     const isSoftwareRepo = params.scope === 'software' && Boolean(softwareRepo);
+    if (params.scope === 'software' && !softwareRepo)
+      throw new Error('请先在工作台添加 FountAIn 源码目录，再派发软件修复。');
     const targetProject = (isSoftwareRepo ? softwareRepo : sourceProject) ?? softwareRepo ?? allProjects[0];
     if (!targetProject) throw new Error('请先在工作台添加项目（若需自修 FountAIn 软件本身，请添加 FountAIn 源码目录）。');
 
@@ -798,11 +800,13 @@ export class WorkspaceToolsController {
       .sort((a, b) => String(b.updatedAt ?? b.createdAt ?? '').localeCompare(String(a.updatedAt ?? a.createdAt ?? '')))
       .slice(0, 4);
     const matchedRun =
-      (params.runId ? recentFailedRuns.find((r) => r.id === params.runId) : undefined) ??
-      recentFailedRuns[0];
+      params.runId ? this.store.get<Run>('runs', params.runId)
+        : recentFailedRuns.find(r => !sourceProject || r.projectId === sourceProject.id);
 
-    // Determine offending member ("谁出的问题谁负责")
+    // Honor explicit repair assignments; infer an assignee only for legacy callers.
     const members = this.store.members().filter((m) => !m.cardHidden);
+    if (params.memberId && !members.some(member => member.id === params.memberId))
+      throw new Error('所选修复成员已不可用，请重新选择。');
     const inferredMember =
       (params.memberId ? members.find((m) => m.id === params.memberId) : undefined) ??
       (matchedRun?.provider ? members.find((m) => m.executor === matchedRun.provider) : undefined) ??
@@ -820,7 +824,7 @@ export class WorkspaceToolsController {
         const raw = await readFile(logFile, 'utf8');
         const errLines = raw
           .split(/\r?\n/)
-          .filter((line) => line.includes('"kind":"error"') || (params.runId && line.includes(params.runId)))
+          .filter((line) => Boolean(matchedRun && line.includes(matchedRun.id)))
           .slice(-6)
           .map((line) => {
             try {
@@ -847,7 +851,7 @@ export class WorkspaceToolsController {
       : members.map((m) => m.id);
 
     const ticket = [
-      `@${inferredMember.name} 【谁出问题谁负责 · 自动排障自修工单】`,
+      `@${inferredMember.name} 【排障与修复工单】`,
       '',
       `- **来源项目**：${sourceProject?.name ?? targetProject.name}`,
       `- **问题摘要**：${summary}`,

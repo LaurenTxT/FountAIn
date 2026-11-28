@@ -430,7 +430,8 @@ export class Store {
     const projects=new Set(this.list<Project>('projects').filter(p=>!p.kind).map(p=>p.id));
     return this.list<RoomState>('room_states').filter(s=>s.roomId==='global'||s.roomId?.startsWith('roundtable:')&&this.get('roundtable_topics',s.roomId.slice(11))||projects.has(s.roomId?.slice(8)??'')).map(s=>({
       roomId:s.roomId!,...(s.roomId?.startsWith('project:')?{projectId:s.roomId.slice(8)}:{}),revision:s.revision??0,currentThreadId:this.currentRoomThread(s.roomId).id,
-      state:{active:s.active,mode:s.mode,speaking:s.speaking,compressing:s.compressing,generatingImage:s.generatingImage},
+      skippedMemberIds:Object.keys(s.discussion?.skippedMembers??{}),
+      state:{active:s.active,mode:s.mode,speaking:s.speaking,compressing:s.compressing,generatingImage:s.generatingImage,restingMemberIds:s.restingMemberIds},
     }));
   }
   snapshot(options:{providers?:ProviderInfo[];settings?:Settings;backendReady?:boolean;deepseekKeyConfigured?:boolean}={}):Snapshot {

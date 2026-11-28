@@ -2961,6 +2961,14 @@ export class ProjectFlowController {
           "旧运行尚未确认停止；请先处理成员问题，或停止并核对旧运行。",
         );
       const evidence = text(p.evidence ?? "", true);
+      const replacement = p.memberId !== undefined
+        ? this.need<Task>("flow_tasks", op.targetId)
+        : undefined;
+      if (replacement) {
+        if (p.choice !== "abandon" || op.kind !== "task" || replacement.flowId !== op.flowId)
+          throw new FlowError("INVALID_REQUEST", "只有结束旧任务尝试时才能同时换人。");
+        this.check(replacement, { expectedRevision: p.expectedTaskRevision });
+      }
       if (p.choice === "reconcile") {
         if (!finishedFlowReply(this.store, op))
           throw new FlowError(
@@ -3006,7 +3014,9 @@ export class ProjectFlowController {
           });
         }
         const task = this.store.get<Task>("flow_tasks", op.targetId);
-        if (task) {
+        if (replacement) {
+          this.manualTaskRedo(replacement, { ...p, opinion: evidence }, op.id);
+        } else if (task) {
           if (op.kind === "supplement-delivery" && op.supplementId) {
             this.patchSupplement(task.id, op.supplementId, {
               status: "pending",
@@ -7526,9 +7536,11 @@ export class ProjectFlowController {
         "STALE_VERSION",
         "只能重做当前方案中尚未通过的任务。",
       );
-    const memberId = this.selectedMember(flow, p, task.memberId),
-      lead = this.lead(task),
-      redo: ManualRedo = {
+    const memberId = this.selectedMember(flow, p, task.memberId);
+    if (this.store.roomState(`project:${flow.projectId}`).restingMemberIds?.includes(memberId) ||
+      !this.quotaFor(flow, memberId))
+      throw new FlowError("MEMBER_UNAVAILABLE", "该成员正在休息或额度不足，请选择其他成员。");
+    const redo: ManualRedo = {
         decisionId,
         memberId,
         previousMemberId: task.memberId,
@@ -7540,6 +7552,7 @@ export class ProjectFlowController {
       memberId,
       sessionId: undefined,
       activeRunId: undefined,
+      executionBase: undefined,
       reviewerMemberId:
         memberId === task.reviewerMemberId
           ? this.reviewer(flow, memberId)

@@ -422,7 +422,7 @@ export interface Snapshot {
   automation?: import('./automation').AutomationSnapshot;
   qqBridge?: QqBridgeStatus;
   room: { messages: RoomMessage[]; state: RoomState; currentThreadId?: string; threads?: RoomThread[]; hasMore?: boolean; before?: string };
-  rooms?: {roomId:RoomId;projectId?:string;memberId?:string;kind?:'desk'|'report';unread?:boolean;pending?:boolean;folder?:string;folderKey?:string;sessionId?:string;revision:number;currentThreadId:string;state:Pick<RoomState,'active'|'mode'|'speaking'|'compressing'|'generatingImage'>}[];
+  rooms?: {roomId:RoomId;projectId?:string;memberId?:string;kind?:'desk'|'report';unread?:boolean;pending?:boolean;folder?:string;folderKey?:string;sessionId?:string;revision:number;currentThreadId:string;skippedMemberIds?:string[];state:Pick<RoomState,'active'|'mode'|'speaking'|'compressing'|'generatingImage'|'restingMemberIds'>}[];
 }
 export interface SnapshotPatch {
   type:'snapshot-patch';sync:{epoch:string;revision:number};baseRevision:number;
