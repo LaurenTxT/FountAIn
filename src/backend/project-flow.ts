@@ -3611,10 +3611,49 @@ export class ProjectFlowController {
       });
     this.jobs.add(promise);
   }
+  private clearSupersededIntegrationInterruptions(flow: ProjectFlow) {
+    const operations = this.store.list<FlowOperation>("flow_operations").filter(op => op.flowId === flow.id);
+    const superseded = operations.flatMap(op => {
+      if (op.state !== "blocked" || op.recovery === "completed" ||
+        !["peer-review", "round-report"].includes(op.kind)) return [];
+      const integration = this.store.get<Integration>("flow_integrations", op.targetId);
+      if (!integration?.checkRunId || !["changes_requested", "inconclusive"].includes(integration.outcome ?? "")) return [];
+      const latest = operations.find(check => check.kind === "integration-check" && check.state === "done" &&
+        check.targetId === integration.id && (check.correctionRunId ?? check.runId) === integration.checkRunId);
+      if (!latest) return [];
+      const oldRunId = op.correctionRunId ?? op.runId;
+      const oldRun = oldRunId ? this.store.get<Run>("runs", oldRunId) : undefined;
+      const latestRun = this.store.get<Run>("runs", integration.checkRunId);
+      if (!oldRun?.completedAt || !["ended", "completed", "failed", "stopped", "interrupted"].includes(oldRun.status) ||
+        !latestRun?.completedAt || latestRun.completedAt <= oldRun.completedAt) return [];
+      return [{ op, latest }];
+    });
+    if (!superseded.length) return;
+    const removed = new Set(superseded.map(({ op }) => op.id));
+    const expiredReasons = new Set(superseded.map(({ op }) => op.error));
+    const currentReasons = new Set([
+      ...operations.filter(op => op.state === "blocked" && !removed.has(op.id)).map(op => op.error),
+      ...this.store.list<Decision>("flow_decisions").filter(item => item.flowId === flow.id && item.status === "open").map(item => item.reason),
+    ]);
+    this.store.transaction(() => {
+      for (const { op, latest } of superseded) {
+        this.update("flow_operations", op, {
+          state: "done",
+          resumeRequested: false,
+          result: { superseded: true, supersededByOperationId: latest.id },
+        });
+      }
+      this.update("project_flows", flow, {
+        blockedReasons: flow.blockedReasons.filter(reason => !expiredReasons.has(reason) || currentReasons.has(reason)),
+      });
+    });
+    this.host.changed();
+  }
   private async pump() {
-    for (const flow of this.store
-      .list<ProjectFlow>("project_flows")
-      .filter((f) => f.status === "active" && f.dispatchMode === "running")) {
+    for (const saved of this.store.list<ProjectFlow>("project_flows").filter(flow => flow.status === "active")) {
+      this.clearSupersededIntegrationInterruptions(saved);
+      const flow = this.flow(saved.id);
+      if (flow.dispatchMode !== "running") continue;
       this.reconcileQuotaWaits(flow);
       await this.continueAuthorizedStudyRound(flow);
       if (this.flow(flow.id).dispatchMode !== "running") continue;
