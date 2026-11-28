@@ -385,7 +385,7 @@ export function ProjectRoom({ snapshot, project, invoke, onOpenSession,onRoundta
           const text = `@${leadName} 请用通俗大白话帮我解释一下「${d.title}」为什么卡住了，具体哪里出了问题，并建议我从这几个选项里选哪一个（${opts}）。`;
           await invoke('room.send', { roomId, text, memberIds: roster, mode: 'discuss', style: 'chat', maxMinutes: 0, handRaise: false, hostPick: false });
           setDockOpen(false);
-        }} onAnswer={params => mutate('projectFlow.decision.answer', { decisionId: decision.id, expectedRevision: decision.revision, ...params }, '已记录你的决定。')} /></div>;
+        }} onAnswer={params => mutate('projectFlow.decision.answer', { decisionId: decision.id, expectedRevision: decision.revision, ...params }, repairTask && params.choice === '重新复核' ? '已核对现有证据，未能核实的部分按复核流程处理。' : '已记录你的决定。')} /></div>;
       })}
       {live && rounds.filter(actionable).map(round=><div key={round.id} data-flow-next="acceptance" data-flow-detail={round.id}>{roundCard(round)}</div>)}
       {acceptedLine && <div className="dock-row"><CheckCircle2 size={15} /><p>{acceptedLine}</p></div>}
@@ -1098,7 +1098,7 @@ function DecisionCard({ decision, tasks, rounds, busy, leadName, onAskLead, onAn
       <small>提前开工以已复核的成果为起点；如果这一轮后来又改了它依赖的内容，提前做的部分会标为过期、等待重新安排。</small></div>}
     <div className="round-actions">{decision.options.map(option => {
       const allows = early && option === '允许提前开工';
-      return <button key={option} type="button" className={`button small ${allows||option==='按原计划开始'||option==='按调整开始' ? 'primary' : 'secondary'}`} disabled={busy || allows && !picked.length || requiresMember(option)&&!memberId || option==='提交逐条裁定'&&disputes.some(d=>!rulings[d.finding.id]) || !allowed(decision.allowedActions, 'projectFlow.decision.answer')} onClick={() => void onAnswer(allows ? { choice: option, ...(picked.length === eligible.length ? { allowAllEligible: true } : { selectedTaskIds: picked }) } : { choice: option,opinion,...(requiresMember(option)?{memberId}:{}),...(option==='提交逐条裁定'?{rulings:disputes.map(d=>({findingId:d.finding.id,verdict:rulings[d.finding.id],reason:opinion||'用户逐条裁定'}))}:{}) })}>{option}{allows && picked.length !== eligible.length ? `（${picked.length} 项）` : ''}</button>;
+      return <button key={option} type="button" className={`button small ${allows||option==='按原计划开始'||option==='按调整开始' ? 'primary' : 'secondary'}`} disabled={busy || allows && !picked.length || requiresMember(option)&&!memberId || option==='提交逐条裁定'&&disputes.some(d=>!rulings[d.finding.id]) || !allowed(decision.allowedActions, 'projectFlow.decision.answer')} title={decision.kind === 'unresolved-review' && decision.taskId && option === '重新复核' ? '先核对已有执行记录，只有证据仍不足才重新调用成员' : undefined} onClick={() => void onAnswer(allows ? { choice: option, ...(picked.length === eligible.length ? { allowAllEligible: true } : { selectedTaskIds: picked }) } : { choice: option,opinion,...(requiresMember(option)?{memberId}:{}),...(option==='提交逐条裁定'?{rulings:disputes.map(d=>({findingId:d.finding.id,verdict:rulings[d.finding.id],reason:opinion||'用户逐条裁定'}))}:{}) })}>{option}{allows && picked.length !== eligible.length ? `（${picked.length} 项）` : ''}</button>;
     })}{onAskLead && <button type="button" className="button small secondary" disabled={busy} title="在会议室里让负责人用大白话解释当前卡点并给出选择建议" onClick={() => void onAskLead(decision)}>问问 {leadName || '负责人'}</button>}</div>
   </section>;
 }

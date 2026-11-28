@@ -73,6 +73,30 @@ function normalizedCommandBody(command:string):string {
     .replace(/\s+/g, ' ');
 }
 
+/** Match a summarized heredoc only when an event reference or a unique output name identifies its invocation. */
+function summarizedHeredocStart(evidence: Evidence, events: TimelineEvent[]) {
+  const reported = evidence.command && commandForMatching(evidence.command).trim();
+  const header = reported && /^([^\r\n]+?<<-?\s*(['"]?)[A-Za-z_][\w-]*\2)(?:\s+[（(]([^\r\n]*)[）)])?$/.exec(reported);
+  if (!header) return [];
+  const outputNames = [...new Set(header[3]?.match(/[A-Za-z0-9_.-]+\.(?:txt|json|csv|md|log)\b/gi) ?? [])];
+  const candidates = events.filter(event => {
+    const native = eventCommand(event);
+    if (!native) return false;
+    const body = commandForMatching(native);
+    return body.includes('\n') && normalizedCommandBody(body.split(/\r?\n/, 1)[0]) === normalizedCommandBody(header[1]);
+  });
+  const referenced = candidates.filter(start => events.some(end =>
+    completes(start, end) && (evidence.eventIds.includes(start.id) || evidence.eventIds.includes(end.id)),
+  ));
+  if (referenced.length) return referenced.length === 1 ? referenced : [];
+  if (!outputNames.length) return [];
+  const identified = candidates.filter(start => {
+    const literals = new Set((eventCommand(start) ?? '').match(/[A-Za-z0-9_.-]+\.(?:txt|json|csv|md|log)\b/gi) ?? []);
+    return outputNames.every(name => literals.has(name));
+  });
+  return identified.length === 1 ? identified : [];
+}
+
 /** Command completion and the member's exit-code claim are independent observations. */
 export function bindFlowEvidence(evidence:Evidence[],allEvents:TimelineEvent[],runIds:string[]):Evidence[]{
   const events=allEvents.filter(e=>runIds.includes(e.runId)&&e.fidelity==='native'&&['tool','output'].includes(e.kind));
@@ -81,7 +105,8 @@ export function bindFlowEvidence(evidence:Evidence[],allEvents:TimelineEvent[],r
     const command=typeof e.command==='string'?commandForMatching(e.command):undefined;
     const norm=typeof e.command==='string'?normalizedCommandBody(e.command):undefined;
     const exactStarts=events.filter(event=>{const native=eventCommand(event);return typeof native==='string'&&command!==undefined&&commandForMatching(native)===command;});
-    const starts=exactStarts.length?exactStarts:events.filter(event=>{const native=eventCommand(event);return typeof native==='string'&&norm!==undefined&&norm.length>0&&normalizedCommandBody(native)===norm;});
+    const normalizedStarts=exactStarts.length?exactStarts:events.filter(event=>{const native=eventCommand(event);return typeof native==='string'&&norm!==undefined&&norm.length>0&&normalizedCommandBody(native)===norm;});
+    const starts = normalizedStarts.length ? normalizedStarts : summarizedHeredocStart(e, events);
     const completed=events.filter(end=>starts.some(start=>completes(start,end)));
     // Prefer a recorded matching invocation; otherwise keep a completion whose code is unavailable.
     const matching=e.exitCode===undefined?completed:completed.filter(event=>exitCode(event)===e.exitCode&&!(e.exitCode===0&&failed(event)));

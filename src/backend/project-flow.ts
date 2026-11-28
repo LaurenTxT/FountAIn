@@ -6835,6 +6835,7 @@ export class ProjectFlowController {
     if (!decision.options.includes(choice) && !handoffRepair)
       throw new FlowError("INVALID_REQUEST", "请从当前决策选项中选择。");
     let selected: string[] = [];
+    let reusedReview = false;
     if (decision.additionId) {
       const proposal = this.need<TaskAddition>(
         "flow_task_additions",
@@ -7182,6 +7183,8 @@ export class ProjectFlowController {
             blockedReason: undefined,
             statusBeforeBlock: undefined,
           });
+        } else if (choice === "重新复核" && this.recheckSavedReviewEvidence(task)) {
+          reusedReview = true;
         } else {
           const reviewer =
             choice === "换人复核"
@@ -7290,7 +7293,7 @@ export class ProjectFlowController {
         ...(p.memberId ? { memberId: String(p.memberId) } : {}),
       },
     });
-    if (handoffRepair) {
+    if (handoffRepair || reusedReview) {
       const current = this.flow(flow.id);
       const hasUnresolvedRuns = this.store.list<FlowOperation>("flow_operations").some(
         op => op.flowId === flow.id && op.state === "blocked" && op.recovery !== "completed",
@@ -7304,6 +7307,44 @@ export class ProjectFlowController {
         this.restoreCompleted(this.flow(flow.id));
       }
     }
+  }
+  private recheckSavedReviewEvidence(task: Task) {
+    const review = this.store.list<Review>("flow_reviews").filter(
+      item => item.taskId === task.id && item.submissionId === task.latestSubmissionId,
+    ).at(-1);
+    if (review?.status !== "inconclusive" || review.verdict !== "pass" || !review.runId ||
+      !review.outcomeReasons?.length || review.outcomeReasons.some(reason => !reason.startsWith("命令缺少实际完成记录：")))
+      return false;
+    const operation = this.store.list<FlowOperation>("flow_operations").find(op =>
+      op.targetId === task.id && op.kind === "review" && op.state === "done" &&
+      (op.correctionRunId ?? op.runId) === review.runId,
+    );
+    if (!operation) return false;
+    const runIds = [...new Set([review.runId, operation.runId].filter((id): id is string => Boolean(id)))];
+    const events = this.store.eventsForRuns(runIds);
+    const evidence = review.evidence.map(item =>
+      item.kind === "command" || item.commandKindInferred
+        ? bindFlowEvidence([item], events, runIds)[0]
+        : item,
+    );
+    if (evidence.some(item => commandEvidenceProblem(item))) return false;
+    this.store.transaction(() => {
+      this.update("flow_reviews", review, { evidence, status: "passed", outcome: "pass", outcomeReasons: [] });
+      this.update("flow_tasks", task, {
+        status: "review_passed",
+        blockedReason: undefined,
+        statusBeforeBlock: undefined,
+        activeRunId: undefined,
+        reviewSkipped: undefined,
+        reviewRequested: undefined,
+        reviewLevelAtSubmission: "high",
+        manualRedos: this.completeRedo(task.manualRedos, "passed"),
+        supplements: (task.supplements ?? []).map(item =>
+          item.status === "submitted" ? { ...item, status: "applied" } : item,
+        ),
+      });
+    });
+    return true;
   }
   private selectedMember(
     flow: ProjectFlow,
