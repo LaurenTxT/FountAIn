@@ -124,6 +124,24 @@ function renderLatexNodes(expr: string, keyPrefix: string): ReactNode[] {
   return out;
 }
 
+function renderInlineCode(code: string, keyPrefix: string): ReactNode {
+  // If an AI accidentally wrapped a LaTeX math phrase inside backticks (e.g. `$\le_m$ vs $\le_T$`),
+  // render the embedded LaTeX segments cleanly without touching normal shell vars like $HOME or $1.
+  if (!/\$[^$\n]*\\[a-zA-Z]+[^$\n]*\$/.test(code)) return <code key={keyPrefix}>{code}</code>;
+  const parts: ReactNode[] = [];
+  const re = /\$([^$\n]*\\[a-zA-Z]+[^$\n]*)\$/g;
+  let last = 0;
+  let m: RegExpExecArray | null;
+  let k = 0;
+  while ((m = re.exec(code))) {
+    if (m.index > last) parts.push(code.slice(last, m.index));
+    parts.push(<span key={`${keyPrefix}-m-${k++}`} className="md-math">{renderLatexNodes(m[1].trim(), `${keyPrefix}-m-${k}`)}</span>);
+    last = re.lastIndex;
+  }
+  if (last < code.length) parts.push(code.slice(last));
+  return <code key={keyPrefix}>{parts}</code>;
+}
+
 const INLINE = /(`+)([^`]+?)\1|\$\$([^$\n]+?)\$\$|\$([^$\n]+?)\$|\*\*([^*]+?)\*\*|__([^_]+?)__|~~([^~]+?)~~|\*([^*\s][^*]*?)\*|!\[([^\]]*)\]\(([^)\s]+)\)|\[([^\]]+)\]\((<[^<>\r\n]+>|[^)\s]+)\)/g;
 type DocumentLink = (target: string) => void;
 export function inline(text: string, key = 'i', onDocument?: DocumentLink): ReactNode[] {
@@ -133,7 +151,7 @@ export function inline(text: string, key = 'i', onDocument?: DocumentLink): Reac
   while ((match = pattern.exec(text))) {
     if (match.index > last) nodes.push(text.slice(last, match.index));
     const id = `${key}-${count++}`;
-    if (match[2] !== undefined) nodes.push(<code key={id}>{match[2]}</code>);
+    if (match[2] !== undefined) nodes.push(renderInlineCode(match[2], id));
     else if (match[3] !== undefined) nodes.push(<span key={id} className="md-math md-math-display">{renderLatexNodes(match[3].trim(), id)}</span>);
     else if (match[4] !== undefined) {
       const inner = match[4];
