@@ -78,7 +78,7 @@ export function TarotStage({
           angleRef.current += velocityRef.current * dt;
           velocityRef.current *= Math.pow(0.08, dt);
           changed = true;
-        } else if (autoSpinRef.current && !hoveringRef.current) {
+        } else if (autoSpinRef.current) {
           // Gentle tarot orbit speed (~0.18 rad/sec ≈ 35s per full revolution)
           angleRef.current += 0.18 * dt;
           changed = true;
