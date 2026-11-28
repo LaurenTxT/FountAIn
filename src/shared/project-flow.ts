@@ -59,7 +59,7 @@ export interface MeetingResponse {messageId:string;disposition:'noted'|'answered
 export interface RoundReport {systemNotes?:import('./round-results').ReportSystemNote[];meetingResponses?:MeetingResponse[];replyNotes?:string[]}
 export interface Round extends FlowRecord, RoundSpec { planId:string; index:number; taskIds:string[]; predecessorRoundId?:string; baseVersion?:VersionRef; integrationId?:string; acceptanceId?:string; integrationFixCount:number; report?:RoundReport; status:'pending'|'executing'|'integrating'|'checking'|'awaiting_acceptance'|'accepted'|'changes_requested'|'blocked'; allowedActions?:AllowedAction[] }
 export interface Round {startedAt?:string;meetingReadIds?:string[];meetingHandledIds?:string[];meetingResponses?:MeetingResponse[];reportRunId?:string;reportedAt?:string}
-export interface ManualRedo {decisionId:string;memberId:string;previousMemberId:string;opinion:string;at:string;status:'pending'|'passed'|'failed'}
+export interface ManualRedo {decisionId:string;memberId:string;previousMemberId:string;opinion:string;at:string;status:'pending'|'passed'|'failed';sourceSubmissionId?:string}
 export interface Round {leadMemberId?:string;requiresPeerReview?:boolean;peerReviewerMemberId?:string;manualRedos?:ManualRedo[];manualAcceptance?:{decisionId:string;reason:string;ownerNote?:string;source?:'user-tested'};deferredUserCriteria?:string[]}
 export interface Round {userChangeRequests?:UserChangeRequest[]}
 export interface NextTaskAdjustment {taskId:string;goal?:string;inputs?:string[];completionCriteria?:CompletionCriterion[]}

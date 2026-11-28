@@ -6831,7 +6831,8 @@ export class ProjectFlowController {
   private async answerDecision(decision: Decision, p: Record<string, unknown>) {
     const flow = this.flow(decision.flowId),
       choice = text(p.choice);
-    if (!decision.options.includes(choice))
+    const handoffRepair = choice === "指定成员补充依据" && decision.kind === "unresolved-review" && Boolean(decision.taskId);
+    if (!decision.options.includes(choice) && !handoffRepair)
       throw new FlowError("INVALID_REQUEST", "请从当前决策选项中选择。");
     let selected: string[] = [];
     if (decision.additionId) {
@@ -7163,7 +7164,9 @@ export class ProjectFlowController {
         this.requireIdle(task.id);
         if (task.status !== "blocked" || task.planId !== flow.activePlanId)
           throw new FlowError("STALE_VERSION", "任务复核决策已经失效。");
-        if (choice === "退回补充依据") {
+        if (handoffRepair) {
+          this.manualTaskRedo(task, { ...p, opinion: text(p.opinion ?? "", true) || decision.reason }, decision.id, task.latestSubmissionId);
+        } else if (choice === "退回补充依据") {
           const redo: ManualRedo = {
             decisionId: decision.id,
             memberId: task.memberId,
@@ -7522,6 +7525,7 @@ export class ProjectFlowController {
     task: Task,
     p: Record<string, unknown>,
     decisionId: string,
+    sourceSubmissionId?: string,
   ) {
     const flow = this.flow(task.flowId);
     this.requireIdle(task.id);
@@ -7547,6 +7551,7 @@ export class ProjectFlowController {
         opinion: String(p.opinion ?? ""),
         at: at(),
         status: "pending",
+        ...(sourceSubmissionId ? { sourceSubmissionId } : {}),
       };
     this.update("flow_tasks", task, {
       memberId,

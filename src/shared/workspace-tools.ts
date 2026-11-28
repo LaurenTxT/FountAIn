@@ -169,6 +169,7 @@ export interface SelfHealDispatchResult {
   memberId: string;
   memberName: string;
   isSoftwareRepo: boolean;
+  sessionId?: string;
 }
 
 /** Format Orca-style inline diff annotations into a concise, actionable prompt for an agent. */

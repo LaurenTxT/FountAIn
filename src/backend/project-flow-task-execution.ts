@@ -138,6 +138,15 @@ export async function executeFlowTask(host: FlowTaskExecutionHost, initial: Task
       work.root,
       "task-base",
     );
+    const redo = task.manualRedos?.at(-1);
+    if (redo?.status === "pending" && redo.sourceSubmissionId) {
+      const submission = host.need<Submission>("flow_submissions", redo.sourceSubmissionId);
+      if (submission.taskId !== task.id)
+        throw new FlowError("STALE_VERSION", "待修复的提交不属于当前任务。");
+      const conflicts = await host.artifacts.merge(work.root, host.artifacts.get(submission.version.artifactId));
+      if (conflicts.length)
+        throw new FlowError("SCOPE_CONFLICT", "旧成果与当前任务基线冲突，无法安全接手。");
+    }
     session = host.session(
       flow.projectId,
       task.memberId,

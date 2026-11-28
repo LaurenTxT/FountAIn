@@ -41,6 +41,8 @@ const MAX_SCRIPT_OUTPUT = 60_000;
 export interface WorkspaceToolsHost {
   changed(): void;
   dataDirectory(): string;
+  registerRepairSource(directory: string): Project;
+  startSoftwareRepair(projectId: string, member: MemberProfile, prompt: string): Promise<string>;
   sendRoomMessage(roomId: RoomId, text: string, memberIds: string[]): Promise<unknown>;
   runIsolatedWritable(
     projectId: string,
@@ -762,6 +764,7 @@ export class WorkspaceToolsController {
     memberId?: string;
     errorSummary?: string;
     scope?: 'software' | 'project';
+    sourceDirectory?: string;
     runId?: string;
   }): Promise<SelfHealDispatchResult> {
     const allProjects = this.store.list<Project>('projects').filter((p) => !p.kind);
@@ -788,8 +791,16 @@ export class WorkspaceToolsController {
     }
 
     const isSoftwareRepo = params.scope === 'software' && Boolean(softwareRepo);
-    if (params.scope === 'software' && !softwareRepo)
-      throw new Error('请先在工作台添加 FountAIn 源码目录，再派发软件修复。');
+    if (params.scope === 'software' && !softwareRepo) {
+      if (!params.sourceDirectory) throw new Error('请先在工作台添加 FountAIn 源码目录，再派发软件修复。');
+      const directory = params.sourceDirectory;
+      const manifest = path.isAbsolute(directory)
+        ? await readFile(path.join(directory, 'package.json'), 'utf8').catch(() => '') : '';
+      if (!manifest || !existsSync(path.join(directory, 'src', 'backend', 'engine.ts')) ||
+        JSON.parse(manifest).name !== 'fountain')
+        throw new Error('请选择包含 package.json 和 src/backend/engine.ts 的 FountAIn 源码目录。');
+      softwareRepo = this.host.registerRepairSource(directory);
+    }
     const targetProject = (isSoftwareRepo ? softwareRepo : sourceProject) ?? softwareRepo ?? allProjects[0];
     if (!targetProject) throw new Error('请先在工作台添加项目（若需自修 FountAIn 软件本身，请添加 FountAIn 源码目录）。');
 
@@ -860,12 +871,15 @@ export class WorkspaceToolsController {
       '',
       isSoftwareRepo
         ? '请你直接在本仓库（FountAIn 源码）中定位根因并提出/实施最小改动修复，改完后必须跑完 `typecheck`、单元测试和 `build` 验证全绿，再向用户汇报改动与验证结果（由用户确认后重启生效）。'
-        : '请你直接排查上述报错原因，修复或补全缺失的核验依据，验证通过后简明汇报结果。',
+        : '请在会议室内诊断上述报错，说明需要在哪个任务里补做什么验证。只汇报有证据的结果。',
     ]
       .filter(Boolean)
       .join('\n');
 
-    await this.host.sendRoomMessage(targetRoomId, ticket, roster);
+    const sessionId = isSoftwareRepo
+      ? await this.host.startSoftwareRepair(targetProject.id, inferredMember, ticket)
+      : undefined;
+    if (!sessionId) await this.host.sendRoomMessage(targetRoomId, ticket, roster);
 
     return {
       targetProjectId: targetProject.id,
@@ -874,6 +888,7 @@ export class WorkspaceToolsController {
       memberId: inferredMember.id,
       memberName: inferredMember.name,
       isSoftwareRepo,
+      ...(sessionId ? { sessionId } : {}),
     };
   }
 }

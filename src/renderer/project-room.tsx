@@ -80,7 +80,7 @@ const allowed = (list: AllowedAction[] | undefined, name: string) => action(list
 /** A project's own meeting room: the shared chat (the same as 茶歇室, in this project's room) beside its board.
  *  Flow messages in the chat show as short cards; what needs the owner now sits in a dock above the composer, so
  *  clearing the chat never hides an action. Every change goes through the projectFlow methods with the target's revision. */
-export function ProjectRoom({ snapshot, project, invoke, onOpenSession,onRoundtable,reports=[],onOpenReport,onOpenAttention }: { snapshot: Snapshot; project: Project; invoke: Invoke; onOpenSession: (sessionId: string) => void;onRoundtable?:(source:Omit<RoundtableSource,'projectId'>|{topicId:string})=>void;reports?:ReportEntry[];onOpenReport?:(memberId:string)=>void; onOpenAttention:(item:AttentionItem)=>void }) {
+export function ProjectRoom({ snapshot, project, invoke, onOpenSession,onRoundtable,reports=[],onOpenReport,onOpenAttention }: { snapshot: Snapshot; project: Project; invoke: Invoke; onOpenSession: (sessionId: string, repair?: { targetProjectId: string; memberId: string }) => void;onRoundtable?:(source:Omit<RoundtableSource,'projectId'>|{topicId:string})=>void;reports?:ReportEntry[];onOpenReport?:(memberId:string)=>void; onOpenAttention:(item:AttentionItem)=>void }) {
   const team = useTeam();
   const [logTarget,setLogTarget]=useState<LogTarget|null>(null);
   const [document, setDocument] = useState<DocumentSelection>();
@@ -215,8 +215,21 @@ export function ProjectRoom({ snapshot, project, invoke, onOpenSession,onRoundta
     : mutate('projectFlow.task.reassign', { taskId: task.id, expectedRevision: task.revision, memberId }, '新成员已接手。流程暂停时请点「继续」。');
   async function dispatchRepair(memberId: string, scope: 'software' | 'project', errorSummary: string, op?: FlowOperation) {
     setBusy(true);
+    setError('');
+    const params = { projectId: project.id, memberId, runId: op?.correctionRunId ?? op?.runId, scope, errorSummary: plainFlowError(errorSummary) };
     try {
-      await invoke('project.selfHeal.dispatch', { projectId: project.id, memberId, runId: op?.correctionRunId ?? op?.runId, scope, errorSummary: plainFlowError(errorSummary) }, '已向所选成员发送排障工单。');
+      const send = (sourceDirectory?: string) => invoke<{ sessionId?: string; targetProjectId: string; memberId: string }>('project.selfHeal.dispatch', { ...params, sourceDirectory }, scope === 'project' ? '已发送诊断请求，请在会议聊天查看回复。' : '已启动软件修复会话。', { background: true });
+      let result;
+      try {
+        result = await send();
+      } catch (cause) {
+        if (scope !== 'software' || !(cause instanceof Error) || !cause.message.includes('请先在工作台添加 FountAIn 源码目录')) throw cause;
+        const directory = await invoke<string | null>('dialog.directory');
+        if (!directory) return false;
+        result = await send(directory);
+      }
+      setDockOpen(false);
+      if (result.sessionId) onOpenSession(result.sessionId, result);
       return true;
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
@@ -318,14 +331,14 @@ export function ProjectRoom({ snapshot, project, invoke, onOpenSession,onRoundta
           <GiveUp task={op.kind === 'task'} unknown={resultUnknown(op)} supplement={op.kind === 'supplement-delivery'} busy={busy} onContinue={op.kind!=='supplement-delivery'?evidence=>resolveAttempt(op,'continue',evidence):undefined} onConfirm={evidence => giveUp(op, evidence)} />
           {task && op.kind === 'task' && <FlowMemberPicker key={op.revision} members={replacementMembers(task)} busy={busy} actions={[{ label: '结束旧尝试并换人', run: memberId => reassign(task, memberId, op) }]} />}
           <FlowMemberPicker members={repairMembers} busy={busy} actions={[
-            { label: '排查并修复项目问题', run: memberId => dispatchRepair(memberId, 'project', op.error ?? '流程暂停需要排查', op) },
+            { label: '请成员诊断', run: memberId => dispatchRepair(memberId, 'project', op.error ?? '流程暂停需要排查', op) },
             { label: '排查并修复软件 Bug', run: memberId => dispatchRepair(memberId, 'software', op.error ?? 'FountAIn 运行异常', op) },
           ]} />
         </div>; })
           : <>
             {[...new Set([...flow!.blockedReasons, ...stuckTasks.map(task => task.blockedReason ?? `${task.title} 卡住了`)])].map(reason => <p key={reason}>{plainFlowError(reason)}</p>)}
             <FlowMemberPicker members={repairMembers} busy={busy} actions={[
-              { label: '排查并修复项目问题', run: memberId => dispatchRepair(memberId, 'project', flow!.blockedReasons[0] ?? stuckTasks[0]?.blockedReason ?? '流程暂停需要排查') },
+              { label: '请成员诊断', run: memberId => dispatchRepair(memberId, 'project', flow!.blockedReasons[0] ?? stuckTasks[0]?.blockedReason ?? '流程暂停需要排查') },
               { label: '排查并修复软件 Bug', run: memberId => dispatchRepair(memberId, 'software', flow!.blockedReasons[0] ?? stuckTasks[0]?.blockedReason ?? 'FountAIn 运行异常') },
             ]} />
           </>}
@@ -339,7 +352,15 @@ export function ProjectRoom({ snapshot, project, invoke, onOpenSession,onRoundta
       {live && openDecisions.map(decision => {
         const leadId = roundLead(flow!, currentRound);
         const leadName = team.get(leadId)?.name ?? '负责人';
-        return <div key={decision.id} data-flow-next="decision"><DecisionCard decision={decision} tasks={data.tasks} rounds={data.rounds} busy={busy} leadName={leadName} onAskLead={async (d) => {
+        const repairTask = decision.kind === 'unresolved-review' ? tasks.find(task => task.id === decision.taskId) : undefined;
+        return <div key={decision.id} data-flow-next="decision">{repairTask && <div className="meeting-card">
+          <strong>指定成员接手修复并补证据</strong>
+          <p>在上次提交的副本中修复，补齐实际核验记录后重新复核。</p>
+          <FlowMemberPicker members={replacementMembers(repairTask)} busy={busy} actions={[{
+            label: '接手修复并补证据',
+            run: memberId => mutate('projectFlow.decision.answer', { decisionId: decision.id, expectedRevision: decision.revision, choice: '指定成员补充依据', memberId }, '已换人补证据。流程暂停时请点「继续」。'),
+          }]} />
+        </div>}<DecisionCard decision={decision} tasks={data.tasks} rounds={data.rounds} busy={busy} leadName={leadName} onAskLead={async (d) => {
           const opts = d.options.join(' / ');
           const text = `@${leadName} 请用通俗大白话帮我解释一下「${d.title}」为什么卡住了，具体哪里出了问题，并建议我从这几个选项里选哪一个（${opts}）。`;
           await invoke('room.send', { roomId, text, memberIds: roster, mode: 'discuss', style: 'chat', maxMinutes: 0, handRaise: false, hostPick: false });

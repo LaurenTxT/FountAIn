@@ -50,7 +50,7 @@ import {
   requestedConfig,
   type RequestedRunConfig,
 } from "../shared/executor-config";
-import { applyCostModeToConfig, classifyCostTier } from "../shared/cost-mode";
+import { applyCostModeToConfig, isLargeEngineeringProject, classifyCostTier } from "../shared/cost-mode";
 import { createHash, randomUUID } from "node:crypto";
 import { existsSync, realpathSync, unlinkSync } from "node:fs";
 import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
@@ -834,6 +834,11 @@ export class Engine {
     this.workspaceTools = new WorkspaceToolsController(this.store, {
       changed: () => this.broadcast(),
       dataDirectory: () => this.store.dataDirectory,
+      registerRepairSource: directory => {
+        const project = this.projectTree.create(path.resolve(directory), { name: "FountAIn" });
+        this.broadcast();
+        return project;
+      },
       sendRoomMessage: async (roomId, text, memberIds) => {
         return this.invoke("room.send", {
           roomId,
@@ -845,6 +850,11 @@ export class Engine {
           handRaise: false,
           hostPick: false,
         });
+      },
+      startSoftwareRepair: async (projectId, member, prompt) => {
+        const session = this.createSession(projectId, member.executor, "FountAIn 软件排障", true, member.id);
+        await this.send(session.id, prompt + "\n在工作副本内修复并验证，保留差异供用户审核，不提交、不推送、不部署。", "message");
+        return session.id;
       },
       runIsolatedWritable: async (projectId, member, title, prompt) => {
         const session = this.createSession(projectId, member.executor, title, true, member.id);
@@ -3045,6 +3055,7 @@ export class Engine {
             memberId: params?.memberId ? String(params.memberId) : undefined,
             errorSummary: params?.errorSummary ? String(params.errorSummary) : undefined,
             scope: params?.scope === "software" ? "software" : "project",
+            sourceDirectory: typeof params?.sourceDirectory === "string" ? params.sourceDirectory : undefined,
             runId: params?.runId ? String(params.runId) : undefined,
           });
         default:
@@ -6945,20 +6956,27 @@ export class Engine {
       const latestUser = latestUserId ? this.store.get<RoomMessage>("room_messages", latestUserId) : undefined;
       userSignalText = latestUser?.text ?? "";
     }
+    const flow = session.flowId
+      ? this.store.get<import("../shared/project-flow").ProjectFlow>("project_flows", session.flowId)
+      : undefined;
+    const ownerInstructions = [
+      flow && !flow.sourceJointReviewId && !flow.sourceRoundtable ? flow.topic : undefined,
+      ...(flow?.discussionContext?.messages.filter(message =>
+        this.store.get<RoomMessage>("room_messages", message.id)?.author === "user",
+      ).map(message => message.text) ?? []),
+    ].filter(Boolean).join("\n");
     const routing = classifyCostTier({
       purpose: session.purpose,
       flowId: session.flowId,
       isCasualRoom,
       isMeeting,
-      promptText: userSignalText,
+      promptText: member.executor === "claude" && session.flowId ? ownerInstructions : userSignalText,
       isRetry,
+      largeEngineering: isLargeEngineeringProject(ownerInstructions),
     });
     const frozen =
       session.flowId &&
-      (this.store.get<import("../shared/project-flow").ProjectFlow>(
-        "project_flows",
-        session.flowId,
-      )?.memberConfigs?.[member.id] ??
+      (flow?.memberConfigs?.[member.id] ??
         this.store.get<import("../shared/joint-review").JointReview>(
           "flow_joint_reviews",
           session.flowId,

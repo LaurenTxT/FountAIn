@@ -7,7 +7,7 @@ import { extractMaterialTerms } from '../src/backend/project-materials';
 import { initializeStudyRoom } from '../src/backend/study-room';
 import { workspaceProfileInstructions } from '../src/backend/workspace-profile';
 import { parseDiscussionReply } from '../src/shared/discussion';
-import { applyCostModeToConfig, classifyCostTier, resolveEconomyModel } from '../src/shared/cost-mode';
+import { applyCostModeToConfig, classifyCostTier, isLargeEngineeringProject, resolveEconomyModel } from '../src/shared/cost-mode';
 import { roomNaturalMentions } from '../src/shared/room';
 import { productionPackages } from '../scripts/runtime-dependencies.mjs';
 import type { Project } from '../src/shared/types';
@@ -169,7 +169,11 @@ test('costMode downgrades models in casual rooms and keeps full power for projec
   assert.equal(engCodex.model, 'gpt-6.2-sol');
 
   const review = applyCostModeToConfig(base, { executor: 'claude', costMode: 'economy' }, classifyCostTier({ purpose: 'flow-review', flowId: 'f1', isCasualRoom: false }));
-  assert.equal(review.model, 'fable');
+  assert.equal(review.model, 'opus');
+  const largeEngineering = isLargeEngineeringProject('项目规模：大型工程');
+  assert.equal(isLargeEngineeringProject('这个作业不算大工程'), false);
+  const large = applyCostModeToConfig(base, { executor: 'claude', costMode: 'economy' }, classifyCostTier({ purpose: 'flow-review', isCasualRoom: false, largeEngineering }));
+  assert.equal(large.model, 'fable');
   assert.equal(review.effort, 'low');
 
   const retry = applyCostModeToConfig(base, { executor: 'claude', costMode: 'economy' }, classifyCostTier({ purpose: 'flow-task', flowId: 'f1', isCasualRoom: false, isRetry: true }));

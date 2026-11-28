@@ -6,6 +6,7 @@ export type CostTier = 'casual' | 'meeting' | 'engineering' | 'review' | 'keywor
 export interface CostRoutingContext {
   tier: CostTier;
   escalated?: boolean;
+  largeEngineering?: boolean;
   userText?: string;
 }
 
@@ -25,6 +26,10 @@ export function promptRequestsDeepReview(text?: string): boolean {
   return false;
 }
 
+export function isLargeEngineeringProject(text?: string): boolean {
+  return /^\s*项目规模[：:]\s*(?:大工程|大型工程)\s*[。.]?\s*$/m.test(text ?? '');
+}
+
 export function classifyCostTier(options: {
   purpose?: Session['purpose'];
   flowId?: string;
@@ -32,11 +37,12 @@ export function classifyCostTier(options: {
   isMeeting?: boolean;
   promptText?: string;
   isRetry?: boolean;
+  largeEngineering?: boolean;
 }): CostRoutingContext {
   const userText = options.promptText;
   if (options.isRetry) return { tier: 'review', escalated: true, userText };
   if (options.purpose === 'flow-review' || options.purpose === 'flow-integration' || options.purpose === 'flow-plan') {
-    return { tier: 'review', userText };
+    return { tier: 'review', userText, largeEngineering: options.largeEngineering };
   }
   if (options.purpose === 'flow-task') {
     return { tier: 'engineering', userText };
@@ -210,14 +216,14 @@ function resolveLightModel(executor: string, raw: string, lower: string, customE
  * - casual:       Claude Sonnet | Gemini 4 Neon   | GPT-6.2-Sol   | DeepSeek-Flash
  * - keyword_bump: Claude Opus   | Gemini 4 Neon   | GPT-6.2-Sol   | DeepSeek-Flash
  * - engineering:  Claude Opus   | Gemini 4 Neon   | GPT-6.2-Sol   | DeepSeek-Flash
- * - review:       Claude Fable  | Gemini 4 Carbon | GPT-6.2-Sol   | DeepSeek-V4-Pro
+ * - review:       Claude Opus (Fable for marked large engineering projects)  | Gemini 4 Carbon | GPT-6.2-Sol   | DeepSeek-V4-Pro
  * - escalated:    Claude Opus   | Gemini 4 Carbon (Medium) | GPT-6.2-Astra | DeepSeek-V4-Pro
  */
 export function resolveTierModel(
   executor: string,
   tier: CostTier,
   currentModel?: string,
-  overrides?: { economyModel?: string; engineeringModel?: string; escalated?: boolean },
+  overrides?: { economyModel?: string; engineeringModel?: string; escalated?: boolean; largeEngineering?: boolean },
 ): string | undefined {
   const raw = (currentModel ?? '').trim();
   const lower = raw.toLowerCase();
@@ -251,7 +257,7 @@ export function resolveTierModel(
 
   // review / architecture / inspiration (or escalated retry)
   if (executor === 'claude' || lower.includes('claude') || lower.includes('fable') || lower.includes('sonnet') || lower.includes('opus')) {
-    return overrides?.escalated ? 'opus' : 'fable';
+    return overrides?.largeEngineering && !overrides.escalated ? 'fable' : 'opus';
   }
   if (executor === 'codex') {
     if (overrides?.escalated) return raw && lower.includes('astra') ? raw : 'gpt-6.2-astra';
@@ -329,6 +335,7 @@ export function applyCostModeToConfig(
     economyModel: member.economyModel,
     engineeringModel: member.engineeringModel,
     escalated: ctx.escalated,
+    largeEngineering: ctx.largeEngineering,
   }) ?? config.model;
 
   // Default to 'low' everywhere; automatically step up to 'medium' only when escalating a retry/correction,
