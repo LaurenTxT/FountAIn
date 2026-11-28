@@ -230,7 +230,7 @@ export function CardEditor({ snapshot, memberId, invoke, notify, onBack, onCance
             <small>茶歇室与普通会议默认走此轻量档（effort 自动 low）；说「捉虫 / 架构 / 用 opus」会自动临时升档。</small>
           </label>
           <label className="field">工程主力模型（可选）
-            <input value={draft.engineeringModel ?? ''} maxLength={120} placeholder="留空自动：Claude Fable / Carbon / Astra / v4-pro" onChange={event => set({ engineeringModel: event.target.value })} />
+            <input value={draft.engineeringModel ?? ''} maxLength={120} placeholder="留空时按任务自动选择模型" onChange={event => set({ engineeringModel: event.target.value })} />
             <small>项目编码任务默认走工程主力档（effort low），遇到失败返工或代码复核时自动升档到旗舰捉虫。</small>
           </label>
         </>}
