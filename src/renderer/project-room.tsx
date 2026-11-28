@@ -208,6 +208,8 @@ export function ProjectRoom({ snapshot, project, invoke, onOpenSession,onRoundta
   /** The plan is drafted from this room's discussion, which the backend brings along; it says so when there is none yet. */
   async function start(leadMemberId: string, memberIds: string[], topic?: string) {
     const trimmed = topic?.trim();
+    const mergedOrder = [...memberIds, ...roster.filter(id => !memberIds.includes(id))];
+    if (JSON.stringify(mergedOrder) !== JSON.stringify(roster)) changeRoster(mergedOrder);
     const ok = await mutate('projectFlow.start', { projectId: project.id, leadMemberId, memberIds, reviewLevel: newReviewLevel, includePreviousRecord, ...(trimmed ? { topic: trimmed } : {}) }, '已请负责人根据讨论起草方案，你确认后才开工。');
     if (ok) { setStarting(false); setPicking(false); setError(''); }
   }
@@ -271,7 +273,7 @@ export function ProjectRoom({ snapshot, project, invoke, onOpenSession,onRoundta
             <span className="kickoff-mode-pill active"><Hand size={13} />快速立项（单人起草方案）</span>
             <button type="button" className="kickoff-mode-pill sdd" onClick={() => { setPicking(false); setSddOpen(true); }}><GitCompareArrows size={13} />改用 SDD 双盲规范立项（宪法 → Spec → 双盲对照）</button>
           </div>
-          <LeadPicker team={people} initialLead={project.meetingLeaderId} ready={ready} busy={busy} onCancel={() => setPicking(false)} onStart={start} />
+          <LeadPicker team={people} initialLead={project.meetingLeaderId} ready={ready} busy={busy} onOrderChange={changeRoster} onCancel={() => setPicking(false)} onStart={start} />
         </div>
       : <div className="dock-row"><Sparkles size={15} /><p>{flow && !live ? '上一段工作已经结束。' : ''}讨论清楚后点击右侧<strong>「立项 / 起草方案」</strong>（支持快速立项或 SDD 双盲规范）；<strong>你确认方案后才开工</strong>。</p>{briefLeader&&<button type="button" className="button small primary" disabled={busy} onClick={() => void resumeFromBrief()}><Sparkles size={13} />请 {briefLeader.name} 接续门牌当前阶段</button>}</div>)
     : <>
@@ -436,8 +438,25 @@ export function ProjectRoom({ snapshot, project, invoke, onOpenSession,onRoundta
       {memberPopoverId && (() => {
         const target = people.find(m => m.id === memberPopoverId);
         if (!target) return null;
+        const idx = roster.indexOf(target.id);
+        const moveToFirst = () => {
+          if (idx <= 0) return;
+          changeRoster([target.id, ...roster.filter(id => id !== target.id)]);
+        };
+        const shift = (delta: -1 | 1) => {
+          const nextIdx = idx + delta;
+          if (idx < 0 || nextIdx < 0 || nextIdx >= roster.length) return;
+          const next = [...roster];
+          [next[idx], next[nextIdx]] = [next[nextIdx], next[idx]];
+          changeRoster(next);
+        };
         return <div className="side-member-quickbar" role="group" aria-label={`${target.name} 快捷操作`}>
-          <span className="side-member-quickbar-name">{target.name}</span>
+          <span className="side-member-quickbar-name">{target.name}{idx >= 0 ? ` · #${idx + 1}` : ''}</span>
+          {idx > 0 && <button type="button" className="button small quiet" title="排到本房间开会第 1 位发言" onClick={moveToFirst}>设为首发</button>}
+          {roster.length > 1 && <>
+            <button type="button" className="button small quiet" disabled={idx <= 0} title="发言顺位提前一位" onClick={() => shift(-1)}>←</button>
+            <button type="button" className="button small quiet" disabled={idx < 0 || idx >= roster.length - 1} title="发言顺位靠后一位" onClick={() => shift(1)}>→</button>
+          </>}
           <button type="button" className="button small quiet" onClick={() => { setMemberPopoverId(null); void invoke<{ terminalId?: string }>('project.terminal.launchMember', { projectId: project.id, roomId, memberId: target.id, inheritContext: false }).then(res => { if (res?.terminalId) { setFocusTerminalId(res.terminalId); setBoardView('terminal'); } }).catch(e => setError((e as Error).message)); }}><Terminal size={11} />新开终端</button>
           <button type="button" className="button small secondary" onClick={() => { setMemberPopoverId(null); void invoke<{ terminalId?: string }>('project.terminal.launchMember', { projectId: project.id, roomId, memberId: target.id, inheritContext: true }).then(res => { if (res?.terminalId) { setFocusTerminalId(res.terminalId); setBoardView('terminal'); } }).catch(e => setError((e as Error).message)); }}><History size={11} />继承聊天开终端</button>
           {onOpenReport && <button type="button" className="button small quiet" onClick={() => { setMemberPopoverId(null); onOpenReport(target.id); }}>看汇报</button>}
@@ -788,15 +807,45 @@ function MemberLine({ id, label, children }: { id: string; label?: ReactNode; ch
 /** Sent as the plan topic when resuming a task workspace task; the backend also hands the planner ROOM_BRIEF and HANDOFF. */
 const RESUME_TOPIC = '接续本房间 ROOM_BRIEF.md 记录的当前阶段与下一棒：已验收的阶段不重做；先核对 HANDOFF.md 最新交接与实际文件，再只为剩余阶段起草方案。门牌中标明由用户本人完成的部分（如学术诚信要求亲手完成的代码与报告正文）只能安排核对、说明或复核，不得代写。'
 
-function LeadPicker({ team, initialLead, ready, busy, onStart, onCancel }: { team: TeamMember[]; initialLead?:string; ready: (member: TeamMember) => boolean; busy: boolean; onStart: (lead: string, members: string[], topic?: string) => Promise<void>; onCancel: () => void }) {
-  const available = team.filter(ready), [lead, setLead] = useState(initialLead??''), [note, setNote] = useState(''), leader = available.find(member => member.id === lead);
-  return <section className="lead-picker" aria-label="选负责人">
-    <strong>谁来当负责人？</strong><small>负责人根据刚才的讨论起草方案、整合每轮成果。参加的成员在聊天栏上方调整；负责人自己做的任务由另一位复核。</small>
-    <div className="lead-picker-members">{team.map(member => {
+function LeadPicker({ team, initialLead, ready, busy, onOrderChange, onStart, onCancel }: { team: TeamMember[]; initialLead?:string; ready: (member: TeamMember) => boolean; busy: boolean; onOrderChange?: (ids: string[]) => void; onStart: (lead: string, members: string[], topic?: string) => Promise<void>; onCancel: () => void }) {
+  const [order, setOrder] = useState<string[]>(() => team.map(m => m.id));
+  useEffect(() => {
+    const incoming = team.map(m => m.id);
+    setOrder(prev => {
+      const kept = prev.filter(id => incoming.includes(id));
+      const added = incoming.filter(id => !kept.includes(id));
+      return [...kept, ...added];
+    });
+  }, [team.map(m => m.id).join(',')]);
+  const orderedTeam = order.map(id => team.find(m => m.id === id)).filter((m): m is TeamMember => Boolean(m));
+  const available = orderedTeam.filter(ready), [lead, setLead] = useState(initialLead??''), [note, setNote] = useState(''), leader = available.find(member => member.id === lead);
+  const pickLead = (id: string) => {
+    setLead(id);
+    // Put selected Leader at position #1 by default; user can still adjust speaking order with ← / →.
+    const next = [id, ...order.filter(item => item !== id)];
+    setOrder(next);
+    onOrderChange?.(next);
+  };
+  const shiftOrder = (index: number, delta: -1 | 1) => {
+    const target = index + delta;
+    if (target < 0 || target >= order.length) return;
+    const next = [...order];
+    [next[index], next[target]] = [next[target], next[index]];
+    setOrder(next);
+    onOrderChange?.(next);
+  };
+  return <section className="lead-picker" aria-label="选负责人与发言顺位">
+    <strong>谁来当负责人？</strong><small>点头像选负责人（默认排第 1 位发言），也可用下方 ← / → 自由调整本项目开会顺位；负责人自己做的任务由另一位复核。</small>
+    <div className="lead-picker-members">{orderedTeam.map((member, index) => {
       const ok = ready(member);
       return <div key={member.id} className={`lead-option member-${member.id} on ${lead === member.id ? 'lead' : ''} ${ok ? '' : 'unready'}`}>
-        <button type="button" className="lead-option-face" aria-label={`${member.name} 当负责人`} aria-pressed={lead === member.id} disabled={!ok || busy} title={ok ? '' : `${member.product} 还没准备好`} onClick={() => setLead(member.id)}><Avatar member={member} size={42} />{lead === member.id && <span className="lead-badge">负责人</span>}</button>
+        <button type="button" className="lead-option-face" aria-label={`${member.name} 当负责人`} aria-pressed={lead === member.id} disabled={!ok || busy} title={ok ? '' : `${member.product} 还没准备好`} onClick={() => pickLead(member.id)}><Avatar member={member} size={42} />{lead === member.id && <span className="lead-badge">负责人</span>}</button>
         <span>{member.name}</span>
+        <div className="lead-order-bar" aria-label={`${member.name} 发言顺位第 ${index + 1} 位`}>
+          <button type="button" className="lead-order-btn" disabled={busy || index === 0} title="提前一位发言" onClick={() => shiftOrder(index, -1)}>←</button>
+          <span className="lead-order-num">#{index + 1}</span>
+          <button type="button" className="lead-order-btn" disabled={busy || index === orderedTeam.length - 1} title="靠后一位发言" onClick={() => shiftOrder(index, 1)}>→</button>
+        </div>
       </div>;
     })}</div>
     <div className="round-actions"><button type="button" className="button primary" disabled={busy || available.length < 2 || !leader} onClick={() => void onStart(lead, available.map(member => member.id), note)}>{busy ? <LoaderCircle size={14} className="spin" /> : <Send size={14} />}{leader ? `请 ${leader.name} 起草方案` : '先选一位负责人'}</button><button type="button" className="button quiet" disabled={busy} onClick={onCancel}>再聊聊</button></div>
