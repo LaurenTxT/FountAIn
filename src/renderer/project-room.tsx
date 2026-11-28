@@ -609,6 +609,33 @@ export function ProjectRoom({ snapshot, project, invoke, onOpenSession,onRoundta
     </div>
   </div>;
   const canStartPlanning = people.filter(ready).length >= 2;
+  async function sendWorkRequest(memberId: string, goal: string, mode: 'add' | 'supplement') {
+    if (!flow || flow.status !== 'active') {
+      setError('先确认方案后再安排或补充任务。');
+      return false;
+    }
+    if (mode === 'add') {
+      setAddition({ memberId, goal });
+      return true;
+    }
+    const workingTask = tasks.find(task => task.memberId === memberId && ['running', 'correcting'].includes(task.status));
+    if (!workingTask && currentRound?.status === 'checking') {
+      const roundRun = activeFlowRuns.find(item => item.memberId === memberId &&
+        snapshot.sessions.some(session => session.id === snapshot.runs.find(run => run.id === item.id)?.sessionId &&
+          session.flowId === flow.id && session.purpose === 'flow-integration'));
+      if (roundRun) return mutate('projectFlow.round.addNote', {
+        roundId: currentRound.id, runId: roundRun.id, memberId, note: goal,
+      }, '已记入本轮，下一次检查或汇报会读取这条要求。');
+    }
+    const task = workingTask ?? tasks.find(item => item.memberId === memberId &&
+      ['pending', 'ready', 'queued', 'awaiting_review'].includes(item.status));
+    if (!task) {
+      setError('该成员当前没有可补充的任务或整轮检查。');
+      return false;
+    }
+    setAddition({ memberId, goal, task });
+    return true;
+  }
   function openPlanning() {
     if (fresh && !picking) setPicking(true);
     revealStep('[data-flow-next="kickoff"]');
@@ -684,7 +711,7 @@ export function ProjectRoom({ snapshot, project, invoke, onOpenSession,onRoundta
     {snapshot.workLogFailures?.filter(r=>r.projectId===project.id).map(r=><p key={r.roundId} className="task-meta bad" role="status">成果已经验收，工作日志保存失败。<button className="link-button" onClick={()=>setLogTarget({kind:'round',id:r.roundId})}>查看日志并重试</button></p>)}
     {!data ? <div className="project-room-loading"><LoaderCircle size={16} className="spin" />正在打开会议室…</div> : <div className={`project-room-grid ${boardOpen||activeDocument?'panel-resizable':'board-collapsed'}`} style={panelWidth.style}>
       <RoomView snapshot={snapshot} invoke={invoke} roomId={roomId} focus={roomFocus} onDocument={target => setDocument({projectId: project.id, target})} onOpenSession={(_, sessionId) => setLogTarget({kind:'session',id:sessionId})}
-        project={{ roster, onRoster: changeRoster, renderFlow, dock, onTaskRequest:async(memberId,goal,mode)=>{if(!flow||flow.status!=='active'){setError('先确认方案后再安排或补充任务。');return false;}const task=mode==='supplement'?(tasks.find(t=>t.memberId===memberId&&['running','correcting'].includes(t.status))??tasks.find(t=>t.memberId===memberId&&['pending','ready','queued','awaiting_review'].includes(t.status))):undefined;if(mode==='supplement'&&!task){setError('该成员暂无可补充任务，请安排新任务。');return false;}setAddition({memberId,goal,...(task?{task}:{})});return true;}, onConfigureMember:memberId=>{setConfig({memberId,value:project.memberConfigs?.[memberId]??{},revision:project.memberConfigRevision??0});setConfigError('');},
+        project={{ roster, onRoster: changeRoster, renderFlow, dock, onTaskRequest:sendWorkRequest, onConfigureMember:memberId=>{setConfig({memberId,value:project.memberConfigs?.[memberId]??{},revision:project.memberConfigRevision??0});setConfigError('');},
           flowNextStep: Boolean(dock && ((fresh && !picking) || nextStep)),
           empty: <div className="room-empty project-room-empty"><div className="room-empty-team">{people.map(member => <Avatar key={member.id} member={member} size={48} />)}</div><h2>这次想一起做什么？</h2><p>先在这里说说目标、范围和要求，大家会一起讨论。讨论清楚后，在输入框上方选负责人起草方案。</p></div> }} />
       {(boardOpen||activeDocument)&&panelWidth.separator}

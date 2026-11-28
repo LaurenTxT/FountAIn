@@ -2691,6 +2691,34 @@ export class ProjectFlowController {
       };
     }
     if (method === "projectFlow.task.supplement") return this.supplementTask(p);
+    if (method === "projectFlow.round.addNote") {
+      const round = this.need<Round>("flow_rounds", String(p.roundId));
+      const flow = this.flow(round.flowId);
+      const run = this.need<Run>("runs", String(p.runId));
+      const session = this.need<Session>("sessions", run.sessionId);
+      const op = this.need<FlowOperation>("flow_operations", run.flowOperationId ?? "");
+      const member = this.store.members().find(item => item.id === session.memberId);
+      const integration = round.integrationId ? this.store.get<Integration>("flow_integrations", round.integrationId) : undefined;
+      if (!member || member.id !== p.memberId || op.flowId !== flow.id ||
+        flow.status !== "active" || round.planId !== flow.activePlanId ||
+        !["checking", "blocked", "awaiting_acceptance"].includes(round.status) ||
+        !integration || op.targetId !== integration.id ||
+        !["integration-check", "peer-review", "round-report"].includes(op.kind))
+        throw new FlowError("STALE_VERSION", "本轮检查已变化，请核对当前进展后再补充。");
+      const note = text(p.note);
+      const roomId = flow.roomId as RoomId;
+      const thread = this.store.currentRoomThread(roomId);
+      const id = randomUUID();
+      this.store.transaction(() => {
+        this.store.put("room_messages", id, {
+          id, roomId, threadId: thread.id, author: "user", authorName: this.store.profile().name,
+          text: `【本轮检查补充 · ${member.name}】\n${note}`, at: at(), status: "done", localOwnerInput: true,
+        } satisfies RoomMessage);
+        if (round.status === "awaiting_acceptance")
+          this.update("flow_rounds", round, { status: "checking" });
+      });
+      return { requestId: p.requestId, entityId: id, revision: round.revision, pending: false };
+    }
     if (method === "projectFlow.round.requestCheck") {
       const round = this.need<Round>("flow_rounds", String(p.roundId));
       this.check(round, p);
