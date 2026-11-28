@@ -833,6 +833,19 @@ export class Engine {
     });
     this.workspaceTools = new WorkspaceToolsController(this.store, {
       changed: () => this.broadcast(),
+      dataDirectory: () => this.store.dataDirectory,
+      sendRoomMessage: async (roomId, text, memberIds) => {
+        return this.invoke("room.send", {
+          roomId,
+          text,
+          memberIds,
+          mode: "discuss",
+          style: "work",
+          maxMinutes: 0,
+          handRaise: false,
+          hostPick: false,
+        });
+      },
       runIsolatedWritable: async (projectId, member, title, prompt) => {
         const session = this.createSession(projectId, member.executor, title, true, member.id);
         const sent = (await this.send(session.id, prompt, "message")) as { runId: string };
@@ -2905,7 +2918,8 @@ export class Engine {
       method.startsWith("project.scripts.") ||
       method.startsWith("project.checkpoints.") ||
       method.startsWith("project.fanout.") ||
-      method.startsWith("project.terminal.")
+      method.startsWith("project.terminal.") ||
+      method.startsWith("project.selfHeal.")
     ) {
       const readMethods = new Set([
         "project.git.status",
@@ -3024,6 +3038,14 @@ export class Engine {
             external: Boolean(params?.external),
             cols: params?.cols !== undefined ? Number(params.cols) : undefined,
             rows: params?.rows !== undefined ? Number(params.rows) : undefined,
+          });
+        case "project.selfHeal.dispatch":
+          return this.workspaceTools.dispatchSelfHeal({
+            projectId: params?.projectId ? String(params.projectId) : undefined,
+            memberId: params?.memberId ? String(params.memberId) : undefined,
+            errorSummary: params?.errorSummary ? String(params.errorSummary) : undefined,
+            scope: params?.scope === "software" ? "software" : "project",
+            runId: params?.runId ? String(params.runId) : undefined,
           });
         default:
           throw new Error("不支持的工作区工具请求。");

@@ -29,6 +29,7 @@ export const WORKSPACE_TOOLS_WRITES = [
   'project.terminal.interrupt',
   'project.terminal.close',
   'project.terminal.launchMember',
+  'project.selfHeal.dispatch',
 ] as const;
 
 export const WORKSPACE_TOOLS_METHODS = [
@@ -159,6 +160,15 @@ export interface MemberTerminalLaunchResult {
   handoffFile?: string;
   mode: 'windows-terminal' | 'native-console' | 'in-app';
   terminalId?: string;
+}
+
+export interface SelfHealDispatchResult {
+  targetProjectId: string;
+  targetProjectName: string;
+  targetRoomId: string;
+  memberId: string;
+  memberName: string;
+  isSoftwareRepo: boolean;
 }
 
 /** Format Orca-style inline diff annotations into a concise, actionable prompt for an agent. */

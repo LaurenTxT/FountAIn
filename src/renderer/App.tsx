@@ -18,7 +18,7 @@ import {
   Activity, CalendarClock, AlertCircle, CheckCircle2, ChevronDown, ChevronRight,
   Folder, FolderOpen, Globe2, Plus, RefreshCw, Settings2, StopCircle, Users, X,
   MoreHorizontal, Trash2, GitMerge, Pencil, MessagesSquare, IdCard, Laptop, Search,
-  GitBranch, GitCompareArrows, Terminal, History, Sun, Moon, PanelRightClose, Sparkles,
+  GitBranch, GitCompareArrows, Terminal, History, Sun, Moon, PanelRightClose, Sparkles, Wrench,
 } from 'lucide-react';
 import { BUILTIN_MEMBERS, DEFAULT_PROFILE, DEFAULT_SETTINGS, rememberExecutors } from '../shared/defaults';
 import type { Project, ProviderId, Session, Settings, Snapshot } from '../shared/types';
@@ -532,6 +532,15 @@ export default function App() {
           { id: 'proj-checkpoint', title: '创建安全检查点 (Checkpoint)', subtitle: 'T3 风格隐式 Git 快照，不污染提交历史', keywords: 'checkpoint snapshot save 快照 检查点 回滚', icon: <History size={15} />, run: () => window.dispatchEvent(new CustomEvent('fountain:cmd', { detail: 'create-checkpoint' })) },
           { id: 'proj-board', title: '展开 / 收起右侧工作区', subtitle: '扩大聊天区域或呼出右侧面板', keywords: 'panel sidebar board 看板 右侧栏', shortcut: 'Ctrl+B', icon: <PanelRightClose size={15} />, run: () => window.dispatchEvent(new CustomEvent('fountain:cmd', { detail: 'toggle-board' })) },
         ] : []),
+        { id: 'self-heal-software', title: '软件自修：把最近报错交给成员修复 FountAIn', subtitle: '自动收集最近失败运行与报错日志，按“谁出问题谁负责”派发到 FountAIn 源码项目', keywords: 'selfheal bug fix repair 自修 报错 修复 软件 排障', icon: <Wrench size={15} />, run: () => {
+          void invoke<{ targetProjectId: string; targetProjectName: string; memberName: string; isSoftwareRepo: boolean }>('project.selfHeal.dispatch', { projectId: project?.id, scope: 'software' })
+            .then(res => {
+              notify(`已将软件自修工单派发给 ${res.memberName}（${res.targetProjectName}）。`);
+              setProjectId(res.targetProjectId);
+              setView('project');
+            })
+            .catch(err => notify(errorText(err), true));
+        } },
         { id: 'new-project', title: '新建项目', subtitle: '关联本地代码目录或课程任务房', keywords: 'create project folder 新建 项目', icon: <Plus size={15} />, run: () => setModal('project') },
         { id: 'open-automation', title: '自动功能与定时任务', subtitle: '管理定时巡检与自动运行任务', keywords: 'automation schedule cron 定时 自动', icon: <CalendarClock size={15} />, run: () => setAutomationOpen(true) },
         { id: 'open-quota', title: '查看用量与额度', subtitle: '检查各模型账号余额与配额状态', keywords: 'quota billing usage 额度 用量', icon: <Activity size={15} />, run: () => setQuotaOpen(true) },

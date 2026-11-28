@@ -241,6 +241,7 @@ export class ProjectFlowController {
   private jobs = new Set<Promise<void>>();
   private pumping = false;
   private repump = false;
+  private peerSelfHealUsed = new Set<string>();
   private closed = false;
   private requests = new Map<string, Promise<unknown>>();
   private busyTargets = new Set<string>();
@@ -5631,13 +5632,23 @@ export class ProjectFlowController {
         deferredUserCriteria: [...new Set([...integration.deferredUserCriteria ?? [], ...assessment.deferredUserCriteria])],
       });
       if (assessment.outcome === "inconclusive") {
+        const reasonText = assessment.reasons.join("；") || "需要进一步验证。";
+        const healKey = `${round.id}:${saved.id}`;
+        const canSelfHeal =
+          !this.peerSelfHealUsed.has(healKey) &&
+          /命令缺少实际完成记录|复核缺少验证依据|未能核实|旧问题核对缺少依据/.test(reasonText);
+        if (canSelfHeal) {
+          this.peerSelfHealUsed.add(healKey);
+          this.host.changed();
+          await this.peerReviewRound(round, saved, tasks);
+          return;
+        }
         this.update("flow_integrations", saved, { status: "blocked" });
         this.update("flow_rounds", round, { status: "blocked" });
         this.reviewDecision(
           flow,
           saved,
-          "整轮他人复核无法下结论：" +
-            (assessment.reasons.join("；") || "需要进一步验证。"),
+          "整轮他人复核无法下结论：" + reasonText,
           true,
         );
         return;

@@ -1,5 +1,5 @@
 import {joinClauses,plainFlowError,readableContent} from '../shared/content-presentation';
-import { GitBranch, GitCompareArrows, History, LayoutList, Terminal } from 'lucide-react';
+import { GitBranch, GitCompareArrows, History, LayoutList, Terminal, Wrench } from 'lucide-react';
 import { WorkspaceCodePanel } from './workspace-code-panel';
 import { WorkspaceTerminalPanel } from './workspace-terminal-panel';
 import { FanoutModal } from './fanout-modal';
@@ -287,7 +287,45 @@ export function ProjectRoom({ snapshot, project, invoke, onOpenSession,onRoundta
           <p><strong>{OPERATION_KIND[op.kind] ?? op.kind}{task ? `：${task.title}` : ''}</strong>　{plainFlowError(op.error)}</p>
           <GiveUp task={op.kind === 'task'} unknown={resultUnknown(op)} supplement={op.kind === 'supplement-delivery'} busy={busy} onContinue={op.kind!=='supplement-delivery'?evidence=>resolveAttempt(op,'continue',evidence):undefined} onConfirm={evidence => giveUp(op, evidence)} /></div>; })
           : [...new Set([...flow!.blockedReasons, ...stuckTasks.map(task => task.blockedReason ?? `${task.title} 卡住了`)])].map(reason => <p key={reason}>{plainFlowError(reason)}</p>)}
-        <small>{blocked.length ? '结果未知的运行不会自动重发。处理完卡住的尝试后，点右上角的“继续”。' : '无法下结论请使用下方决策卡，任务成果保留；尚未开始就失败的任务可点“继续”重试。'}</small></div></div>}
+        <small>{blocked.length ? '结果未知的运行不会自动重发。处理完卡住的尝试后，点右上角的“继续”。' : '无法下结论请使用下方决策卡，任务成果保留；尚未开始就失败的任务可点“继续”重试。'}</small>
+        <div className="meeting-alert-actions" style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 8 }}>
+          <button
+            type="button"
+            className="button small"
+            disabled={busy}
+            onClick={() => {
+              const firstBlocked = blocked[0];
+              const firstStuck = stuckTasks[0];
+              const errSummary = firstBlocked?.error ?? flow!.blockedReasons[0] ?? firstStuck?.blockedReason ?? '流程暂停需要排查';
+              const offenderId = data.tasks.find(t => t.id === firstBlocked?.targetId)?.memberId ?? firstStuck?.memberId;
+              void invoke('project.selfHeal.dispatch', {
+                projectId: project.id,
+                memberId: offenderId,
+                runId: firstBlocked?.runId,
+                errorSummary: plainFlowError(errSummary),
+                scope: 'project',
+              }).then(() => { setDockOpen(false); }).catch(e => setError(e instanceof Error ? e.message : String(e)));
+            }}
+          ><Wrench size={13} />让当事成员自修</button>
+          <button
+            type="button"
+            className="button small quiet"
+            disabled={busy}
+            onClick={() => {
+              const firstBlocked = blocked[0];
+              const firstStuck = stuckTasks[0];
+              const errSummary = firstBlocked?.error ?? flow!.blockedReasons[0] ?? firstStuck?.blockedReason ?? 'FountAIn 运行异常';
+              const offenderId = data.tasks.find(t => t.id === firstBlocked?.targetId)?.memberId ?? firstStuck?.memberId;
+              void invoke('project.selfHeal.dispatch', {
+                projectId: project.id,
+                memberId: offenderId,
+                runId: firstBlocked?.runId,
+                errorSummary: plainFlowError(errSummary),
+                scope: 'software',
+              }).then(() => { setDockOpen(false); }).catch(e => setError(e instanceof Error ? e.message : String(e)));
+            }}
+          ><Wrench size={13} />交给成员修软件 Bug</button>
+        </div></div></div>}
       {live && (data.quotaWaits ?? []).map(wait => <div key={wait.id} className="dock-row"><LoaderCircle size={15} className="spin" /><p>等待 <MemberName id={wait.memberId} /> 额度恢复 · {QUOTA_STAGE_LABELS[wait.stage]} · 从 {time(wait.startedAt)} 开始；满 10 分钟会请你决定继续等还是换人。</p></div>)}
       {live && openDecisions.map(decision => {
         const leadId = roundLead(flow!, currentRound);

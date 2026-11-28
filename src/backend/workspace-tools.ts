@@ -2,7 +2,7 @@ import { execFile, spawn } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { cp, mkdir, readdir, readFile, stat, unlink, writeFile } from 'node:fs/promises';
 import path from 'node:path';
-import type { MemberProfile, Project } from '../shared/types';
+import type { MemberProfile, Project, RoomId, Run } from '../shared/types';
 import {
   type FanoutCandidate,
   type FanoutState,
@@ -14,6 +14,7 @@ import {
   type ProjectScriptItem,
   type ProjectScriptRunResult,
   type ProjectTreeEntry,
+  type SelfHealDispatchResult,
 } from '../shared/workspace-tools';
 import { resolveSafePath } from './security';
 import type { Store } from './store';
@@ -39,6 +40,8 @@ const MAX_SCRIPT_OUTPUT = 60_000;
 
 export interface WorkspaceToolsHost {
   changed(): void;
+  dataDirectory(): string;
+  sendRoomMessage(roomId: RoomId, text: string, memberIds: string[]): Promise<unknown>;
   runIsolatedWritable(
     projectId: string,
     member: MemberProfile,
@@ -751,5 +754,122 @@ export class WorkspaceToolsController {
     const abs = resolveSafePath(project.directory, relPath);
     await mkdir(path.dirname(abs), { recursive: true });
     await writeFile(abs, content, 'utf8');
+  }
+
+  /** Collect latest error logs & dispatch a self-repair ticket directly to the offending member ("谁出的问题谁负责"). */
+  async dispatchSelfHeal(params: {
+    projectId?: string;
+    memberId?: string;
+    errorSummary?: string;
+    scope?: 'software' | 'project';
+    runId?: string;
+  }): Promise<SelfHealDispatchResult> {
+    const allProjects = this.store.list<Project>('projects').filter((p) => !p.kind);
+    const sourceProject = params.projectId
+      ? allProjects.find((p) => p.id === params.projectId)
+      : undefined;
+
+    // Detect FountAIn source repo among registered projects when scope === 'software'
+    let softwareRepo: Project | undefined;
+    for (const p of allProjects) {
+      const pkgPath = path.join(p.directory, 'package.json');
+      const enginePath = path.join(p.directory, 'src', 'backend', 'engine.ts');
+      if (existsSync(pkgPath) && existsSync(enginePath)) {
+        try {
+          const pkg = JSON.parse(await readFile(pkgPath, 'utf8')) as { name?: string };
+          if (pkg.name === 'fountain') {
+            softwareRepo = p;
+            break;
+          }
+        } catch {
+          // Ignore malformed package.json
+        }
+      }
+    }
+
+    const isSoftwareRepo = params.scope === 'software' && Boolean(softwareRepo);
+    const targetProject = (isSoftwareRepo ? softwareRepo : sourceProject) ?? softwareRepo ?? allProjects[0];
+    if (!targetProject) throw new Error('请先在工作台添加项目（若需自修 FountAIn 软件本身，请添加 FountAIn 源码目录）。');
+
+    // Collect recent failed runs & log errors
+    const recentFailedRuns = this.store
+      .list<Run>('runs')
+      .filter((r) => ['failed', 'unknown'].includes(r.status) || Boolean(r.error))
+      .sort((a, b) => String(b.updatedAt ?? b.createdAt ?? '').localeCompare(String(a.updatedAt ?? a.createdAt ?? '')))
+      .slice(0, 4);
+    const matchedRun =
+      (params.runId ? recentFailedRuns.find((r) => r.id === params.runId) : undefined) ??
+      recentFailedRuns[0];
+
+    // Determine offending member ("谁出的问题谁负责")
+    const members = this.store.members().filter((m) => !m.cardHidden);
+    const inferredMember =
+      (params.memberId ? members.find((m) => m.id === params.memberId) : undefined) ??
+      (matchedRun?.provider ? members.find((m) => m.executor === matchedRun.provider) : undefined) ??
+      (targetProject.meetingLeaderId ? members.find((m) => m.id === targetProject.meetingLeaderId) : undefined) ??
+      members.find((m) => m.id === 'codex') ??
+      members[0];
+    if (!inferredMember) throw new Error('找不到可指派的成员。');
+
+    // Read today's log file tail for concrete error context
+    let logTail = '';
+    try {
+      const today = new Date().toISOString().slice(0, 10);
+      const logFile = path.join(this.host.dataDirectory(), 'logs', `${today}.jsonl`);
+      if (existsSync(logFile)) {
+        const raw = await readFile(logFile, 'utf8');
+        const errLines = raw
+          .split(/\r?\n/)
+          .filter((line) => line.includes('"kind":"error"') || (params.runId && line.includes(params.runId)))
+          .slice(-6)
+          .map((line) => {
+            try {
+              const obj = JSON.parse(line) as { at?: string; provider?: string; text?: string };
+              return `[${obj.at ?? ''}] (${obj.provider ?? ''}) ${String(obj.text ?? '').slice(0, 300)}`;
+            } catch {
+              return line.slice(0, 300);
+            }
+          });
+        if (errLines.length) logTail = errLines.join('\n');
+      }
+    } catch {
+      // Optional diagnostic context
+    }
+
+    const summary =
+      params.errorSummary?.trim() ||
+      matchedRun?.error ||
+      '软件运行中出现异常，请定位根因并修复。';
+
+    const targetRoomId = `project:${targetProject.id}` as RoomId;
+    const roster = targetProject.memberIds?.length
+      ? [...new Set([...targetProject.memberIds, inferredMember.id])]
+      : members.map((m) => m.id);
+
+    const ticket = [
+      `@${inferredMember.name} 【谁出问题谁负责 · 自动排障自修工单】`,
+      '',
+      `- **来源项目**：${sourceProject?.name ?? targetProject.name}`,
+      `- **问题摘要**：${summary}`,
+      matchedRun ? `- **关联运行**：\`${matchedRun.id}\`（状态：${matchedRun.status}）` : '',
+      logTail ? `\n**最近报错日志**：\n\`\`\`\n${logTail}\n\`\`\`` : '',
+      '',
+      isSoftwareRepo
+        ? '请你直接在本仓库（FountAIn 源码）中定位根因并提出/实施最小改动修复，改完后必须跑完 `typecheck`、单元测试和 `build` 验证全绿，再向用户汇报改动与验证结果（由用户确认后重启生效）。'
+        : '请你直接排查上述报错原因，修复或补全缺失的核验依据，验证通过后简明汇报结果。',
+    ]
+      .filter(Boolean)
+      .join('\n');
+
+    await this.host.sendRoomMessage(targetRoomId, ticket, roster);
+
+    return {
+      targetProjectId: targetProject.id,
+      targetProjectName: targetProject.name,
+      targetRoomId,
+      memberId: inferredMember.id,
+      memberName: inferredMember.name,
+      isSoftwareRepo,
+    };
   }
 }
