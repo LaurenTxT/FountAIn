@@ -120,6 +120,33 @@ function summarizedPythonStart(evidence: Evidence, events: TimelineEvent[]) {
   return matches.length === 1 ? matches : [];
 }
 
+/** Match a multi-line command abbreviated with "..." or "…" when all literal fragments appear in order. */
+function summarizedEllipsisStart(evidence: Evidence, events: TimelineEvent[]) {
+  const reported = evidence.command && normalizedCommandBody(evidence.command);
+  if (!reported || !/(?:\.\.\.|…)/.test(reported)) return [];
+  const parts = reported.split(/\s*(?:\.\.\.|…)\s*/).map(p => p.trim()).filter(Boolean);
+  if (parts.length < 2) return [];
+  const totalChars = parts.reduce((sum, p) => sum + p.replace(/\s+/g, '').length, 0);
+  if (totalChars < 12) return [];
+  const matches = events.filter(event => {
+    const native = eventCommand(event);
+    if (!native) return false;
+    const body = normalizedCommandBody(native);
+    let cursor = 0;
+    for (const part of parts) {
+      const idx = body.indexOf(part, cursor);
+      if (idx === -1) return false;
+      cursor = idx + part.length;
+    }
+    return true;
+  });
+  const referenced = matches.filter(start => events.some(end =>
+    completes(start, end) && (evidence.eventIds.includes(start.id) || evidence.eventIds.includes(end.id)),
+  ));
+  if (referenced.length) return referenced;
+  return matches.length === 1 ? matches : [];
+}
+
 /** Command completion and the member's exit-code claim are independent observations. */
 export function bindFlowEvidence(evidence:Evidence[],allEvents:TimelineEvent[],runIds:string[]):Evidence[]{
   const events=allEvents.filter(e=>runIds.includes(e.runId)&&e.fidelity==='native'&&['tool','output'].includes(e.kind));
@@ -130,8 +157,11 @@ export function bindFlowEvidence(evidence:Evidence[],allEvents:TimelineEvent[],r
     const exactStarts=events.filter(event=>{const native=eventCommand(event);return typeof native==='string'&&command!==undefined&&commandForMatching(native)===command;});
     const normalizedStarts=exactStarts.length?exactStarts:events.filter(event=>{const native=eventCommand(event);return typeof native==='string'&&norm!==undefined&&norm.length>0&&normalizedCommandBody(native)===norm;});
     const heredocStarts = normalizedStarts.length ? [] : summarizedHeredocStart(e, events);
+    const pythonStarts = normalizedStarts.length || heredocStarts.length ? [] : summarizedPythonStart(e, events);
     const starts = normalizedStarts.length ? normalizedStarts
-      : heredocStarts.length ? heredocStarts : summarizedPythonStart(e, events);
+      : heredocStarts.length ? heredocStarts
+      : pythonStarts.length ? pythonStarts
+      : summarizedEllipsisStart(e, events);
     const completed=events.filter(end=>starts.some(start=>completes(start,end)));
     // Prefer a recorded matching invocation; otherwise keep a completion whose code is unavailable.
     const matching=e.exitCode===undefined?completed:completed.filter(event=>exitCode(event)===e.exitCode&&!(e.exitCode===0&&failed(event)));
