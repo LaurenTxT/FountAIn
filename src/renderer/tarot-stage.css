@@ -1,7 +1,7 @@
 .tarot-stage {
   position: relative;
   width: 100%;
-  max-width: 1040px;
+  max-width: min(1560px, 96%);
   margin: 4px auto 0;
   padding: 12px 0 8px;
   display: flex;
@@ -15,8 +15,8 @@
   position: absolute;
   left: 50%;
   top: 46%;
-  width: min(560px, 84%);
-  height: 300px;
+  width: min(780px, 86%);
+  height: 320px;
   transform: translate(-50%, -50%);
   border-radius: 999px;
   background: radial-gradient(

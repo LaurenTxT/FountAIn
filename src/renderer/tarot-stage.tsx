@@ -151,7 +151,7 @@ export function TarotStage({
     draggingRef.current = null;
   };
 
-  const radiusX = count === 1 ? 0 : Math.min(350, Math.max(175, stageWidth * 0.34));
+  const radiusX = count === 1 ? 0 : Math.min(560, Math.max(200, stageWidth * 0.39));
   const frontMember = members[frontIndex];
 
   return (
