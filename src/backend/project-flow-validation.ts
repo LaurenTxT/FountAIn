@@ -111,15 +111,6 @@ export class FlowValidation {
       responses = report.meetingResponses ?? [],
       expected = meeting.pendingUserMessages.map((message) => message.id);
     if (
-      new Set(report.completedTaskKeys).size !== tasks.length ||
-      report.completedTaskKeys.some((key) => !tasks.some((t) => t.key === key))
-    )
-      throw new FlowError(
-        "INVALID_PROTOCOL",
-        "completedTaskKeys 必须逐项填写本轮实际任务 key：" +
-          tasks.map((t) => t.key).join("、"),
-      );
-    if (
       responses.length !== expected.length ||
       new Set(responses.map((response) => response.messageId)).size !==
         responses.length ||

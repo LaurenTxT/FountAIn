@@ -163,11 +163,14 @@ export function validateReview(raw:unknown,requiredCriteria:string[],previous:Re
 }
 export function validateReport(raw:unknown,taskKeys:string[]=[]):RoundReport {const p=object(normalizeFlowPayload(raw,'round-report'),FLOW_CONTRACTS['round-report'].allowed,[]),replyNotes:string[]=[];
   const summary=submissionSummary(p,replyNotes);
-  if(p.completedTaskKeys==null)replyNotes.push('未单独列出任务编号，已按本轮实际任务记录关联。');
+  if (!Array.isArray(p.completedTaskKeys) ||
+    new Set(p.completedTaskKeys).size !== taskKeys.length ||
+    p.completedTaskKeys.some(key => !taskKeys.includes(key)))
+    replyNotes.push('汇报中的任务编号已按本轮任务记录关联。');
   if(p.deliverables==null)replyNotes.push('未单独列出交付物，请查看本轮实际文件改动。');
   let meetingResponses:MeetingResponse[]|undefined;
   if(p.meetingResponses!==undefined){if(!Array.isArray(p.meetingResponses)||p.meetingResponses.length>200)return fail('会议要求处理列表无效。');meetingResponses=p.meetingResponses.map(raw=>{const item=object(raw,['messageId','disposition','summary','paths']);if(!['noted','answered','in-scope-fix','scope-change','needs-user'].includes(String(item.disposition)))return fail('会议要求处理方式无效。');return {messageId:text(item.messageId),disposition:item.disposition as MeetingResponse['disposition'],summary:text(item.summary),paths:texts(item.paths??[],true).map(scopePath)};});}
-  return {summary,completedTaskKeys:texts(p.completedTaskKeys??taskKeys,true),deliverables:texts(p.deliverables??[],true),validationSummary:absent(p.validationSummary)?'成员未单独提供验证说明，请以本轮实际复核记录为准。':text(p.validationSummary),remainingIssues:texts(p.remainingIssues??[],true),nextRoundSummary:text(p.nextRoundSummary??'',true),userDecisionNeeded:text(p.userDecisionNeeded??'',true),...(replyNotes.length?{replyNotes}:{}),...(meetingResponses?{meetingResponses}:{})};}
+  return {summary,completedTaskKeys:[...taskKeys],deliverables:texts(p.deliverables??[],true),validationSummary:absent(p.validationSummary)?'成员未单独提供验证说明，请以本轮实际复核记录为准。':text(p.validationSummary),remainingIssues:texts(p.remainingIssues??[],true),nextRoundSummary:text(p.nextRoundSummary??'',true),userDecisionNeeded:text(p.userDecisionNeeded??'',true),...(replyNotes.length?{replyNotes}:{}),...(meetingResponses?{meetingResponses}:{})};}
 export function validateNextRound(raw:unknown,tasks:Task[],userName=''):NextRoundRecommendation {
   const p={...payloadObject(raw,'next-round')};p.taskAdjustments??=[];
   if(!['as-planned','adjusted','replan'].includes(String(p.mode))||!Array.isArray(p.taskAdjustments)||p.taskAdjustments.length>FLOW_LIMITS.tasks)return fail('下一轮建议结构无效。');

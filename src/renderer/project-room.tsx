@@ -354,6 +354,10 @@ export function ProjectRoom({ snapshot, project, invoke, onOpenSession,onRoundta
             : undefined;
           const round = integration && rounds.find(item => item.id === integration.roundId && item.integrationId === integration.id);
           const run = snapshot.runs.find(item => item.id === (op.correctionRunId ?? op.runId));
+          const reusableReport = (op.kind === 'integration-check' || op.kind === 'round-report') &&
+            /^completedTaskKeys 必须逐项填写|^汇报的已完成任务必须与本轮实际任务一致/.test(op.error ?? '') &&
+            (run?.status === 'ended' || run?.status === 'completed') &&
+            (run.delivery === 'sent' || run.delivery === 'confirmed');
           const previousMember = snapshot.sessions.find(session => session.id === run?.sessionId)?.memberId ??
             (op.kind === "peer-review" ? round?.peerReviewerMemberId : roundLead(flow!, round));
           const candidates = round ? repairMembers.filter(member =>
@@ -361,6 +365,9 @@ export function ProjectRoom({ snapshot, project, invoke, onOpenSession,onRoundta
             (op.kind !== "peer-review" || member.id !== roundLead(flow!, round))) : [];
           return <div key={op.id} className="meeting-alert-item">
           <p><strong>{OPERATION_KIND[op.kind] ?? op.kind}{task ? `：${task.title}` : ''}</strong>　{plainFlowError(op.error)}</p>
+          {reusableReport && <button type="button" className="button small primary" disabled={busy} onClick={() => void mutate('projectFlow.unknown.resolve', {
+            operationId: op.id, expectedRevision: op.revision, choice: 'reconcile', evidence: '使用当前轮任务编号重新核对已保存的回复。',
+          }, flow!.dispatchMode === 'running' ? '正在核对已保存的回复。' : '已标记复用回复，点击「继续」后核对。')}>复用已保存回复</button>}
           <GiveUp task={op.kind === 'task'} unknown={resultUnknown(op)} supplement={op.kind === 'supplement-delivery'} busy={busy} onContinue={op.kind!=='supplement-delivery'?evidence=>resolveAttempt(op,'continue',evidence):undefined} onConfirm={evidence => giveUp(op, evidence)} />
           {task && <button type="button" className="link-button" onClick={() => setLogTarget({kind:'task',id:task.id})}>查看任务日志</button>}
           {task && op.kind === 'task' && <FlowMemberPicker key={op.revision} members={replacementMembers(task)} busy={busy} actions={[{ label: '结束旧尝试并换人', run: memberId => reassign(task, memberId, op) }]} />}

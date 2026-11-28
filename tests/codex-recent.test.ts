@@ -7,6 +7,7 @@ import { extractMaterialTerms } from '../src/backend/project-materials';
 import { initializeStudyRoom } from '../src/backend/study-room';
 import { workspaceProfileInstructions } from '../src/backend/workspace-profile';
 import { parseDiscussionReply } from '../src/shared/discussion';
+import { validateReport } from '../src/shared/project-flow-protocol';
 import { applyCostModeToConfig, classifyCostTier, isLargeEngineeringProject, resolveEconomyModel } from '../src/shared/cost-mode';
 import { roomNaturalMentions } from '../src/shared/room';
 import { productionPackages } from '../scripts/runtime-dependencies.mjs';
@@ -262,4 +263,13 @@ test('natural language model switching overrides tier routing cleanly', () => {
 
   const transitionClaude = applyCostModeToConfig(base, { executor: 'claude', costMode: 'economy' }, classifyCostTier({ isCasualRoom: true, promptText: '之前用 opus，这次换 fable 核实' }));
   assert.equal(transitionClaude.model, 'fable');
+});
+
+
+test('round report task keys come from the workflow including generated fixes', () => {
+  const taskKeys = ['t1', 't2', 'integration-fix-1'];
+  const report = validateReport({ summary: 'Checks finished', completedTaskKeys: ['t1', 't2', 'unknown'] }, taskKeys);
+  assert.deepEqual(report.completedTaskKeys, taskKeys);
+  assert.equal(report.summary, 'Checks finished');
+  assert.ok(report.replyNotes?.some(note => note.includes('任务编号')));
 });

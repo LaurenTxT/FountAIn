@@ -5865,16 +5865,6 @@ export class ProjectFlowController {
           "STALE_VERSION",
           "汇报期间整合成果变化，不能提交验收。",
         );
-      if (
-        new Set(report.payload.completedTaskKeys).size !== tasks.length ||
-        report.payload.completedTaskKeys.some(
-          (key) => !tasks.some((t) => t.key === key),
-        )
-      )
-        throw new FlowError(
-          "INVALID_PROTOCOL",
-          "汇报的已完成任务必须与本轮实际任务一致。",
-        );
       const responses = report.payload.meetingResponses ?? [],
         fixes = responses.filter(
           (response) => response.disposition === "in-scope-fix",
