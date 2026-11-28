@@ -147,6 +147,31 @@ function summarizedEllipsisStart(evidence: Evidence, events: TimelineEvent[]) {
   return matches.length === 1 ? matches : [];
 }
 
+/** When a reviewer writes a Chinese prose summary in `command` instead of literal argv, bind to actual completed commands in this run. */
+function proseCommandFallback(evidence: Evidence, events: TimelineEvent[]) {
+  const reported = typeof evidence.command === 'string' ? evidence.command.trim() : '';
+  if (!reported || !/[\u4e00-\u9fff]{4,}/.test(reported) || /<<|\b[\w./\\-]+\.py\b/i.test(reported)) return [];
+  const commandStarts = events.filter(event => {
+    const native = eventCommand(event);
+    return typeof native === 'string' && events.some(end => completes(event, end) && !failed(end));
+  });
+  if (!commandStarts.length) return [];
+  const referenced = commandStarts.filter(start =>
+    events.some(end => completes(start, end) && (evidence.eventIds.includes(start.id) || evidence.eventIds.includes(end.id))),
+  );
+  if (referenced.length) return referenced;
+  const lower = reported.toLowerCase();
+  const toolMatch = commandStarts.filter(start => {
+    const native = (eventCommand(start) ?? '').toLowerCase();
+    if (lower.includes('python') && /\bpython(?:3|\.exe)?\b/.test(native)) return true;
+    if (lower.includes('node') && /\bnode(?:\.exe)?\b/.test(native)) return true;
+    if (lower.includes('git') && /\bgit(?:\.exe)?\b/.test(native)) return true;
+    if (lower.includes('pytest') && /\bpytest\b/.test(native)) return true;
+    return false;
+  });
+  return toolMatch.length ? toolMatch : commandStarts;
+}
+
 /** Command completion and the member's exit-code claim are independent observations. */
 export function bindFlowEvidence(evidence:Evidence[],allEvents:TimelineEvent[],runIds:string[]):Evidence[]{
   const events=allEvents.filter(e=>runIds.includes(e.runId)&&e.fidelity==='native'&&['tool','output'].includes(e.kind));
@@ -158,10 +183,12 @@ export function bindFlowEvidence(evidence:Evidence[],allEvents:TimelineEvent[],r
     const normalizedStarts=exactStarts.length?exactStarts:events.filter(event=>{const native=eventCommand(event);return typeof native==='string'&&norm!==undefined&&norm.length>0&&normalizedCommandBody(native)===norm;});
     const heredocStarts = normalizedStarts.length ? [] : summarizedHeredocStart(e, events);
     const pythonStarts = normalizedStarts.length || heredocStarts.length ? [] : summarizedPythonStart(e, events);
+    const ellipsisStarts = normalizedStarts.length || heredocStarts.length || pythonStarts.length ? [] : summarizedEllipsisStart(e, events);
     const starts = normalizedStarts.length ? normalizedStarts
       : heredocStarts.length ? heredocStarts
       : pythonStarts.length ? pythonStarts
-      : summarizedEllipsisStart(e, events);
+      : ellipsisStarts.length ? ellipsisStarts
+      : proseCommandFallback(e, events);
     const completed=events.filter(end=>starts.some(start=>completes(start,end)));
     // Prefer a recorded matching invocation; otherwise keep a completion whose code is unavailable.
     const matching=e.exitCode===undefined?completed:completed.filter(event=>exitCode(event)===e.exitCode&&!(e.exitCode===0&&failed(event)));
