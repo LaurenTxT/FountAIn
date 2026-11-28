@@ -172,6 +172,29 @@ function proseCommandFallback(evidence: Evidence, events: TimelineEvent[]) {
   return toolMatch.length ? toolMatch : commandStarts;
 }
 
+/** Match a truncated command prefix (>= 24 chars) or explicitly referenced completed command event. */
+function prefixOrReferencedCommandStart(evidence: Evidence, events: TimelineEvent[]) {
+  const norm = typeof evidence.command === 'string' ? normalizedCommandBody(evidence.command) : '';
+  if (!norm) return [];
+  const commandStarts = events.filter(event => {
+    const native = eventCommand(event);
+    return typeof native === 'string' && events.some(end => completes(event, end));
+  });
+  if (!commandStarts.length) return [];
+  const referenced = commandStarts.filter(start =>
+    events.some(end => completes(start, end) && (evidence.eventIds.includes(start.id) || evidence.eventIds.includes(end.id))),
+  );
+  if (referenced.length === 1) return referenced;
+  if (norm.length >= 24 && !/<<|\b[\w./\\-]+\.py\b/i.test(norm)) {
+    const prefixMatches = commandStarts.filter(start => {
+      const body = normalizedCommandBody(eventCommand(start) ?? '');
+      return body.startsWith(norm) || norm.startsWith(body) && body.length >= 24;
+    });
+    if (prefixMatches.length === 1) return prefixMatches;
+  }
+  return [];
+}
+
 /** Command completion and the member's exit-code claim are independent observations. */
 export function bindFlowEvidence(evidence:Evidence[],allEvents:TimelineEvent[],runIds:string[]):Evidence[]{
   const events=allEvents.filter(e=>runIds.includes(e.runId)&&e.fidelity==='native'&&['tool','output'].includes(e.kind));
@@ -184,11 +207,13 @@ export function bindFlowEvidence(evidence:Evidence[],allEvents:TimelineEvent[],r
     const heredocStarts = normalizedStarts.length ? [] : summarizedHeredocStart(e, events);
     const pythonStarts = normalizedStarts.length || heredocStarts.length ? [] : summarizedPythonStart(e, events);
     const ellipsisStarts = normalizedStarts.length || heredocStarts.length || pythonStarts.length ? [] : summarizedEllipsisStart(e, events);
+    const proseStarts = normalizedStarts.length || heredocStarts.length || pythonStarts.length || ellipsisStarts.length ? [] : proseCommandFallback(e, events);
     const starts = normalizedStarts.length ? normalizedStarts
       : heredocStarts.length ? heredocStarts
       : pythonStarts.length ? pythonStarts
       : ellipsisStarts.length ? ellipsisStarts
-      : proseCommandFallback(e, events);
+      : proseStarts.length ? proseStarts
+      : prefixOrReferencedCommandStart(e, events);
     const completed=events.filter(end=>starts.some(start=>completes(start,end)));
     // Prefer a recorded matching invocation; otherwise keep a completion whose code is unavailable.
     const matching=e.exitCode===undefined?completed:completed.filter(event=>exitCode(event)===e.exitCode&&!(e.exitCode===0&&failed(event)));
