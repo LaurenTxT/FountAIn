@@ -65,6 +65,13 @@ function commandForMatching(command:string):string {
   }
   return command;
 }
+function normalizedCommandBody(command:string):string {
+  return commandForMatching(command)
+    .trim()
+    .replace(/^(?:cd|set-location)\s+(?:\/d\s+)?(?:"[^"]*"|'[^']*'|[^\s;&]+)\s*(?:&&|;)\s*/i, '')
+    .replace(/\\/g, '/')
+    .replace(/\s+/g, ' ');
+}
 
 /** Command completion and the member's exit-code claim are independent observations. */
 export function bindFlowEvidence(evidence:Evidence[],allEvents:TimelineEvent[],runIds:string[]):Evidence[]{
@@ -72,7 +79,10 @@ export function bindFlowEvidence(evidence:Evidence[],allEvents:TimelineEvent[],r
   return evidence.map(e=>{
     if(e.kind!=='command'&&!e.commandKindInferred)return {...e,eventIds:e.eventIds.filter(id=>events.some(event=>event.id===id)),source:e.eventIds.some(id=>events.some(event=>event.id===id))?'observed':'reported'};
     const command=typeof e.command==='string'?commandForMatching(e.command):undefined;
-    const starts=events.filter(event=>{const native=eventCommand(event);return typeof native==='string'&&command!==undefined&&commandForMatching(native)===command;}),completed=events.filter(end=>starts.some(start=>completes(start,end)));
+    const norm=typeof e.command==='string'?normalizedCommandBody(e.command):undefined;
+    const exactStarts=events.filter(event=>{const native=eventCommand(event);return typeof native==='string'&&command!==undefined&&commandForMatching(native)===command;});
+    const starts=exactStarts.length?exactStarts:events.filter(event=>{const native=eventCommand(event);return typeof native==='string'&&norm!==undefined&&norm.length>0&&normalizedCommandBody(native)===norm;});
+    const completed=events.filter(end=>starts.some(start=>completes(start,end)));
     // Prefer a recorded matching invocation; otherwise keep a completion whose code is unavailable.
     const matching=e.exitCode===undefined?completed:completed.filter(event=>exitCode(event)===e.exitCode&&!(e.exitCode===0&&failed(event)));
     const unknown=completed.filter(event=>exitCode(event)===undefined&&!(e.exitCode===0&&failed(event)));
