@@ -347,11 +347,30 @@ export function ProjectRoom({ snapshot, project, invoke, onOpenSession,onRoundta
       {revisingPlan && <div className="dock-row"><LoaderCircle size={15} className="spin" /><p><strong><MemberName id={flow!.leadMemberId} /> 正在按你的意见修改方案…</strong>（完成后会自动更新为新版方案）</p></div>}
       {live && plan && (plan.status === 'awaiting_confirmation') && <div data-flow-next="plan"><PlanCard plan={plan} invoke={invoke} lead={flow!.leadMemberId} rounds={rounds} busy={busy || revisingPlan} defaultLevel={reviewLevel(flow!)} onRoundLevel={(round,level)=>mutate('projectFlow.review.configure',{flowId:flow!.id,expectedRevision:flow!.revision,roundId:round.id,reviewLevel:level},'本轮复核程度已调整。')} onConfirm={(choices,peerChoices,levels,studyContinuation,waitForFirstRoundStart) => mutate('projectFlow.plan.confirm', { planId: plan.id, expectedRevision: plan.revision, requiresUserAcceptanceByRound: choices,requiresPeerReviewByRound:peerChoices,reviewLevelByRound:levels,studyContinuation,waitForFirstRoundStart }, waitForFirstRoundStart ? '方案已确认，等待你启动第一轮。' : '方案已确认，开始派发任务。')} onRevise={instruction => mutate('projectFlow.plan.revise', { planId: plan.id, expectedRevision: plan.revision, instruction }, '已请负责人按你的意见改方案。')} /></div>}
       {live && (blocked.length > 0 || flow!.blockedReasons.length > 0 || stuckTasks.length > 0) && <div data-flow-next="blocked" className="meeting-alert" role="alert"><AlertTriangle size={15} /><div><strong>流程暂停了，需要你先看一下</strong>
-        {blocked.length ? blocked.map(op => { const task = data.tasks.find(item => item.id === op.targetId); return <div key={op.id} className="meeting-alert-item">
+        {blocked.length ? blocked.map(op => {
+          const task = data.tasks.find(item => item.id === op.targetId);
+          const integration = ["integration-check", "peer-review", "round-report"].includes(op.kind)
+            ? data.integrations.find(item => item.id === op.targetId)
+            : undefined;
+          const round = integration && rounds.find(item => item.id === integration.roundId && item.integrationId === integration.id);
+          const run = snapshot.runs.find(item => item.id === (op.correctionRunId ?? op.runId));
+          const previousMember = snapshot.sessions.find(session => session.id === run?.sessionId)?.memberId ??
+            (op.kind === "peer-review" ? round?.peerReviewerMemberId : roundLead(flow!, round));
+          const candidates = round ? repairMembers.filter(member =>
+            flow!.memberIds.includes(member.id) && member.id !== previousMember &&
+            (op.kind !== "peer-review" || member.id !== roundLead(flow!, round))) : [];
+          return <div key={op.id} className="meeting-alert-item">
           <p><strong>{OPERATION_KIND[op.kind] ?? op.kind}{task ? `：${task.title}` : ''}</strong>　{plainFlowError(op.error)}</p>
           <GiveUp task={op.kind === 'task'} unknown={resultUnknown(op)} supplement={op.kind === 'supplement-delivery'} busy={busy} onContinue={op.kind!=='supplement-delivery'?evidence=>resolveAttempt(op,'continue',evidence):undefined} onConfirm={evidence => giveUp(op, evidence)} />
           {task && <button type="button" className="link-button" onClick={() => setLogTarget({kind:'task',id:task.id})}>查看任务日志</button>}
           {task && op.kind === 'task' && <FlowMemberPicker key={op.revision} members={replacementMembers(task)} busy={busy} actions={[{ label: '结束旧尝试并换人', run: memberId => reassign(task, memberId, op) }]} />}
+          {round && <FlowMemberPicker key={op.revision} members={candidates} busy={busy} actions={[{
+            label: `换人接手${OPERATION_KIND[op.kind]}`,
+            run: memberId => mutate('projectFlow.unknown.resolve', {
+              operationId: op.id, expectedRevision: op.revision, expectedRoundRevision: round.revision,
+              choice: 'abandon', memberId, evidence: '用户确认结束旧尝试，沿用当前整合版本换人接手。',
+            }, flow!.dispatchMode === 'running' ? '已换人接手，沿用当前整合成果。' : '已换人接手。点击「继续」后，从当前整合成果推进。'),
+          }]} />}
           <FlowMemberPicker members={repairMembers} busy={busy} actions={[
             { label: '排查并修复软件 Bug', run: memberId => dispatchSoftwareRepair(memberId, op.error ?? 'FountAIn 运行异常', op) },
           ]} />
@@ -362,7 +381,7 @@ export function ProjectRoom({ snapshot, project, invoke, onOpenSession,onRoundta
               { label: '排查并修复软件 Bug', run: memberId => dispatchSoftwareRepair(memberId, flow!.blockedReasons[0] ?? stuckTasks[0]?.blockedReason ?? 'FountAIn 运行异常') },
             ]} />
           </>}
-        <small>{blocked.length ? '旧运行须先确认已结束。换人会保留历史记录，新成员从本轮起点接手；流程暂停时请点「继续」。' : '流程暂停时请在处理后点「继续」。'}</small>
+        <small>{blocked.length ? '旧运行须先确认已结束。换人会保留历史记录，整合检查换人会沿用当前已整合成果；流程暂停时请点「继续」。' : '流程暂停时请在处理后点「继续」。'}</small>
         </div></div>}
       {live && waitingTasks.map(task => <div key={task.id} className="meeting-alert-item" data-flow-next="replacement">
         <p><MemberName id={task.memberId} /> 暂时无法处理「{task.title}」</p>

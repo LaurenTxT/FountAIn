@@ -2961,9 +2961,33 @@ export class ProjectFlowController {
           "旧运行尚未确认停止；请先处理成员问题，或停止并核对旧运行。",
         );
       const evidence = text(p.evidence ?? "", true);
-      const replacement = p.memberId !== undefined
+      const replacing = p.memberId !== undefined;
+      if (replacing && (p.choice !== "abandon" ||
+        !["task", "integration-check", "peer-review", "round-report"].includes(op.kind)))
+        throw new FlowError("INVALID_REQUEST", "此操作不能在结束旧尝试时换人。");
+      const replacement = replacing && op.kind === "task"
         ? this.need<Task>("flow_tasks", op.targetId)
         : undefined;
+      const roundReplacement = replacing && op.kind !== "task" ? (() => {
+        const flow = this.flow(op.flowId);
+        const integration = this.need<Integration>("flow_integrations", op.targetId);
+        const round = this.need<Round>("flow_rounds", integration.roundId);
+        this.check(round, { expectedRevision: p.expectedRoundRevision });
+        if (flow.status !== "active" || round.flowId !== flow.id ||
+          round.planId !== flow.activePlanId || round.integrationId !== integration.id ||
+          this.busyTargets.has(round.id) || this.busyTargets.has(integration.id))
+          throw new FlowError("STALE_VERSION", "整合任务已变化，请刷新后再选接手成员。");
+        const lead = this.lead(round);
+        const prior = run && this.store.get<Session>("sessions", run.sessionId);
+        const memberId = this.selectedMember(flow, p,
+          prior?.memberId ?? (op.kind === "peer-review" ? round.peerReviewerMemberId : lead),
+          op.kind === "peer-review" ? lead : undefined,
+        );
+        if (this.store.roomState(`project:${flow.projectId}`).restingMemberIds?.includes(memberId) ||
+          !this.quotaFor(flow, memberId))
+          throw new FlowError("MEMBER_UNAVAILABLE", "该成员正在休息或额度不足，请选择其他成员。");
+        return { memberId, round, integration };
+      })() : undefined;
       if (replacement) {
         if (p.choice !== "abandon" || op.kind !== "task" || replacement.flowId !== op.flowId)
           throw new FlowError("INVALID_REQUEST", "只有结束旧任务尝试时才能同时换人。");
@@ -3000,6 +3024,7 @@ export class ProjectFlowController {
           result: {
             [p.choice === "continue" ? "continued" : "abandoned"]: true,
             evidence,
+            ...(roundReplacement ? { replacementMemberId: roundReplacement.memberId } : {}),
           },
           error:
             "用户明确选择" +
@@ -3113,16 +3138,24 @@ export class ProjectFlowController {
         } else if (
           ["integration-check", "peer-review", "round-report"].includes(op.kind)
         ) {
-          const integration = this.need<Integration>(
-              "flow_integrations",
-              op.targetId,
-            ),
-            round = this.need<Round>("flow_rounds", integration.roundId);
+          const integration = roundReplacement?.integration ?? this.need<Integration>("flow_integrations", op.targetId);
+          const round = roundReplacement?.round ?? this.need<Round>("flow_rounds", integration.roundId);
           if (
             round.integrationId === integration.id &&
             round.planId === this.flow(op.flowId).activePlanId
           ) {
-            this.update("flow_rounds", round, { status: "checking" });
+            const newMember = roundReplacement?.memberId;
+            this.update("flow_rounds", round, {
+              status: "checking",
+              ...(newMember ? (op.kind === "peer-review"
+                ? { peerReviewerMemberId: newMember }
+                : {
+                  leadMemberId: newMember,
+                  ...(round.peerReviewerMemberId === newMember
+                    ? { peerReviewerMemberId: undefined }
+                    : {}),
+                }) : {}),
+            });
             this.update("flow_integrations", integration, {
               status: "checking",
               ...(op.kind === "integration-check"
@@ -3153,12 +3186,13 @@ export class ProjectFlowController {
             .filter((o) => o.flowId === op.flowId && o.state === "blocked");
         this.update("project_flows", flow, {
           blockedReasons: [
-            ...new Set(
-              others
+            ...new Set([
+              ...(roundReplacement ? flow.blockedReasons.filter(reason => reason !== op.error) : []),
+              ...others
                 .filter((o) => o.recovery !== "completed")
                 .map((o) => o.error)
                 .filter((e): e is string => Boolean(e)),
-            ),
+            ]),
           ],
         });
       });
