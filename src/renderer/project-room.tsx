@@ -341,7 +341,43 @@ export function ProjectRoom({ snapshot, project, invoke, onOpenSession,onRoundta
       })}
       {live && rounds.filter(actionable).map(round=><div key={round.id} data-flow-next="acceptance">{roundCard(round)}</div>)}
       {acceptedLine && <div className="dock-row"><CheckCircle2 size={15} /><p>{acceptedLine}</p></div>}
-      {activeFlowRuns.map(run => <div key={run.id} className="dock-row dock-progress-item running"><LoaderCircle size={15} className="spin" /><p><strong><MemberName id={run.memberId} /> 正在{run.label}…</strong><small className="dock-progress-meta">（启动于 {time(run.startedAt)} · <ElapsedTimer startedAt={run.startedAt} />）</small></p></div>)}
+      {activeFlowRuns.map(run => {
+        const runEvents = snapshot.events
+          .filter(ev => ev.runId === run.id && ['tool', 'reasoning', 'status', 'error'].includes(ev.kind) && ev.text?.trim())
+          .slice(-12);
+        const latestDelta = snapshot.events
+          .filter(ev => ev.runId === run.id && ev.kind === 'delta' && ev.text)
+          .slice(-8)
+          .map(ev => ev.text)
+          .join('')
+          .trim();
+        const latestHint = runEvents.at(-1)?.text?.replace(/\s+/g, ' ').trim() || latestDelta.replace(/\s+/g, ' ').slice(-80);
+        return <details key={run.id} className="dock-progress-details">
+          <summary className="dock-row dock-progress-item running">
+            <LoaderCircle size={15} className="spin" />
+            <div className="dock-progress-summary">
+              <p><strong><MemberName id={run.memberId} /> 正在{run.label}…</strong><small className="dock-progress-meta">（启动于 {time(run.startedAt)} · <ElapsedTimer startedAt={run.startedAt} /> · 点此展开实时动态）</small></p>
+              {latestHint && <small className="dock-progress-latest">{latestHint.slice(0, 120)}{latestHint.length > 120 ? '…' : ''}</small>}
+            </div>
+          </summary>
+          <div className="dock-progress-live">
+            {runEvents.length === 0 && !latestDelta
+              ? <p className="dock-progress-empty">已发出任务指令，正在等待模型返回思考或工具调用记录…</p>
+              : <>
+                {runEvents.map(ev => <div key={ev.id} className={`dock-live-row kind-${ev.kind}`}>
+                  <span className="dock-live-time">{time(ev.at)}</span>
+                  <span className="dock-live-kind">{ev.kind === 'tool' ? '工具' : ev.kind === 'reasoning' ? '思考' : ev.kind === 'error' ? '报错' : '状态'}</span>
+                  <span className="dock-live-text">{ev.text.replace(/\s+/g, ' ').slice(0, 260)}{ev.text.length > 260 ? '…' : ''}</span>
+                </div>)}
+                {latestDelta && <div className="dock-live-row kind-delta">
+                  <span className="dock-live-time">输出</span>
+                  <span className="dock-live-kind">正文</span>
+                  <span className="dock-live-text">{latestDelta.slice(-260)}</span>
+                </div>}
+              </>}
+          </div>
+        </details>;
+      })}
       {checkingRound && currentRound && (flow!.dispatchMode === 'running'
         ? <div className="dock-row dock-progress-item running"><LoaderCircle size={15} className="spin" /><p><strong><MemberName id={roundLead(flow!, currentRound)} /> 正在做本轮整体检查并整理汇总汇报…</strong>（完成后会自动弹出「待你处理」验收卡片）</p></div>
         : <div className="dock-row dock-progress-item"><Pause size={15} /><p><strong>本轮整体检查已暂停</strong>（点击右侧「继续这段工作」即可恢复）</p></div>)}

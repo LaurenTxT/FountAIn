@@ -1411,3 +1411,69 @@
   opacity: 0.3;
   cursor: default;
 }
+
+.dock-progress-details {
+  border-radius: 10px;
+  border: 1px solid var(--line);
+  background: color-mix(in srgb, var(--surface-2) 65%, transparent);
+  overflow: hidden;
+}
+.dock-progress-details > summary {
+  list-style: none;
+  cursor: pointer;
+  margin: 0;
+}
+.dock-progress-details > summary::-webkit-details-marker {
+  display: none;
+}
+.dock-progress-summary {
+  min-width: 0;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.dock-progress-latest {
+  color: var(--ink-3);
+  font-size: 11.5px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.dock-progress-live {
+  border-top: 1px dashed var(--line);
+  padding: 8px 10px;
+  max-height: 220px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  background: color-mix(in srgb, var(--sunken) 70%, transparent);
+  font-size: 11.5px;
+}
+.dock-progress-empty {
+  margin: 0;
+  color: var(--ink-3);
+}
+.dock-live-row {
+  display: grid;
+  grid-template-columns: 44px 36px minmax(0, 1fr);
+  gap: 6px;
+  align-items: start;
+  line-height: 1.45;
+}
+.dock-live-time {
+  color: var(--ink-3);
+  font-family: var(--mono, ui-monospace, monospace);
+  font-size: 10.5px;
+}
+.dock-live-kind {
+  font-size: 10.5px;
+  font-weight: 600;
+  color: var(--accent);
+}
+.dock-live-row.kind-error .dock-live-kind { color: #f87171; }
+.dock-live-text {
+  color: var(--ink-2);
+  overflow-wrap: anywhere;
+}
