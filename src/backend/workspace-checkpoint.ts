@@ -53,6 +53,10 @@ async function locations(session:Session,dataDirectory:string){
   const objects=resolveSafePath(directory,'objects');await fs.mkdir(objects,{recursive:true});
   return {root,directory,objects,manifest:resolveSafePath(directory,'latest.json')};
 }
+async function gitHead(root:string){
+  try{return (await git(root,['rev-parse','--verify','HEAD'])).trim();}
+  catch{return 'UNBORN';}
+}
 async function capture(root:string,objects:string,include:string[]=[],canceled:()=>boolean=()=>false):Promise<Image>{
   let gitState:GitState|undefined,names:string[]=[];
   // A worktree follows .gitignore; dependency/build output is outside the file undo scope.
@@ -60,7 +64,7 @@ async function capture(root:string,objects:string,include:string[]=[],canceled:(
     const top=(await git(root,['rev-parse','--show-toplevel'])).trim();
     if(path.resolve(top).toLowerCase()!==path.resolve(root).toLowerCase())throw new Error('工作副本的 Git 边界已改变。');
     const directory=(await git(root,['rev-parse','--absolute-git-dir'])).trim();
-    gitState={head:(await git(root,['rev-parse','HEAD'])).trim(),directory,index:await readFileState(path.join(directory,'index'),objects)};
+    gitState={head:await gitHead(root),directory,index:await readFileState(path.join(directory,'index'),objects)};
     names=(await git(root,['ls-files','--cached','--others','--exclude-standard','-z'])).split('\0').filter(Boolean);
   }else{
     const walk=async(relative:string)=>{for(const entry of await fs.readdir(resolveSafePath(root,relative),{withFileTypes:true})){
@@ -125,7 +129,7 @@ async function verify(checkpoint:Checkpoint,root:string,objects:string):Promise<
   if(checkpoint.after.git){
     try{
       if(await fs.access(path.join(checkpoint.after.git.directory,'index.lock')).then(()=>true,()=>false))throw new Error('Git 正在操作暂存区，请等待后重试');
-      if((await git(root,['rev-parse','--absolute-git-dir'])).trim()!==checkpoint.after.git.directory||(await git(root,['rev-parse','HEAD'])).trim()!==checkpoint.after.git.head||!same(await readFileState(path.join(checkpoint.after.git.directory,'index')),checkpoint.after.git.index))conflicts.push({path:'Git',reason:'本轮结束后 Git 提交、目录或暂存区又被修改'});
+      if((await git(root,['rev-parse','--absolute-git-dir'])).trim()!==checkpoint.after.git.directory||(await gitHead(root))!==checkpoint.after.git.head||!same(await readFileState(path.join(checkpoint.after.git.directory,'index')),checkpoint.after.git.index))conflicts.push({path:'Git',reason:'本轮结束后 Git 提交、目录或暂存区又被修改'});
       const index=checkpoint.before.git?.index;if(index&&digest(await fs.readFile(resolveSafePath(objects,index.hash)))!==index.hash)throw new Error('Git 暂存区还原点校验失败');
     }catch(error){conflicts.push({path:'Git',reason:(error as Error).message});}
   }
@@ -175,7 +179,7 @@ export async function undoCheckpoint(session:Session,runId:string,dataDirectory:
   let indexRestored=false;
   try{
     const endedGit=checkpoint.after!.git;
-    if(endedGit&&((await git(location.root,['rev-parse','--absolute-git-dir'])).trim()!==endedGit.directory||(await git(location.root,['rev-parse','HEAD'])).trim()!==endedGit.head||!same(await readFileState(path.join(endedGit.directory,'index')),endedGit.index)))throw new Error('撤销前 Git 提交、目录或暂存区又被修改。');
+    if(endedGit&&((await git(location.root,['rev-parse','--absolute-git-dir'])).trim()!==endedGit.directory||(await gitHead(location.root))!==endedGit.head||!same(await readFileState(path.join(endedGit.directory,'index')),endedGit.index)))throw new Error('撤销前 Git 提交、目录或暂存区又被修改。');
     for(const change of info.changes){
       if(!same(await readFileState(await filePath(location.root,change.path)),checkpoint.after!.files[change.path]))throw new Error(`撤销前 ${change.path} 又被修改。`);
       await restore(location.root,change.path,checkpoint.before.files[change.path],location.objects);applied.push(change.path);
