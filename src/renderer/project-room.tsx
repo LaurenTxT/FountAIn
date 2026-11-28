@@ -157,10 +157,31 @@ export function ProjectRoom({ snapshot, project, invoke, onOpenSession,onRoundta
     setBoardView('work');
     setFocusedTask({ task, nonce: Date.now() });
   }
-  const nextStepBody=useRef<HTMLDivElement>(null);
-  function revealStep(target:string){if(target==='[data-flow-next="plan"]')setDockView('full');setDockOpen(true);window.requestAnimationFrame(()=>{const node=nextStepBody.current?.querySelector<HTMLElement>(target);if(node){node.scrollIntoView({block:'nearest'});node.tabIndex=-1;node.focus({preventScroll:true});
-    // The card may already be in view: a short highlight shows where the step is.
-    node.classList.remove('flow-step-flash');void node.offsetWidth;node.classList.add('flow-step-flash');window.setTimeout(()=>node.classList.remove('flow-step-flash'),1400);}});}
+  const nextStepBody = useRef<HTMLDivElement>(null);
+  const [dockSunk, setDockSunk] = useState(true);
+  const [dockFocus, setDockFocus] = useState<{ target: string }>();
+  const appliedDockFocus = useRef<typeof dockFocus>(undefined);
+  function revealStep(target: string) {
+    if (target === '[data-flow-next="plan"]') setDockView('full');
+    setDockSunk(false);
+    setDockOpen(true);
+    setDockFocus({ target });
+  }
+  useEffect(() => {
+    if (!dockFocus || appliedDockFocus.current === dockFocus || dockSunk || !dockOpen) return;
+    const body = nextStepBody.current;
+    if (!body) return;
+    appliedDockFocus.current = dockFocus;
+    const node = body.querySelector<HTMLElement>(dockFocus.target) ?? body;
+    node.scrollIntoView({ block: 'nearest' });
+    node.tabIndex = -1;
+    node.focus({ preventScroll: true });
+    node.classList.remove('flow-step-flash');
+    void node.offsetWidth;
+    node.classList.add('flow-step-flash');
+    const timer = window.setTimeout(() => node.classList.remove('flow-step-flash'), 1400);
+    return () => { window.clearTimeout(timer); node.classList.remove('flow-step-flash'); };
+  }, [dockFocus, dockSunk, dockOpen, dockView]);
   const ready = (member: TeamMember) => runnable(snapshot.providers.find(info => info.id === member.executor));
   // Who takes part: chosen in 请大家一起来 (or the running flow's team); the chips above the composer change it.
   const [roster, setRoster] = useState<string[]>(() => projectMembers(project));
@@ -194,11 +215,11 @@ export function ProjectRoom({ snapshot, project, invoke, onOpenSession,onRoundta
   const stuckTasks = tasks.filter(task => task.status === 'blocked' && !(data?.decisions ?? []).some(d => d.status === 'open' && d.taskId === task.id));
   const roomOverview = snapshot.rooms?.find(room => room.roomId === roomId);
   const quotaWaits = data?.quotaWaits ?? [];
-  const availableMembers = team.members.filter(member => ready(member) &&
-    !roomOverview?.state.restingMemberIds?.includes(member.id) &&
-    !roomOverview?.skippedMemberIds?.includes(member.id) &&
-    !quotaWaits.some(wait => wait.memberId === member.id));
-  const repairMembers = availableMembers.filter(member => snapshot.providers.find(info => info.id === member.executor)?.capabilities.write);
+  const repairMembers = team.members.filter(member => {
+    const provider = snapshot.providers.find(info => info.id === member.executor);
+    return provider?.available && provider.capabilities.write &&
+      !roomOverview?.state.restingMemberIds?.includes(member.id);
+  });
   const replacementMembers = (task: Task) => repairMembers.filter(member => member.id !== task.memberId && flow?.memberIds.includes(member.id));
   const waitingTasks = tasks.filter(task =>
     action(task.allowedActions, 'projectFlow.task.reassign')?.enabled &&
@@ -213,17 +234,17 @@ export function ProjectRoom({ snapshot, project, invoke, onOpenSession,onRoundta
   const reassign = (task: Task, memberId: string, op?: FlowOperation) => op
     ? mutate('projectFlow.unknown.resolve', { operationId: op.id, expectedRevision: op.revision, expectedTaskRevision: task.revision, choice: 'abandon', memberId, evidence: '用户确认结束旧尝试并换人接手。' }, '旧尝试已结束，新成员已接手。流程暂停时请点「继续」。')
     : mutate('projectFlow.task.reassign', { taskId: task.id, expectedRevision: task.revision, memberId }, '新成员已接手。流程暂停时请点「继续」。');
-  async function dispatchRepair(memberId: string, scope: 'software' | 'project', errorSummary: string, op?: FlowOperation) {
+  async function dispatchSoftwareRepair(memberId: string, errorSummary: string, op?: FlowOperation) {
     setBusy(true);
     setError('');
-    const params = { projectId: project.id, memberId, runId: op?.correctionRunId ?? op?.runId, scope, errorSummary: plainFlowError(errorSummary) };
+    const params = { projectId: project.id, memberId, runId: op?.correctionRunId ?? op?.runId, scope: 'software', errorSummary: plainFlowError(errorSummary) };
     try {
-      const send = (sourceDirectory?: string) => invoke<{ sessionId?: string; targetProjectId: string; memberId: string }>('project.selfHeal.dispatch', { ...params, sourceDirectory }, scope === 'project' ? '已发送诊断请求，请在会议聊天查看回复。' : '已启动软件修复会话。', { background: true });
+      const send = (sourceDirectory?: string) => invoke<{ sessionId?: string; targetProjectId: string; memberId: string }>('project.selfHeal.dispatch', { ...params, sourceDirectory }, '已启动软件修复会话。', { background: true });
       let result;
       try {
         result = await send();
       } catch (cause) {
-        if (scope !== 'software' || !(cause instanceof Error) || !cause.message.includes('请先在工作台添加 FountAIn 源码目录')) throw cause;
+        if (!(cause instanceof Error) || !cause.message.includes('请先在工作台添加 FountAIn 源码目录')) throw cause;
         const directory = await invoke<string | null>('dialog.directory');
         if (!directory) return false;
         result = await send(directory);
@@ -329,20 +350,18 @@ export function ProjectRoom({ snapshot, project, invoke, onOpenSession,onRoundta
         {blocked.length ? blocked.map(op => { const task = data.tasks.find(item => item.id === op.targetId); return <div key={op.id} className="meeting-alert-item">
           <p><strong>{OPERATION_KIND[op.kind] ?? op.kind}{task ? `：${task.title}` : ''}</strong>　{plainFlowError(op.error)}</p>
           <GiveUp task={op.kind === 'task'} unknown={resultUnknown(op)} supplement={op.kind === 'supplement-delivery'} busy={busy} onContinue={op.kind!=='supplement-delivery'?evidence=>resolveAttempt(op,'continue',evidence):undefined} onConfirm={evidence => giveUp(op, evidence)} />
+          {task && <button type="button" className="link-button" onClick={() => setLogTarget({kind:'task',id:task.id})}>查看任务日志</button>}
           {task && op.kind === 'task' && <FlowMemberPicker key={op.revision} members={replacementMembers(task)} busy={busy} actions={[{ label: '结束旧尝试并换人', run: memberId => reassign(task, memberId, op) }]} />}
           <FlowMemberPicker members={repairMembers} busy={busy} actions={[
-            { label: '请成员诊断', run: memberId => dispatchRepair(memberId, 'project', op.error ?? '流程暂停需要排查', op) },
-            { label: '排查并修复软件 Bug', run: memberId => dispatchRepair(memberId, 'software', op.error ?? 'FountAIn 运行异常', op) },
+            { label: '排查并修复软件 Bug', run: memberId => dispatchSoftwareRepair(memberId, op.error ?? 'FountAIn 运行异常', op) },
           ]} />
         </div>; })
           : <>
             {[...new Set([...flow!.blockedReasons, ...stuckTasks.map(task => task.blockedReason ?? `${task.title} 卡住了`)])].map(reason => <p key={reason}>{plainFlowError(reason)}</p>)}
             <FlowMemberPicker members={repairMembers} busy={busy} actions={[
-              { label: '请成员诊断', run: memberId => dispatchRepair(memberId, 'project', flow!.blockedReasons[0] ?? stuckTasks[0]?.blockedReason ?? '流程暂停需要排查') },
-              { label: '排查并修复软件 Bug', run: memberId => dispatchRepair(memberId, 'software', flow!.blockedReasons[0] ?? stuckTasks[0]?.blockedReason ?? 'FountAIn 运行异常') },
+              { label: '排查并修复软件 Bug', run: memberId => dispatchSoftwareRepair(memberId, flow!.blockedReasons[0] ?? stuckTasks[0]?.blockedReason ?? 'FountAIn 运行异常') },
             ]} />
           </>}
-        <small>会议诊断只在聊天里回复，阻塞由正式任务或复核决定处理。</small>
         <small>{blocked.length ? '旧运行须先确认已结束。换人会保留历史记录，新成员从本轮起点接手；流程暂停时请点「继续」。' : '流程暂停时请在处理后点「继续」。'}</small>
         </div></div>}
       {live && waitingTasks.map(task => <div key={task.id} className="meeting-alert-item" data-flow-next="replacement">
@@ -354,21 +373,21 @@ export function ProjectRoom({ snapshot, project, invoke, onOpenSession,onRoundta
         const leadId = roundLead(flow!, currentRound);
         const leadName = team.get(leadId)?.name ?? '负责人';
         const repairTask = decision.kind === 'unresolved-review' ? tasks.find(task => task.id === decision.taskId) : undefined;
-        return <div key={decision.id} data-flow-next="decision">{repairTask && <div className="meeting-card">
-          <strong>指定成员接手修复并补证据</strong>
+        return <div key={decision.id} data-flow-next="decision" data-flow-detail={decision.id}>{repairTask && <div className="meeting-card" data-flow-next="repair">
+          <strong>指定成员修复并补证据</strong>
           <p>在上次提交的副本中修复，补齐实际核验记录后重新复核。</p>
-          <FlowMemberPicker members={replacementMembers(repairTask)} busy={busy} actions={[{
-            label: '接手修复并补证据',
-            run: memberId => mutate('projectFlow.decision.answer', { decisionId: decision.id, expectedRevision: decision.revision, choice: '指定成员补充依据', memberId }, '已换人补证据。流程暂停时请点「继续」。'),
+          <FlowMemberPicker members={repairMembers.filter(member => flow!.memberIds.includes(member.id))} busy={busy} actions={[{
+            label: '开始修复',
+            run: memberId => mutate('projectFlow.decision.answer', { decisionId: decision.id, expectedRevision: decision.revision, choice: '指定成员补充依据', memberId }, '已安排修复，完成后会汇报结果。'),
           }]} />
-        </div>}<DecisionCard decision={decision} tasks={data.tasks} rounds={data.rounds} busy={busy} leadName={leadName} onAskLead={async (d) => {
+        </div>}<DecisionCard decision={decision} tasks={data.tasks} rounds={data.rounds} busy={busy} leadName={leadName} onAskLead={repairTask ? undefined : async (d) => {
           const opts = d.options.join(' / ');
           const text = `@${leadName} 请用通俗大白话帮我解释一下「${d.title}」为什么卡住了，具体哪里出了问题，并建议我从这几个选项里选哪一个（${opts}）。`;
           await invoke('room.send', { roomId, text, memberIds: roster, mode: 'discuss', style: 'chat', maxMinutes: 0, handRaise: false, hostPick: false });
           setDockOpen(false);
         }} onAnswer={params => mutate('projectFlow.decision.answer', { decisionId: decision.id, expectedRevision: decision.revision, ...params }, '已记录你的决定。')} /></div>;
       })}
-      {live && rounds.filter(actionable).map(round=><div key={round.id} data-flow-next="acceptance">{roundCard(round)}</div>)}
+      {live && rounds.filter(actionable).map(round=><div key={round.id} data-flow-next="acceptance" data-flow-detail={round.id}>{roundCard(round)}</div>)}
       {acceptedLine && <div className="dock-row"><CheckCircle2 size={15} /><p>{acceptedLine}</p></div>}
       {activeFlowRuns.map(run => {
         const runEvents = snapshot.events
@@ -468,7 +487,8 @@ export function ProjectRoom({ snapshot, project, invoke, onOpenSession,onRoundta
   );
   const sideAlerts: { key: string; label: string; tone: 'warn' | 'bad'; onClick: () => void }[] = [
     ...(live && plan?.status === 'awaiting_confirmation' ? [{ key: 'plan', label: `待审批 · 第 ${plan.version} 版方案`, tone: 'warn' as const, onClick: () => revealStep('[data-flow-next="plan"]') }] : []),
-    ...(live && (blocked.length > 0 || flow!.blockedReasons.length > 0 || stuckTasks.length > 0) ? [{ key: 'blocked', label: '流程阻塞 · 点击查看', tone: 'bad' as const, onClick: () => revealStep('[data-flow-next="blocked"]') }] : []),
+    ...(live && (blocked.length > 0 || flow!.blockedReasons.length > 0 || stuckTasks.length > 0) ? [{ key: 'blocked', label: '流程阻塞 · 点击查看', tone: 'bad' as const, onClick: () => revealStep(!blocked.length && openDecisions.some(decision => decision.kind === 'unresolved-review' && decision.taskId)
+      ? '[data-flow-next="repair"]' : '[data-flow-next="blocked"]') }] : []),
     ...(live && openDecisions.length > 0 ? [{ key: 'decision', label: `待你决定 · ${openDecisions.length} 项`, tone: 'warn' as const, onClick: () => revealStep('[data-flow-next="decision"]') }] : []),
     ...(roundToAccept ? [{ key: 'accept', label: '待你验收 · 查看成品', tone: 'warn' as const, onClick: openAcceptance }] : []),
     ...attentionAlerts.map(item => ({
@@ -558,19 +578,21 @@ export function ProjectRoom({ snapshot, project, invoke, onOpenSession,onRoundta
       </button>
     </div>
   </div>;
-  const dock = !data ? null : <FlowDock view={dockView} setView={setDockView} open={dockOpen} onToggle={setDockOpen} waiting={waiting} standing={standing}
+  const dock = !data ? null : <FlowDock sunk={dockSunk} setSunk={setDockSunk} view={dockView} setView={setDockView} open={dockOpen} onToggle={setDockOpen} waiting={waiting} standing={standing}
     bodyRef={nextStepBody} action={fresh && !picking ? <button type="button" className="button small primary" disabled={busy || people.filter(ready).length < 2} title={people.filter(ready).length < 2 ? '至少需要两位已准备好的成员参加' : ''} onClick={() => { setPicking(true); setDockOpen(true); }}><Hand size={13} />立项 / 起草方案</button> : nextStep?<span className="flow-next-step" role="group" aria-label="项目下一步"><small>下一步</small><button type="button" className="button small primary" disabled={busy} onClick={nextStep.run}>{nextStep.label}</button></span>:undefined}>{items}</FlowDock>;
 
   /** Flow messages in the chat: what was posted and where it stands now; acting on it happens in the dock. */
   const renderFlow = (message: RoomMessage) => {
     if (!data) return undefined;
-    if(message.roundtable)return <FlowMessage title="圆桌带回的材料" status="已保存引用" pending={false} text={message.text} onOpen={()=>onRoundtable?.({topicId:message.roundtable!.topicId})} headerAction={<button className="link-button" onClick={()=>onRoundtable?.({topicId:message.roundtable!.topicId})}>打开圆桌议题</button>}/>;
-    if(message.jointReview)return <FlowMessage title="历史共同评审结论" status="只读" pending={false} text={message.text} onOpen={()=>{}}/>;
+    if(message.roundtable)return <FlowMessage title="圆桌带回的材料" status="已保存引用" pending={false} text={message.text} headerAction={onRoundtable && <button className="link-button" onClick={()=>onRoundtable({topicId:message.roundtable!.topicId})}>打开圆桌议题</button>}/>;
+    if(message.jointReview)return <FlowMessage title="历史共同评审结论" status="只读" pending={false} text={message.text}/>;
     let title = '', status = '', pending = false;
     if (message.flowPlan) { const summary = data.plans?.find(item => item.id === message.flowPlan!.planId) ?? (data.plan?.id === message.flowPlan.planId ? data.plan : undefined); title = `方案 · 第 ${message.flowPlan.version} 版`; status = summary ? PLAN_STATUS[summary.status] ?? summary.status : ''; pending = summary?.status === 'awaiting_confirmation' && summary.id === flow?.activePlanId; }
     else if (message.flowDecision) { const decision = data.decisions.find(item => item.id === message.flowDecision!.decisionId); title = decision ? `决策 · ${decision.title}` : '决策'; pending = message.flowDecision.status === 'open' && decision?.status === 'open'; status = message.flowDecision.status === 'open' ? (pending ? '待你决定' : decision?.status === 'answered' ? '已处理' : '已过期') : message.author === 'user' ? '你的决定' : '已结束'; }
     else if (message.flowReport) { const round = data.rounds.find(item => item.id === message.flowReport!.roundId); title = round ? `第 ${round.index + 1} 轮 · ${round.title} · 汇报` : '轮次汇报'; pending = Boolean(round && actionable(round) && round.integrationId === message.flowReport.integrationId); status = round ? round.integrationId !== message.flowReport.integrationId ? '已被新的汇报替代' : ROUND_STATUS[round.status] : ''; }
-    return <FlowMessage title={title} status={status} pending={pending} text={message.text} onOpen={() => setDockOpen(true)}>{(message.flowPlan||message.flowReport)&&onRoundtable&&<button className="link-button" onClick={()=>onRoundtable(message.flowPlan?{planId:message.flowPlan.planId}:{integrationId:message.flowReport!.integrationId})}>送去圆桌评审</button>}{message.flowReport&&!pending&&<><button className="link-button" onClick={()=>void invoke<{title:string;markdown:string}>('projectFlow.round.report.export',{projectId:project.id,roundId:message.flowReport!.roundId}).then(r=>invoke('file.save',{name:r.title+'.md',content:r.markdown})).catch(e=>setError((e as Error).message))}>导出本轮汇报</button><RoundResults key={message.flowReport.integrationId} projectId={project.id} roundId={message.flowReport.roundId} integrationId={message.flowReport.integrationId} invoke={invoke}/></>}</FlowMessage>;
+    const detailId = message.flowDecision?.decisionId ?? message.flowReport?.roundId;
+    const target = message.flowPlan ? '[data-flow-next="plan"]' : detailId ? `[data-flow-detail="${CSS.escape(detailId)}"]` : undefined;
+    return <FlowMessage title={title} status={status} pending={pending} text={message.text} onOpen={target ? () => revealStep(target) : undefined}>{(message.flowPlan||message.flowReport)&&onRoundtable&&<button className="link-button" onClick={()=>onRoundtable(message.flowPlan?{planId:message.flowPlan.planId}:{integrationId:message.flowReport!.integrationId})}>送去圆桌评审</button>}{message.flowReport&&!pending&&<><button className="link-button" onClick={()=>void invoke<{title:string;markdown:string}>('projectFlow.round.report.export',{projectId:project.id,roundId:message.flowReport!.roundId}).then(r=>invoke('file.save',{name:r.title+'.md',content:r.markdown})).catch(e=>setError((e as Error).message))}>导出本轮汇报</button><RoundResults key={message.flowReport.integrationId} projectId={project.id} roundId={message.flowReport.roundId} integrationId={message.flowReport.integrationId} invoke={invoke}/></>}</FlowMessage>;
   };
 
   return <main className="project-room" aria-label={`${project.name} 的项目会议室`}>
@@ -649,23 +671,22 @@ export function ProjectRoom({ snapshot, project, invoke, onOpenSession,onRoundta
 const PLAN_STATUS: Record<string, string> = { awaiting_confirmation: '待你确认', confirmed: '已确认', superseded: '已被新版替代', draft: '草稿' };
 /** A plan, decision or report as posted in the chat. Settled ones fold to their title line so the conversation reads
  *  through; one that waits for the owner shows its text and opens the dock where it is handled. */
-function FlowMessage({ title, status, pending, text, onOpen, children, headerAction }: { title: string; status: string; pending: boolean; text: string; onOpen: () => void; children?:ReactNode; headerAction?:ReactNode }) {
+function FlowMessage({ title, status, pending, text, onOpen, children, headerAction }: { title: string; status: string; pending: boolean; text: string; onOpen?: () => void; children?:ReactNode; headerAction?:ReactNode }) {
   const body = text.replace(/^【[^】]*】\s*/, ''), long = body.length > 280 || body.split('\n').length > 6;
   const [open, setOpen] = useState(pending && !long);
   useEffect(() => { if (pending) setOpen(!long); }, [pending]);
   return <article aria-label={title} className={`flow-message ${pending ? 'pending' : 'settled'} ${open ? 'open' : ''}`}>
-    <header><button type="button" className="flow-message-title" aria-expanded={open} onClick={() => setOpen(value => !value)}>{open ? <ChevronDown size={13} /> : <ChevronRight size={13} />}<strong>{title}</strong></button>{status && <span className="flow-message-status">{status}</span>}{pending && <button type="button" className="link-button" onClick={onOpen}>去处理</button>}{headerAction}</header>
+    <header><button type="button" className="flow-message-title" aria-expanded={open} onClick={() => setOpen(value => !value)}>{open ? <ChevronDown size={13} /> : <ChevronRight size={13} />}<strong>{title}</strong></button>{status && <span className="flow-message-status">{status}</span>}{pending && onOpen && <button type="button" className="link-button" onClick={onOpen}>去处理</button>}{headerAction}</header>
     {open && <div className="flow-message-text"><Markdown text={body} />{children}</div>}
   </article>;
 }
 
 /** What waits for the owner, floating over the bottom of the chat: one line when folded, the cards when open.
  *  Open, it can also fill the whole chat area or move into its own window for long plans and reports. */
-function FlowDock({ open, onToggle, waiting, standing, action, children,bodyRef, view, setView }: { view: 'dock' | 'full' | 'window'; setView: (view: 'dock' | 'full' | 'window') => void; open: boolean; onToggle: (open: boolean) => void; waiting: string[]; standing: string[]; action?: ReactNode; children: ReactNode;bodyRef?:Ref<HTMLDivElement> }) {
+function FlowDock({ open, onToggle, waiting, standing, action, children,bodyRef, view, setView, sunk, setSunk }: { sunk: boolean; setSunk: (value: boolean) => void; view: 'dock' | 'full' | 'window'; setView: (view: 'dock' | 'full' | 'window') => void; open: boolean; onToggle: (open: boolean) => void; waiting: string[]; standing: string[]; action?: ReactNode; children: ReactNode;bodyRef?:Ref<HTMLDivElement> }) {
   const panelRef = useRef<HTMLElement>(null);
   const drag = useRef<{ startY: number; startHeight: number; maximum: number } | undefined>(undefined);
   const [height, setHeight] = useState<number>();
-  const [sunk, setSunk] = useState(true);
   const title = waiting.length ? '待你处理' : '进展';
 
   function sizeLimits() {

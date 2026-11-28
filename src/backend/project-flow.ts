@@ -7290,6 +7290,20 @@ export class ProjectFlowController {
         ...(p.memberId ? { memberId: String(p.memberId) } : {}),
       },
     });
+    if (handoffRepair) {
+      const current = this.flow(flow.id);
+      const hasUnresolvedRuns = this.store.list<FlowOperation>("flow_operations").some(
+        op => op.flowId === flow.id && op.state === "blocked" && op.recovery !== "completed",
+      );
+      const hasOpenDecisions = this.store.list<Decision>("flow_decisions").some(
+        item => item.flowId === flow.id && item.status === "open" &&
+          ["unresolved-review", "replan", "review-dispute"].includes(item.kind),
+      );
+      if (current.dispatchMode === "paused" && !current.blockedReasons.length && !hasUnresolvedRuns && !hasOpenDecisions) {
+        this.update("project_flows", current, { dispatchMode: "running" });
+        this.restoreCompleted(this.flow(flow.id));
+      }
+    }
   }
   private selectedMember(
     flow: ProjectFlow,
@@ -7540,7 +7554,7 @@ export class ProjectFlowController {
         "STALE_VERSION",
         "只能重做当前方案中尚未通过的任务。",
       );
-    const memberId = this.selectedMember(flow, p, task.memberId);
+    const memberId = this.selectedMember(flow, p, sourceSubmissionId ? undefined : task.memberId);
     if (this.store.roomState(`project:${flow.projectId}`).restingMemberIds?.includes(memberId) ||
       !this.quotaFor(flow, memberId))
       throw new FlowError("MEMBER_UNAVAILABLE", "该成员正在休息或额度不足，请选择其他成员。");
@@ -7569,6 +7583,7 @@ export class ProjectFlowController {
       inputs: [
         ...task.inputs,
         ...(redo.opinion ? ["用户重做要求：" + redo.opinion] : []),
+        ...(sourceSubmissionId ? ["先在现有成果上完成修复并实际运行核验，在 userSummary 汇报改了什么、核验结果及剩余问题。"] : []),
       ],
     });
     for (const decision of this.store
