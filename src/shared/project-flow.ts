@@ -7,7 +7,7 @@ import type { Artifact, RunStatus } from './types';
 
 export const FLOW_LIMITS = { replyBytes: 128 * 1024, rounds: 20, tasks: 200, findings: 100, returns: 2, disputeReturnWaivers: 2, integrationFixes: 2 } as const;
 export type ReviewLevel='high'|'medium'|'low';
-export const REVIEW_LEVEL_LABELS:Record<ReviewLevel,string>={high:'深入复核：任务和每轮成果都核对',medium:'标准复核：只核对每轮汇总成果',low:'快速推进：每轮由我选择复核或验收'};
+export const REVIEW_LEVEL_LABELS:Record<ReviewLevel,string>={high:'深入复核',medium:'标准复核',low:'快速推进'};
 export const REVIEW_LEVEL_HINTS:Record<ReviewLevel,string>={
   high:'适合跨文件修改或需要充分验证的工作。每项任务及每轮汇总都安排复核，调用较多。',
   medium:'适合目标和验收条件清楚的常规工作。个人任务不逐项自动复核，每轮汇总后统一核对。',
