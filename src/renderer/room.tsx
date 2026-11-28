@@ -957,7 +957,7 @@ export function RoomView({ snapshot, invoke: rawInvoke, onOpenSession, onDocumen
                   <span className="t3-dot t3-dot-needs" aria-hidden="true" />
                   <strong>{qm?.name ?? q.from} 问你</strong>
                 </div>
-                <p className="room-question-bubble-text">{q.text}</p>
+                <div className="room-question-bubble-text"><Markdown text={q.text} /></div>
                 <div className="room-question-bubble-actions">
                   <button type="button" className="button small primary" onClick={() => openAnswer(q.id)}>回答</button>
                 </div>
@@ -979,7 +979,7 @@ export function RoomView({ snapshot, invoke: rawInvoke, onOpenSession, onDocumen
                   <span className="t3-dot t3-dot-needs" aria-hidden="true" />
                   <strong>{qm?.name ?? q.from} 问你</strong>
                 </div>
-                <p className="room-question-bubble-text">{q.text}</p>
+                <div className="room-question-bubble-text"><Markdown text={q.text} /></div>
                 <div className="room-question-bubble-actions">
                   <button type="button" className="button small primary" onClick={() => openAnswer(q.id)}>回答</button>
                 </div>
