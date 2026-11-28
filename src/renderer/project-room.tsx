@@ -330,7 +330,7 @@ export function ProjectRoom({ snapshot, project, invoke, onOpenSession,onRoundta
   // What needs the owner now, in the order the work asks for it.
   const items = !data ? null : <>
     {fresh ? (picking
-      ? <div className="kickoff-unified">
+      ? <div className="kickoff-unified" data-flow-next="kickoff">
           <div className="kickoff-mode-bar" role="group" aria-label="立项模式选择">
             <span className="kickoff-mode-pill active"><Hand size={13} />快速立项（单人起草方案）</span>
             <button type="button" className="kickoff-mode-pill sdd" onClick={() => { setPicking(false); setSddOpen(true); }}><GitCompareArrows size={13} />改用 SDD 双盲规范立项（宪法 → Spec → 双盲对照）</button>
@@ -342,8 +342,8 @@ export function ProjectRoom({ snapshot, project, invoke, onOpenSession,onRoundta
       {!live && <div className="dock-row"><CheckCircle2 size={15} /><p>{flow!.status === 'completed' ? '这段工作已经完成，成品已写回项目。' : '这段工作已取消，记录和成果都保留着。'}</p><button type="button" className="button small primary" disabled={busy} onClick={() => setStarting(true)}><Sparkles size={13} />开始新的一段工作</button></div>}
       {!live && flow!.completionReport && <CompletionReport report={flow!.completionReport} />}
       {live && flow!.status === 'planning' && !plan && (planOp || flow!.dispatchMode !== 'running'
-        ? <div className="dock-row"><AlertTriangle size={15} /><p><strong>方案起草已停止。</strong>{planOp ? '在下面的提示里放弃这次起草，再点右上角“继续”，负责人会重新起草。' : '点右上角“继续”，负责人会接着起草。'}</p></div>
-        : <div className="dock-row"><LoaderCircle size={15} className="spin" /><p><MemberName id={flow!.leadMemberId} /> 正在根据讨论起草方案…</p></div>)}
+        ? <div className="dock-row" data-flow-next="planning"><AlertTriangle size={15} /><p><strong>方案起草已停止。</strong>{planOp ? '在下面的提示里放弃这次起草，再点右上角“继续”，负责人会重新起草。' : '点右上角“继续”，负责人会接着起草。'}</p></div>
+        : <div className="dock-row" data-flow-next="planning"><LoaderCircle size={15} className="spin" /><p><MemberName id={flow!.leadMemberId} /> 正在根据讨论起草方案…</p></div>)}
       {revisingPlan && <div className="dock-row"><LoaderCircle size={15} className="spin" /><p><strong><MemberName id={flow!.leadMemberId} /> 正在按你的意见修改方案…</strong>（完成后会自动更新为新版方案）</p></div>}
       {live && plan && (plan.status === 'awaiting_confirmation') && <div data-flow-next="plan"><PlanCard plan={plan} invoke={invoke} lead={flow!.leadMemberId} rounds={rounds} busy={busy || revisingPlan} defaultLevel={reviewLevel(flow!)} onRoundLevel={(round,level)=>mutate('projectFlow.review.configure',{flowId:flow!.id,expectedRevision:flow!.revision,roundId:round.id,reviewLevel:level},'本轮复核程度已调整。')} onConfirm={(choices,peerChoices,levels,studyContinuation,waitForFirstRoundStart) => mutate('projectFlow.plan.confirm', { planId: plan.id, expectedRevision: plan.revision, requiresUserAcceptanceByRound: choices,requiresPeerReviewByRound:peerChoices,reviewLevelByRound:levels,studyContinuation,waitForFirstRoundStart }, waitForFirstRoundStart ? '方案已确认，等待你启动第一轮。' : '方案已确认，开始派发任务。')} onRevise={instruction => mutate('projectFlow.plan.revise', { planId: plan.id, expectedRevision: plan.revision, instruction }, '已请负责人按你的意见改方案。')} /></div>}
       {live && (blocked.length > 0 || flow!.blockedReasons.length > 0 || stuckTasks.length > 0) && <div data-flow-next="blocked" className="meeting-alert" role="alert"><AlertTriangle size={15} /><div><strong>流程暂停了，需要你先看一下</strong>
@@ -604,8 +604,25 @@ export function ProjectRoom({ snapshot, project, invoke, onOpenSession,onRoundta
       </button>
     </div>
   </div>;
+  const canStartPlanning = people.filter(ready).length >= 2;
+  function openPlanning() {
+    if (fresh && !picking) setPicking(true);
+    revealStep('[data-flow-next="kickoff"]');
+  }
+  const boardEmpty = fresh ? <>
+    <span>{picking ? '请选择本段工作的负责人。' : canStartPlanning ? '立项并确认方案后，任务会出现在这里。' : '请先连接至少两位成员，再起草方案。'}</span>
+    <button type="button" className="button small secondary" disabled={busy || !canStartPlanning} onClick={openPlanning}>{picking ? '选择负责人' : '立项 / 起草方案'}</button>
+  </> : live && plan?.status === 'awaiting_confirmation' ? <>
+    <span>方案已起草，确认后显示任务清单。</span>
+    <button type="button" className="button small secondary" onClick={() => revealStep('[data-flow-next="plan"]')}>查看并确认方案</button>
+  </> : live && flow?.status === 'planning' ? <>
+    <span>{flow.dispatchMode === 'running' ? '正在起草方案。' : '方案起草已暂停。'}</span>
+    <button type="button" className="button small secondary" onClick={() => revealStep(blocked.length ? '[data-flow-next="blocked"]' : '[data-flow-next="planning"]')}>查看起草进度</button>
+  </> : live ? <span>当前方案暂无可显示的任务轮次。</span>
+    : <span>这一段工作已结束，暂无任务清单。</span>;
+
   const dock = !data ? null : <FlowDock sunk={dockSunk} setSunk={setDockSunk} view={dockView} setView={setDockView} open={dockOpen} onToggle={setDockOpen} waiting={waiting} standing={standing}
-    bodyRef={nextStepBody} action={fresh && !picking ? <button type="button" className="button small primary" disabled={busy || people.filter(ready).length < 2} title={people.filter(ready).length < 2 ? '至少需要两位已准备好的成员参加' : ''} onClick={() => { setPicking(true); setDockOpen(true); }}><Hand size={13} />立项 / 起草方案</button> : nextStep?<span className="flow-next-step" role="group" aria-label="项目下一步"><small>下一步</small><button type="button" className="button small primary" disabled={busy} onClick={nextStep.run}>{nextStep.label}</button></span>:undefined}>{items}</FlowDock>;
+    bodyRef={nextStepBody} action={fresh && !picking ? <button type="button" className="button small primary" disabled={busy || !canStartPlanning} title={!canStartPlanning ? '至少需要两位已准备好的成员参加' : ''} onClick={openPlanning}><Hand size={13} />立项 / 起草方案</button> : nextStep?<span className="flow-next-step" role="group" aria-label="项目下一步"><small>下一步</small><button type="button" className="button small primary" disabled={busy} onClick={nextStep.run}>{nextStep.label}</button></span>:undefined}>{items}</FlowDock>;
 
   /** Flow messages in the chat: what was posted and where it stands now; acting on it happens in the dock. */
   const renderFlow = (message: RoomMessage) => {
@@ -680,7 +697,7 @@ export function ProjectRoom({ snapshot, project, invoke, onOpenSession,onRoundta
             <button type="button" className="icon-button" aria-label="收起看板" title="收起右侧栏 (Ctrl+B)" onClick={()=>toggleBoard(false)}><PanelRightClose size={15}/></button>
           </span>
         </div>
-      {boardView==='progress'?<ProjectProgressView project={project} snapshot={snapshot} invoke={invoke}/>:boardView==='terminal'?<WorkspaceTerminalPanel project={project} roomId={roomId} roster={roster} invoke={invoke} focusTerminalId={focusTerminalId}/>:boardView==='code'?<WorkspaceCodePanel project={project} roomId={roomId} roster={roster} invoke={invoke} scriptsOpen={false} onToggleScripts={()=>setBoardView('terminal')} onOpenDocument={(rel, edit)=>setDocument({projectId:project.id,target:rel,edit})} checkpointTrigger={checkpointTrigger}/>:<div className="side-workspace">{sideHeaderSummary}<Board focusedTask={focusedTask} invoke={invoke} rounds={rounds} tasks={tasks} data={data} snapshot={snapshot} busy={busy} blocked={blocked} resultUnknown={resultUnknown} onGiveUp={giveUp} onContinue={(op,evidence)=>resolveAttempt(op,'continue',evidence)} members={repairMembers.filter(member => flow?.memberIds.includes(member.id))} onLog={setLogTarget} onOpenSdd={() => setSddOpen(true)}
+      {boardView==='progress'?<ProjectProgressView project={project} snapshot={snapshot} invoke={invoke}/>:boardView==='terminal'?<WorkspaceTerminalPanel project={project} roomId={roomId} roster={roster} invoke={invoke} focusTerminalId={focusTerminalId}/>:boardView==='code'?<WorkspaceCodePanel project={project} roomId={roomId} roster={roster} invoke={invoke} scriptsOpen={false} onToggleScripts={()=>setBoardView('terminal')} onOpenDocument={(rel, edit)=>setDocument({projectId:project.id,target:rel,edit})} checkpointTrigger={checkpointTrigger}/>:<div className="side-workspace">{sideHeaderSummary}<Board focusedTask={focusedTask} invoke={invoke} rounds={rounds} tasks={tasks} data={data} snapshot={snapshot} busy={busy} blocked={blocked} resultUnknown={resultUnknown} onGiveUp={giveUp} onContinue={(op,evidence)=>resolveAttempt(op,'continue',evidence)} members={repairMembers.filter(member => flow?.memberIds.includes(member.id))} onLog={setLogTarget} emptyContent={boardEmpty}
         onReassign={reassign} /></div>}
       </div>}
     </div>}
@@ -1147,7 +1164,7 @@ function FlowMemberPicker({ members, busy, actions }: {
 
 type BoardProps = { invoke:Invoke; rounds: Round[]; tasks: Task[]; data: ProjectFlowSnapshot; snapshot: Snapshot; members: TeamMember[]; busy: boolean; blocked: FlowOperation[]; resultUnknown: (op: FlowOperation) => boolean; onGiveUp: (op: FlowOperation, evidence: string) => Promise<boolean>; onContinue:(op:FlowOperation,evidence:string)=>Promise<boolean>;onLog: (target:LogTarget) => void; onReassign: (task: Task, memberId: string) => Promise<boolean> };
 /** The board: one round at a time, its tasks in columns by where they stand; a card opens its details in place. */
-function Board(props: BoardProps & { focusedTask?: { task: Task; nonce: number }; onOpenSdd?: () => void }) {
+function Board(props: BoardProps & { focusedTask?: { task: Task; nonce: number }; emptyContent: ReactNode }) {
   const { rounds, tasks } = props;
   const current = rounds.find(round => round.status !== 'accepted') ?? rounds.at(-1);
   const [roundId, setRoundId] = useState<string>(), [taskId, setTaskId] = useState<string>();
@@ -1159,7 +1176,7 @@ function Board(props: BoardProps & { focusedTask?: { task: Task; nonce: number }
     setTaskId(props.focusedTask.task.id);
   }, [props.focusedTask]);
   if (!rounds.length) return <aside className="board board-compact-empty" aria-label="任务清单">
-    <p className="board-empty">尚未拆解任务。点上方 <strong>SDD · 双盲规范</strong> 即可起草 Spec、双盲出方案并自动生成任务清单。</p>
+    <div className="board-empty"><div>{props.emptyContent}</div></div>
   </aside>;
   const inRound = tasks.filter(item => item.roundId === shown?.id);
   const doneInRound = inRound.filter(item => ['review_passed', 'review_skipped', 'integrated', 'accepted'].includes(item.status)).length;
